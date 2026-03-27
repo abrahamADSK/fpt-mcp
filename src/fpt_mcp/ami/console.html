@@ -79,7 +79,8 @@
 </div>
 
 <script>
-const MCP_URL = new URLSearchParams(window.location.search).get('server') || 'http://127.0.0.1:8090';
+// Proxy through AMI handler — same origin, no CORS
+const MCP_URL = '';
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const statusDot = document.getElementById('statusDot');
@@ -145,7 +146,7 @@ function escapeHtml(s) {
 }
 
 async function callTool(toolName, args) {
-  const res = await fetch(`${MCP_URL}/mcp/v1`, {
+  const res = await fetch(`${MCP_URL}/mcp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -231,7 +232,7 @@ input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 // Check connection
 async function checkConnection() {
   try {
-    const res = await fetch(`${MCP_URL}/mcp/v1`, {
+    const res = await fetch(`${MCP_URL}/mcp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
@@ -242,7 +243,7 @@ async function checkConnection() {
     }
   } catch {
     statusDot.classList.remove('connected');
-    addMsg(`No se pudo conectar a ${MCP_URL}. Asegúrate de que el servidor HTTP esté corriendo: python -m fpt_mcp.server --http`, 'error');
+    addMsg('No se pudo conectar al servidor MCP. Verifica que ambos servicios estén corriendo.', 'error');
   }
 }
 checkConnection();

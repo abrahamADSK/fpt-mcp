@@ -337,13 +337,12 @@ def main():
     args = parser.parse_args()
 
     if args.http:
-        # host/port may be run() args or constructor settings depending on mcp version
-        try:
-            mcp.run(transport="streamable-http", host=args.host, port=args.port)
-        except TypeError:
-            mcp.settings.host = args.host
-            mcp.settings.port = args.port
-            mcp.run(transport="streamable-http")
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.settings.stateless_http = True    # No session required
+        mcp.settings.json_response = True     # Respond with plain JSON, not SSE
+        mcp.settings.transport_security = None
+        mcp.run(transport="streamable-http")
     else:
         mcp.run()
 
