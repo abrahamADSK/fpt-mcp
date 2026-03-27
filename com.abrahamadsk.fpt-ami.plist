@@ -3,30 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.abrahamadsk.fpt-mcp</string>
+    <string>com.abrahamadsk.fpt-ami</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/Users/abraham/Claude_projects/fpt-mcp/.venv/bin/python3</string>
         <string>-m</string>
-        <string>fpt_mcp.server</string>
-        <string>--http</string>
-        <string>--port</string>
-        <string>8090</string>
+        <string>fpt_mcp.ami.handler</string>
     </array>
 
     <key>WorkingDirectory</key>
     <string>/Users/abraham/Claude_projects/fpt-mcp/src</string>
-
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>SHOTGRID_URL</key>
-        <string>https://ableviadsk.shotgrid.autodesk.com</string>
-        <key>SHOTGRID_SCRIPT_NAME</key>
-        <string>mcp_server</string>
-        <key>SHOTGRID_SCRIPT_KEY</key>
-        <string>3voplsoawvokdca(mqhhdsXnp</string>
-    </dict>
 
     <key>RunAtLoad</key>
     <true/>
@@ -35,9 +22,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/fpt-mcp.log</string>
+    <string>/tmp/fpt-ami.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/fpt-mcp.err</string>
+    <string>/tmp/fpt-ami.err</string>
 </dict>
 </plist>

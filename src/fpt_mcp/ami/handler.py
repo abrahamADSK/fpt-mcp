@@ -29,32 +29,45 @@ class AMIHandler(SimpleHTTPRequestHandler):
 
     mcp_port: int = DEFAULT_MCP_PORT
 
-    def do_GET(self):
+    def _serve_console(self):
+        """Serve the console HTML, reading context from query params or POST body."""
         parsed = urlparse(self.path)
 
         if parsed.path in ("/", "/ami", "/console"):
-            # Read AMI params from ShotGrid
+            # Read AMI params from query string (GET) or POST body
             qs = parse_qs(parsed.query)
-            # Build console URL with server and context params
-            console_params = {
-                "server": f"http://127.0.0.1:{self.mcp_port}",
-            }
-            # Forward ShotGrid AMI params
-            for key in ("entity_type", "selected_ids", "project_id", "project_name", "user_login"):
-                if key in qs:
-                    console_params[key] = qs[key][0]
 
-            # Serve console.html with injected params
+            # If POST, also read form-encoded body (ShotGrid AMIs send POST)
+            if self.command == "POST":
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length:
+                    body = self.rfile.read(content_length).decode("utf-8")
+                    post_qs = parse_qs(body)
+                    qs.update(post_qs)
+
+            # Serve console.html
             try:
                 with open(CONSOLE_HTML, "r") as f:
                     html = f.read()
 
-                # Replace the MCP_URL default with the actual server URL
                 server_url = f"http://127.0.0.1:{self.mcp_port}"
                 html = html.replace(
                     "const MCP_URL = new URLSearchParams(window.location.search).get('server') || 'http://127.0.0.1:8090';",
                     f"const MCP_URL = new URLSearchParams(window.location.search).get('server') || '{server_url}';",
                 )
+
+                # Inject AMI context if present
+                ami_params = {}
+                for key in ("entity_type", "selected_ids", "project_id", "project_name", "user_login"):
+                    if key in qs:
+                        ami_params[key] = qs[key][0]
+                if ami_params:
+                    import json
+                    inject = f"const AMI_CONTEXT = {json.dumps(ami_params)};"
+                    html = html.replace(
+                        "const params = new URLSearchParams(window.location.search);",
+                        f"{inject}\nconst params = new URLSearchParams(window.location.search);",
+                    )
 
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -72,6 +85,13 @@ class AMIHandler(SimpleHTTPRequestHandler):
 
         else:
             self.send_error(404, "Not found. Use /ami or /console")
+
+    def do_GET(self):
+        self._serve_console()
+
+    def do_POST(self):
+        """ShotGrid AMIs send POST requests with entity context."""
+        self._serve_console()
 
     def log_message(self, format, *args):
         """Prefix log messages."""

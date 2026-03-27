@@ -337,7 +337,13 @@ def main():
     args = parser.parse_args()
 
     if args.http:
-        mcp.run(transport="streamable-http", host=args.host, port=args.port)
+        # host/port may be run() args or constructor settings depending on mcp version
+        try:
+            mcp.run(transport="streamable-http", host=args.host, port=args.port)
+        except TypeError:
+            mcp.settings.host = args.host
+            mcp.settings.port = args.port
+            mcp.run(transport="streamable-http")
     else:
         mcp.run()
 
