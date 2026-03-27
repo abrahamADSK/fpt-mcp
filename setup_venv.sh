@@ -1,102 +1,156 @@
 #!/bin/bash
 set -e
 
-echo "=== FPT-MCP: Setup independiente ==="
+echo "=== FPT-MCP: Setup ==="
 
-FPT_DIR="$HOME/Claude_projects/fpt-mcp"
-MAYA_DIR="$HOME/Claude_projects/maya-mcp-project"
-HUNYUAN_VENV="$MAYA_DIR/vision/.venv_hunyuan3d"
+# Auto-detect project root (directory where this script lives)
+FPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLIST_LABEL_MCP="com.fpt-mcp.server"
+PLIST_LABEL_AMI="com.fpt-mcp.ami"
 
 # -----------------------------------------------
-# 1. Crear venv propio para fpt-mcp
+# 1. Create venv
 # -----------------------------------------------
 echo ""
-echo "[1/5] Creando venv para fpt-mcp..."
+echo "[1/4] Creating venv..."
 cd "$FPT_DIR"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip -q
 pip install -e . -q
-echo "      OK: $(python3 --version) en $FPT_DIR/.venv"
-echo "      Paquetes instalados:"
+echo "      OK: $(python3 --version) in $FPT_DIR/.venv"
+echo "      Packages:"
 pip list 2>/dev/null | grep -iE "mcp|shotgun|pydantic|dotenv|httpx" | sed 's/^/      /'
 deactivate
 
 # -----------------------------------------------
-# 2. Limpiar fpt-mcp del venv de hunyuan3d
+# 2. Check .env
 # -----------------------------------------------
 echo ""
-echo "[2/5] Limpiando fpt-mcp del venv de hunyuan3d..."
-if [ -f "$HUNYUAN_VENV/bin/pip" ]; then
-    "$HUNYUAN_VENV/bin/pip" uninstall fpt-mcp -y 2>/dev/null && echo "      OK: fpt-mcp desinstalado de hunyuan3d" || echo "      Ya no estaba instalado"
-    # Limpiar restos
-    rm -f "$HUNYUAN_VENV/lib/python3.12/site-packages/_fpt_mcp.pth" 2>/dev/null
-    rm -rf "$HUNYUAN_VENV/lib/python3.12/site-packages/fpt_mcp-0.1.0.dist-info" 2>/dev/null
+echo "[2/4] Checking .env..."
+if [ ! -f "$FPT_DIR/.env" ]; then
+    cp "$FPT_DIR/.env.example" "$FPT_DIR/.env"
+    echo "      Created .env from .env.example — edit it with your credentials."
 else
-    echo "      SKIP: venv hunyuan3d no encontrado en $HUNYUAN_VENV"
+    echo "      OK: .env exists"
 fi
 
 # -----------------------------------------------
-# 3. Verificar maya-mcp .venv
+# 3. Generate and install launchd plists (macOS)
 # -----------------------------------------------
 echo ""
-echo "[3/5] Verificando maya-mcp .venv..."
-if [ -f "$MAYA_DIR/.venv/bin/pip" ]; then
-    echo "      Paquetes relevantes en maya-mcp .venv:"
-    "$MAYA_DIR/.venv/bin/pip" list 2>/dev/null | grep -iE "mcp|fastmcp|pydantic" | sed 's/^/      /'
-else
-    echo "      WARN: maya-mcp .venv no encontrado"
-fi
+echo "[3/4] Installing launchd services..."
 
-# -----------------------------------------------
-# 4. Actualizar plists de launchd
-# -----------------------------------------------
-echo ""
-echo "[4/5] Actualizando servicios launchd..."
 FPT_PYTHON="$FPT_DIR/.venv/bin/python3"
+FPT_SRC="$FPT_DIR/src"
 
-# Parar servicios actuales
-launchctl unload "$HOME/Library/LaunchAgents/com.abrahamadsk.fpt-mcp.plist" 2>/dev/null || true
-launchctl unload "$HOME/Library/LaunchAgents/com.abrahamadsk.fpt-ami.plist" 2>/dev/null || true
+# Unload existing services (ignore errors)
+launchctl unload "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" 2>/dev/null || true
+launchctl unload "$HOME/Library/LaunchAgents/$PLIST_LABEL_AMI.plist" 2>/dev/null || true
 
-# Copiar plists actualizados
-cp "$FPT_DIR/com.abrahamadsk.fpt-mcp.plist" "$HOME/Library/LaunchAgents/"
-cp "$FPT_DIR/com.abrahamadsk.fpt-ami.plist" "$HOME/Library/LaunchAgents/"
+# Generate MCP server plist
+cat > "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$PLIST_LABEL_MCP</string>
 
-# Cargar servicios
-launchctl load "$HOME/Library/LaunchAgents/com.abrahamadsk.fpt-mcp.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.abrahamadsk.fpt-ami.plist"
-echo "      OK: servicios recargados"
+    <key>ProgramArguments</key>
+    <array>
+        <string>$FPT_PYTHON</string>
+        <string>-m</string>
+        <string>fpt_mcp.server</string>
+        <string>--http</string>
+        <string>--port</string>
+        <string>8090</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>$FPT_SRC</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/fpt-mcp.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/fpt-mcp.err</string>
+</dict>
+</plist>
+PLIST
+
+# Generate AMI console plist
+cat > "$HOME/Library/LaunchAgents/$PLIST_LABEL_AMI.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$PLIST_LABEL_AMI</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>$FPT_PYTHON</string>
+        <string>-m</string>
+        <string>fpt_mcp.ami.handler</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>$FPT_SRC</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/fpt-ami.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/fpt-ami.err</string>
+</dict>
+</plist>
+PLIST
+
+# Load services
+launchctl load "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist"
+launchctl load "$HOME/Library/LaunchAgents/$PLIST_LABEL_AMI.plist"
+echo "      OK: services installed and loaded"
 
 # -----------------------------------------------
-# 5. Verificar
+# 4. Verify
 # -----------------------------------------------
 echo ""
-echo "[5/5] Verificando..."
+echo "[4/4] Verifying..."
 sleep 2
 
-# Check MCP HTTP
-if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/mcp/v1 2>/dev/null | grep -q "200\|405"; then
-    echo "      OK: MCP HTTP server corriendo en :8090"
+if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/mcp 2>/dev/null | grep -q "200\|405"; then
+    echo "      OK: MCP HTTP server running on :8090"
 else
-    echo "      WARN: MCP HTTP server no responde aún en :8090"
-    echo "      Revisa: cat /tmp/fpt-mcp.err"
+    echo "      WARN: MCP HTTP server not responding on :8090"
+    echo "      Check: cat /tmp/fpt-mcp.err"
 fi
 
-# Check AMI console
 if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8091/health 2>/dev/null | grep -q "200"; then
-    echo "      OK: AMI console corriendo en :8091"
+    echo "      OK: AMI console running on :8091"
 else
-    echo "      WARN: AMI console no responde aún en :8091"
-    echo "      Revisa: cat /tmp/fpt-ami.err"
+    echo "      WARN: AMI console not responding on :8091"
+    echo "      Check: cat /tmp/fpt-ami.err"
 fi
 
 echo ""
-echo "=== Resumen ==="
-echo "fpt-mcp venv: $FPT_DIR/.venv"
+echo "=== Done ==="
 echo "MCP HTTP:     http://127.0.0.1:8090"
 echo "AMI Console:  http://127.0.0.1:8091/ami"
 echo ""
-echo "Si hay errores, revisa:"
-echo "  cat /tmp/fpt-mcp.err"
-echo "  cat /tmp/fpt-ami.err"
+echo "Manage services:"
+echo "  launchctl stop $PLIST_LABEL_MCP"
+echo "  launchctl start $PLIST_LABEL_MCP"
+echo "  launchctl unload ~/Library/LaunchAgents/$PLIST_LABEL_MCP.plist"

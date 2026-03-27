@@ -10,3 +10,6 @@ venv/
 *.egg
 .mypy_cache/
 .pytest_cache/
+
+# Generated plist files (setup_venv.sh creates them dynamically)
+*.plist

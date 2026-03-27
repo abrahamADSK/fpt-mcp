@@ -1,7 +1,14 @@
 """AMI (Action Menu Item) HTTP handler for ShotGrid.
 
-Serves the interactive console and proxies MCP requests to the FPT MCP server.
+Serves the interactive console and proxies MCP tool calls to the FPT MCP server.
 The proxy eliminates CORS issues — the browser only talks to this server.
+
+Flow:  Browser  →  POST /mcp (JSON-RPC tool call)
+       Handler  →  FPT MCP server (localhost:8090)
+       Handler  →  Browser (JSON result)
+
+For natural language access, use Claude Code / Claude Desktop which connects
+to fpt-mcp via stdio and interprets commands automatically.
 
 Usage:
   python -m fpt_mcp.ami.handler                  # port 8091
@@ -64,12 +71,7 @@ class AMIHandler(BaseHTTPRequestHandler):
             self.send_error(404, "console.html not found")
 
     def _proxy_mcp(self):
-        """Proxy a JSON-RPC request to the MCP HTTP server.
-
-        The MCP streamable-http transport returns SSE (text/event-stream).
-        We parse the SSE stream and extract the JSON-RPC response to return
-        plain JSON to the browser.
-        """
+        """Proxy a JSON-RPC request to the MCP HTTP server."""
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length else b""
 
@@ -87,7 +89,7 @@ class AMIHandler(BaseHTTPRequestHandler):
             with urlopen(req, timeout=30) as resp:
                 resp_body = resp.read().decode("utf-8")
 
-                # Parse SSE: extract JSON from "data: {...}" lines
+                # Parse SSE or plain JSON
                 json_result = None
                 for line in resp_body.splitlines():
                     if line.startswith("data: "):
@@ -101,29 +103,30 @@ class AMIHandler(BaseHTTPRequestHandler):
                 if json_result:
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(json.dumps(json_result).encode())
                 else:
-                    # Fallback: return raw response
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(resp_body.encode())
 
         except URLError as e:
-            self._send_error(502, f"MCP server not reachable: {e}")
+            self._send_json_error(502, f"MCP server not reachable: {e}")
         except Exception as e:
-            self._send_error(500, str(e))
+            self._send_json_error(500, str(e))
 
-    def _send_error(self, status, message):
-        error_resp = json.dumps({
+    def _send_json_error(self, status, message):
+        resp = json.dumps({
             "jsonrpc": "2.0", "id": None,
             "error": {"code": -32000, "message": message}
         })
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(error_resp.encode())
+        self.wfile.write(resp.encode())
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -146,6 +149,14 @@ class AMIHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def do_OPTIONS(self):
+        """Handle CORS preflight."""
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
     def log_message(self, format, *args):
         print(f"[AMI] {args[0]}")
 
@@ -160,7 +171,7 @@ def main():
 
     server = HTTPServer(("127.0.0.1", args.port), AMIHandler)
     print(f"FPT AMI Console running on http://127.0.0.1:{args.port}")
-    print(f"  → MCP proxy at /mcp → http://127.0.0.1:{args.mcp_port}/mcp/")
+    print(f"  → MCP proxy at /mcp → http://127.0.0.1:{args.mcp_port}/mcp")
     print(f"  → Console: http://127.0.0.1:{args.port}/ami")
 
     try:

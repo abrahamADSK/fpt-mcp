@@ -5,9 +5,9 @@
       "args": ["-m", "fpt_mcp.server"],
       "cwd": "/path/to/fpt-mcp/src",
       "env": {
-        "SHOTGRID_URL": "https://ableviadsk.shotgrid.autodesk.com",
-        "SHOTGRID_SCRIPT_NAME": "mcp_server",
-        "SHOTGRID_SCRIPT_KEY": "3voplsoawvokdca(mqhhdsXnp",
+        "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
+        "SHOTGRID_SCRIPT_NAME": "your_script_name",
+        "SHOTGRID_SCRIPT_KEY": "your_script_key",
         "SHOTGRID_PROJECT_ID": "0"
       }
     }

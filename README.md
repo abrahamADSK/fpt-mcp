@@ -1,7 +1,7 @@
 # fpt-mcp
 
 MCP server for **Autodesk Flow Production Tracking** (formerly ShotGrid).
-Part of the VFX pipeline ecosystem alongside [maya-mcp](https://github.com/abrahamADSK/maya-mcp) and [flame-mcp](https://github.com/abrahamADSK/flame-mcp).
+Part of a VFX pipeline ecosystem alongside maya-mcp and flame-mcp.
 
 ```
 Claude Desktop / Claude Code / Terminal
@@ -35,6 +35,13 @@ Entity CRUD uses `shotgun_api3` directly. Publish paths follow `tk-config-defaul
 ```bash
 cd fpt-mcp
 pip install -e .
+```
+
+Or use the automated setup (creates venv + launchd services on macOS):
+
+```bash
+chmod +x setup_venv.sh
+./setup_venv.sh
 ```
 
 ## Configure
@@ -90,7 +97,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-### Claude Code (terminal, natural language with all MCPs)
+### Claude Code
 
 Add to `~/.claude/settings.json`:
 
@@ -100,27 +107,20 @@ Add to `~/.claude/settings.json`:
     "fpt-mcp": {
       "command": "python",
       "args": ["-m", "fpt_mcp.server"],
-      "cwd": "~/Claude_projects/fpt-mcp/src",
+      "cwd": "/path/to/fpt-mcp/src",
       "env": {
         "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
         "SHOTGRID_SCRIPT_NAME": "your_script_name",
         "SHOTGRID_SCRIPT_KEY": "your_key"
       }
-    },
-    "maya-mcp": {
-      "command": "python",
-      "args": ["server.py"],
-      "cwd": "~/Claude_projects/maya-mcp-project/core"
     }
   }
 }
 ```
 
-This gives you natural language access to all MCP servers simultaneously from any terminal.
-
 ## AMI console (ShotGrid Action Menu Items)
 
-Interactive web-based chat that connects to the HTTP server. Can be launched from ShotGrid as an Action Menu Item or opened directly in a browser.
+Interactive web-based chat powered by Claude that connects to the HTTP server. Can be launched from ShotGrid as an Action Menu Item or opened directly in a browser.
 
 ### Start
 
@@ -134,7 +134,7 @@ python -m fpt_mcp.ami.handler
 
 ### Access
 
-- Direct: `http://localhost:8091/console`
+- Direct: `http://localhost:8091/ami`
 - From ShotGrid AMI: `http://YOUR_IP:8091/ami`
 
 When launched from a ShotGrid AMI, entity context (asset, shot, project) is passed automatically via query params but is not required — the console works as a free-form chat regardless.
@@ -148,17 +148,16 @@ Admin → Action Menu Items → Add:
 
 ## Autostart with launchd (macOS)
 
-Install the server as a system service so it starts on login and restarts if it crashes:
+The `setup_venv.sh` script automatically generates and installs launchd plists with paths resolved to your local install. Run it once:
 
 ```bash
-cp com.abrahamadsk.fpt-mcp.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.abrahamadsk.fpt-mcp.plist
+./setup_venv.sh
 ```
 
-Manage:
-- `launchctl stop com.abrahamadsk.fpt-mcp` — stop
-- `launchctl start com.abrahamadsk.fpt-mcp` — start
-- `launchctl unload ~/Library/LaunchAgents/com.abrahamadsk.fpt-mcp.plist` — uninstall
+Manage services:
+- `launchctl stop com.fpt-mcp.server` — stop
+- `launchctl start com.fpt-mcp.server` — start
+- `launchctl unload ~/Library/LaunchAgents/com.fpt-mcp.server.plist` — uninstall
 
 Logs: `/tmp/fpt-mcp.log` and `/tmp/fpt-mcp.err`
 

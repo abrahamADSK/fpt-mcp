@@ -22,43 +22,74 @@
     margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
   }
   .header .status.connected { background: #22c55e; }
-
-  .chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
-
-  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
-  .msg.user { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 4px; }
-  .msg.system { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; }
-  .msg.error { background: #7f1d1d; color: #fca5a5; }
-  .msg pre { background: #0d1117; padding: 8px; border-radius: 6px; overflow-x: auto; margin-top: 6px; font-size: 12px; }
-  .msg code { font-family: 'SF Mono', 'Fira Code', monospace; }
-
-  .tools-panel {
-    background: #16213e; border-top: 1px solid #0f3460; padding: 8px 20px;
-    display: flex; gap: 6px; flex-wrap: wrap;
+  .header .tip {
+    margin-left: 8px; font-size: 11px; color: #64748b;
   }
-  .tool-chip {
-    background: #0f3460; border: none; color: #94a3b8; padding: 4px 10px;
-    border-radius: 8px; font-size: 11px; cursor: pointer; transition: all 0.2s;
-  }
-  .tool-chip:hover { background: #e94560; color: white; }
 
-  .input-bar {
-    background: #16213e; padding: 12px 20px; display: flex; gap: 10px;
-    border-top: 1px solid #0f3460;
+  .main { flex: 1; display: flex; overflow: hidden; }
+
+  /* Left: tool list */
+  .sidebar {
+    width: 200px; background: #16213e; border-right: 1px solid #0f3460;
+    overflow-y: auto; padding: 8px 0;
   }
-  .input-bar input {
+  .sidebar .tool-btn {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: #94a3b8; padding: 10px 16px; font-size: 13px; cursor: pointer;
+    border-left: 3px solid transparent; transition: all 0.15s;
+  }
+  .sidebar .tool-btn:hover { background: #1e293b; color: #e0e0e0; }
+  .sidebar .tool-btn.active { border-left-color: #e94560; color: #e94560; background: #1e293b; }
+  .sidebar .tool-btn .icon { margin-right: 6px; }
+
+  /* Right: form + results */
+  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .form-area {
+    padding: 20px; border-bottom: 1px solid #0f3460; background: #16213e;
+  }
+  .form-area h2 { font-size: 14px; color: #e94560; margin-bottom: 12px; }
+  .form-area .desc { font-size: 12px; color: #64748b; margin-bottom: 12px; }
+  .form-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: center; }
+  .form-row label {
+    width: 110px; font-size: 12px; color: #94a3b8; text-align: right; flex-shrink: 0;
+  }
+  .form-row input, .form-row select {
     flex: 1; background: #1e293b; border: 1px solid #334155; color: #e0e0e0;
-    padding: 10px 14px; border-radius: 10px; font-size: 14px; outline: none;
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; outline: none; max-width: 300px;
   }
-  .input-bar input:focus { border-color: #e94560; }
-  .input-bar button {
-    background: #e94560; border: none; color: white; padding: 10px 20px;
-    border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600;
-  }
-  .input-bar button:hover { background: #c13550; }
-  .input-bar button:disabled { background: #334155; cursor: not-allowed; }
+  .form-row input:focus, .form-row select:focus { border-color: #e94560; }
+  .form-row .optional { font-size: 10px; color: #475569; margin-left: 4px; }
 
-  .typing { opacity: 0.5; font-style: italic; }
+  .form-actions { margin-top: 12px; }
+  .btn {
+    background: #e94560; border: none; color: white; padding: 8px 20px;
+    border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  .btn:hover { background: #c13550; }
+  .btn:disabled { background: #334155; cursor: not-allowed; }
+
+  /* Results panel */
+  .results {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+  }
+  .result-item {
+    background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 10px;
+  }
+  .result-item .meta { font-size: 11px; color: #64748b; margin-bottom: 6px; }
+  .result-item pre {
+    background: #0d1117; padding: 10px; border-radius: 6px; overflow-x: auto;
+    font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; color: #c9d1d9;
+    max-height: 400px; overflow-y: auto;
+  }
+  .result-item .error { color: #fca5a5; }
+  .result-item .summary { color: #86efac; font-size: 13px; margin-bottom: 8px; }
+
+  .empty-state {
+    display: flex; align-items: center; justify-content: center; height: 100%;
+    color: #475569; font-size: 14px; text-align: center; padding: 40px;
+  }
+  .empty-state p { max-width: 300px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -67,169 +98,230 @@
   <h1>FPT-MCP Console</h1>
   <span class="context-badge" id="contextBadge">Sin contexto</span>
   <div class="status" id="statusDot"></div>
+  <span class="tip">NL: usa Claude Code</span>
 </div>
 
-<div class="chat" id="chat"></div>
-
-<div class="tools-panel" id="toolsPanel"></div>
-
-<div class="input-bar">
-  <input type="text" id="input" placeholder="Escribe un comando o pregunta..." autofocus>
-  <button id="sendBtn" onclick="send()">Enviar</button>
+<div class="main">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="content">
+    <div class="form-area" id="formArea">
+      <div class="empty-state" id="emptyState">
+        <p>Selecciona una herramienta de la izquierda para ejecutarla.<br><br>
+        Para lenguaje natural, usa <strong>Claude Code</strong> o <strong>Claude Desktop</strong> con el MCP server.</p>
+      </div>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
 </div>
 
 <script>
-// Proxy through AMI handler — same origin, no CORS
 const MCP_URL = '';
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
 const statusDot = document.getElementById('statusDot');
 const contextBadge = document.getElementById('contextBadge');
-const toolsPanel = document.getElementById('toolsPanel');
+const sidebar = document.getElementById('sidebar');
+const formArea = document.getElementById('formArea');
+const results = document.getElementById('results');
 
-// Parse AMI context from URL params (ShotGrid passes these)
+// Parse AMI context from URL params
 const params = new URLSearchParams(window.location.search);
 const amiContext = {
   entity_type: params.get('entity_type'),
   entity_id: params.get('selected_ids') ? parseInt(params.get('selected_ids')) : null,
   project_id: params.get('project_id') ? parseInt(params.get('project_id')) : null,
   project_name: params.get('project_name'),
-  user: params.get('user_login'),
 };
-
 if (amiContext.entity_type && amiContext.entity_id) {
   contextBadge.textContent = `${amiContext.entity_type} #${amiContext.entity_id}`;
   contextBadge.style.background = '#164e63';
 }
 
-// Available tools
+// ── Tool definitions ────────────────────────────
 const TOOLS = [
-  { name: 'fpt_find_assets', label: 'Assets', hint: 'Lista assets del proyecto' },
-  { name: 'fpt_get_asset_image', label: 'Ref Image', hint: 'Descarga imagen de referencia' },
-  { name: 'fpt_create_sequence', label: '+ Sequence', hint: 'Crear secuencia' },
-  { name: 'fpt_create_shot', label: '+ Shot', hint: 'Crear shot' },
-  { name: 'fpt_create_version', label: '+ Version', hint: 'Crear version' },
-  { name: 'fpt_upload_thumbnail', label: 'Thumbnail', hint: 'Subir thumbnail' },
-  { name: 'fpt_create_published_file', label: '+ Publish', hint: 'Publicar archivo' },
-  { name: 'fpt_find_published_files', label: 'Publishes', hint: 'Buscar publishes' },
+  {
+    name: 'fpt_find_assets', label: 'Assets', icon: '🎨',
+    desc: 'Listar assets del proyecto con filtros opcionales.',
+    fields: [
+      { key: 'asset_type', label: 'Tipo', type: 'select', options: ['', 'Character', 'Environment', 'Prop', 'Vehicle', 'FX'], optional: true },
+      { key: 'status', label: 'Estado', type: 'text', placeholder: 'ip, fin, wtg...', optional: true },
+      { key: 'name_contains', label: 'Nombre', type: 'text', placeholder: 'Filtro de nombre', optional: true },
+    ]
+  },
+  {
+    name: 'fpt_get_asset_image', label: 'Ref Image', icon: '🖼',
+    desc: 'Descargar imagen de referencia de un asset.',
+    fields: [
+      { key: 'asset_id', label: 'Asset ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
+    ]
+  },
+  {
+    name: 'fpt_create_sequence', label: '+ Sequence', icon: '🎬',
+    desc: 'Crear una nueva secuencia.',
+    fields: [
+      { key: 'code', label: 'Código', type: 'text', placeholder: 'SEQ010', required: true },
+      { key: 'description', label: 'Descripción', type: 'text', optional: true },
+    ]
+  },
+  {
+    name: 'fpt_create_shot', label: '+ Shot', icon: '📷',
+    desc: 'Crear un shot vinculado a una secuencia.',
+    fields: [
+      { key: 'code', label: 'Código', type: 'text', placeholder: 'SHOT010', required: true },
+      { key: 'sequence_id', label: 'Sequence ID', type: 'number', optional: true },
+      { key: 'cut_in', label: 'Cut In', type: 'number', optional: true },
+      { key: 'cut_out', label: 'Cut Out', type: 'number', optional: true },
+    ]
+  },
+  {
+    name: 'fpt_create_version', label: '+ Version', icon: '📦',
+    desc: 'Crear una versión de revisión vinculada a un Shot o Asset.',
+    fields: [
+      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Shot', 'Asset'], required: true },
+      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
+      { key: 'description', label: 'Descripción', type: 'text', optional: true },
+    ]
+  },
+  {
+    name: 'fpt_upload_thumbnail', label: 'Thumbnail', icon: '🖼',
+    desc: 'Subir thumbnail a cualquier entidad.',
+    fields: [
+      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Asset', 'Shot', 'Version'], required: true },
+      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
+      { key: 'image_path', label: 'Ruta imagen', type: 'text', required: true },
+    ]
+  },
+  {
+    name: 'fpt_create_published_file', label: '+ Publish', icon: '📤',
+    desc: 'Publicar archivo con ruta Toolkit-compatible auto-versionada.',
+    fields: [
+      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Asset', 'Shot'], required: true },
+      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
+      { key: 'publish_type', label: 'Tipo publish', type: 'select', options: ['OBJ', 'Texture', 'Maya Scene', 'Rendered Image'], required: true },
+      { key: 'task', label: 'Step', type: 'text', placeholder: 'model, rig, texture, comp', optional: true },
+      { key: 'comment', label: 'Comentario', type: 'text', optional: true },
+    ]
+  },
+  {
+    name: 'fpt_find_published_files', label: 'Publishes', icon: '🔍',
+    desc: 'Buscar archivos publicados con filtros.',
+    fields: [
+      { key: 'entity_id', label: 'Entity ID', type: 'number', optional: true, defaultFromContext: 'entity_id' },
+      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['', 'Asset', 'Shot'], optional: true },
+      { key: 'publish_type', label: 'Tipo publish', type: 'select', options: ['', 'OBJ', 'Texture', 'Maya Scene', 'Rendered Image'], optional: true },
+    ]
+  },
 ];
 
-// Render tool chips
+// ── Render sidebar ──────────────────────────────
+let activeTool = null;
 TOOLS.forEach(t => {
-  const chip = document.createElement('button');
-  chip.className = 'tool-chip';
-  chip.textContent = t.label;
-  chip.title = t.hint;
-  chip.onclick = () => { input.value = t.hint; input.focus(); };
-  toolsPanel.appendChild(chip);
+  const btn = document.createElement('button');
+  btn.className = 'tool-btn';
+  btn.innerHTML = `<span class="icon">${t.icon}</span>${t.label}`;
+  btn.onclick = () => selectTool(t);
+  btn.id = `btn-${t.name}`;
+  sidebar.appendChild(btn);
 });
 
-function addMsg(text, cls) {
-  const div = document.createElement('div');
-  div.className = `msg ${cls}`;
-  // Detect JSON and wrap in pre/code
-  if (text.startsWith('{') || text.startsWith('[')) {
-    try {
-      const formatted = JSON.stringify(JSON.parse(text), null, 2);
-      div.innerHTML = `<pre><code>${escapeHtml(formatted)}</code></pre>`;
-    } catch { div.textContent = text; }
-  } else {
-    div.textContent = text;
+function selectTool(tool) {
+  activeTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`btn-${tool.name}`).classList.add('active');
+  renderForm(tool);
+}
+
+// ── Render form ─────────────────────────────────
+function renderForm(tool) {
+  let html = `<h2>${tool.icon} ${tool.label}</h2><div class="desc">${tool.desc}</div>`;
+  tool.fields.forEach(f => {
+    const val = f.defaultFromContext && amiContext[f.defaultFromContext] ? amiContext[f.defaultFromContext] : '';
+    html += `<div class="form-row"><label>${f.label}${f.optional ? '<span class="optional"> (opt)</span>' : ''}:</label>`;
+    if (f.type === 'select') {
+      html += `<select id="f-${f.key}">${f.options.map(o => `<option value="${o}"${o === '' ? ' selected' : ''}>${o || '— Todos —'}</option>`).join('')}</select>`;
+    } else {
+      html += `<input type="${f.type}" id="f-${f.key}" placeholder="${f.placeholder || ''}" value="${val}">`;
+    }
+    html += `</div>`;
+  });
+  html += `<div class="form-actions"><button class="btn" id="execBtn" onclick="execute()">Ejecutar</button></div>`;
+  formArea.innerHTML = html;
+}
+
+// ── Execute tool ────────────────────────────────
+async function execute() {
+  if (!activeTool) return;
+  const btn = document.getElementById('execBtn');
+  btn.disabled = true;
+  btn.textContent = 'Ejecutando...';
+
+  // Collect args
+  const args = {};
+  for (const f of activeTool.fields) {
+    const el = document.getElementById(`f-${f.key}`);
+    if (!el) continue;
+    let val = el.value.trim();
+    if (!val) {
+      if (f.required) {
+        addResult('error', `Campo requerido: ${f.label}`, null);
+        btn.disabled = false; btn.textContent = 'Ejecutar';
+        return;
+      }
+      continue;
+    }
+    if (f.type === 'number') val = parseInt(val);
+    args[f.key] = val;
   }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
+
+  try {
+    const res = await fetch(`${MCP_URL}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: Date.now(),
+        method: 'tools/call',
+        params: { name: activeTool.name, arguments: { params: args } }
+      })
+    });
+    const data = await res.json();
+    if (data.error) {
+      addResult('error', `Error: ${data.error.message}`, null);
+    } else {
+      const text = data.result?.content?.[0]?.text || JSON.stringify(data.result);
+      addResult('ok', `${activeTool.icon} ${activeTool.label}`, text);
+    }
+  } catch (e) {
+    addResult('error', `Conexión: ${e.message}`, null);
+  }
+
+  btn.disabled = false; btn.textContent = 'Ejecutar';
+}
+
+function addResult(type, title, data) {
+  const div = document.createElement('div');
+  div.className = 'result-item';
+  const time = new Date().toLocaleTimeString();
+  let html = `<div class="meta">${time}</div>`;
+  if (type === 'error') {
+    html += `<div class="error">${escapeHtml(title)}</div>`;
+  } else {
+    html += `<div class="summary">${escapeHtml(title)}</div>`;
+    if (data) {
+      try {
+        const formatted = JSON.stringify(JSON.parse(data), null, 2);
+        html += `<pre><code>${escapeHtml(formatted)}</code></pre>`;
+      } catch {
+        html += `<pre><code>${escapeHtml(data)}</code></pre>`;
+      }
+    }
+  }
+  div.innerHTML = html;
+  results.prepend(div);
 }
 
 function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-async function callTool(toolName, args) {
-  const res = await fetch(`${MCP_URL}/mcp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: { name: toolName, arguments: { params: args } }
-    })
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.result?.content?.[0]?.text || JSON.stringify(data.result);
-}
-
-// Simple command parser — maps natural language to tool calls
-function parseCommand(text) {
-  const lower = text.toLowerCase();
-
-  if (lower.match(/list|busca|encuentra|show|muestra.*asset/)) {
-    const typeMatch = text.match(/type[=: ]+(\w+)/i) || text.match(/(character|environment|prop)/i);
-    return { tool: 'fpt_find_assets', args: { asset_type: typeMatch?.[1] || null } };
-  }
-  if (lower.match(/imagen|image|referencia|ref|descarga.*asset/)) {
-    const idMatch = text.match(/(?:id[=: ]+|#)(\d+)/);
-    if (amiContext.entity_type === 'Asset' && !idMatch) {
-      return { tool: 'fpt_get_asset_image', args: { asset_id: amiContext.entity_id } };
-    }
-    if (idMatch) return { tool: 'fpt_get_asset_image', args: { asset_id: parseInt(idMatch[1]) } };
-  }
-  if (lower.match(/crea.*sequ?enc/)) {
-    const codeMatch = text.match(/code[=: ]+(\S+)/i) || text.match(/SEQ\w+/);
-    return { tool: 'fpt_create_sequence', args: { code: codeMatch?.[0] || 'SEQ010' } };
-  }
-  if (lower.match(/crea.*shot/)) {
-    const codeMatch = text.match(/SHOT\w+/) || text.match(/code[=: ]+(\S+)/i);
-    const seqMatch = text.match(/seq(?:uence)?[=: #]+(\d+)/i);
-    return { tool: 'fpt_create_shot', args: {
-      code: codeMatch?.[0] || 'SHOT010',
-      sequence_id: seqMatch ? parseInt(seqMatch[1]) : null
-    }};
-  }
-  if (lower.match(/publish|publica/)) {
-    if (lower.match(/busca|find|list|muestra/)) {
-      const idMatch = text.match(/(?:id[=: ]+|#)(\d+)/);
-      return { tool: 'fpt_find_published_files', args: {
-        entity_id: idMatch ? parseInt(idMatch[1]) : amiContext.entity_id
-      }};
-    }
-  }
-
-  return null;
-}
-
-async function send() {
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  addMsg(text, 'user');
-
-  const parsed = parseCommand(text);
-  if (!parsed) {
-    addMsg('No entendí el comando. Usa los chips de abajo o prueba: "lista assets", "crea sequence SEQ010", "busca publishes #123"', 'error');
-    return;
-  }
-  if (parsed.args && Object.values(parsed.args).some(v => v === null && parsed.tool !== 'fpt_find_assets')) {
-    addMsg(`Faltan parámetros. Tool: ${parsed.tool}, args: ${JSON.stringify(parsed.args)}`, 'error');
-    return;
-  }
-
-  const typing = addMsg('Procesando...', 'system typing');
-  try {
-    const result = await callTool(parsed.tool, parsed.args);
-    chat.removeChild(typing);
-    addMsg(result, 'system');
-  } catch (e) {
-    chat.removeChild(typing);
-    addMsg(`Error: ${e.message}`, 'error');
-  }
-}
-
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-
-// Check connection
+// ── Connection check ────────────────────────────
 async function checkConnection() {
   try {
     const res = await fetch(`${MCP_URL}/mcp`, {
@@ -237,16 +329,16 @@ async function checkConnection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
     });
-    if (res.ok) {
-      statusDot.classList.add('connected');
-      addMsg('Conectado a FPT MCP Server. Escribe un comando o usa los chips.', 'system');
-    }
+    if (res.ok) statusDot.classList.add('connected');
   } catch {
     statusDot.classList.remove('connected');
-    addMsg('No se pudo conectar al servidor MCP. Verifica que ambos servicios estén corriendo.', 'error');
   }
 }
 checkConnection();
+
+// Auto-select first tool if AMI context suggests one
+if (amiContext.entity_type === 'Asset') selectTool(TOOLS[0]);
+else if (amiContext.entity_type === 'Shot') selectTool(TOOLS[3]);
 </script>
 </body>
 </html>
