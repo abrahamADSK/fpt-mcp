@@ -15,20 +15,30 @@ Claude Desktop / Claude Code / Terminal
 
 ## Tools
 
+General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
+
+### ShotGrid API
+
 | Tool | Description |
 |------|-------------|
-| `fpt_find_assets` | List assets with filters (type, status, name) |
-| `fpt_get_asset_image` | Download reference image from a Version or Asset thumbnail |
-| `fpt_create_sequence` | Create a Sequence entity |
-| `fpt_create_shot` | Create a Shot inside a Sequence |
-| `fpt_create_version` | Create a Version linked to Asset/Shot, optionally upload movie |
-| `fpt_upload_thumbnail` | Upload thumbnail to any entity |
-| `fpt_create_published_file` | Publish OBJ / Texture / Maya Scene / EXR with Toolkit-compatible paths |
-| `fpt_find_published_files` | Query publishes by entity, type, etc. |
+| `sg_find` | Search any entity type with any filters and fields |
+| `sg_create` | Create any entity with any fields (project auto-linked) |
+| `sg_update` | Update any field on any entity |
+| `sg_delete` | Soft-delete (retire) any entity |
+| `sg_schema` | Inspect available fields for any entity type |
+| `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
+| `sg_download` | Download attachment from any entity field |
 
-## Hybrid approach
+### Toolkit
 
-Entity CRUD uses `shotgun_api3` directly. Publish paths follow `tk-config-default2` conventions so that Toolkit loaders (tk-multi-loader2) in Maya and Flame can pick them up natively.
+| Tool | Description |
+|------|-------------|
+| `tk_resolve_path` | Resolve publish path using tk-config-default2 conventions |
+| `tk_publish` | Create PublishedFile with auto-versioned Toolkit-compatible path |
+
+## Approach
+
+Full ShotGrid API access via `shotgun_api3` with no entity restrictions. Publish paths follow `tk-config-default2` conventions so that Toolkit loaders (tk-multi-loader2) in Maya and Flame can pick them up natively.
 
 ## Install
 

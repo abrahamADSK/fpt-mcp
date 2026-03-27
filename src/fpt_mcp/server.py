@@ -1,308 +1,327 @@
 #!/usr/bin/env python3
-"""FPT MCP Server — Flow Production Tracking (ShotGrid) integration.
+"""FPT MCP Server — Full Flow Production Tracking (ShotGrid) + Toolkit integration.
 
-Provides tools for managing Assets, Sequences, Shots, Versions,
-PublishedFiles, and thumbnails in Autodesk Flow Production Tracking.
+General-purpose MCP server exposing the complete ShotGrid API and Toolkit
+path conventions. No entity restrictions — works with any entity type,
+any field, any filter.
+
 Designed to work alongside maya-mcp and flame-mcp as part of a
-VFX pipeline orchestrated by Claude Desktop.
-
-Hybrid approach: uses ShotGrid API (shotgun_api3) for entity CRUD
-while following Toolkit (tk-config-default2) path conventions for
-publish paths, ensuring compatibility with Toolkit loaders.
+VFX pipeline orchestrated by Claude.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+from typing import Any, Optional
 
+from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 
-from fpt_mcp.tools.assets import (
-    FindAssetsInput,
-    GetAssetImageInput,
-    find_assets_impl,
-    get_asset_image_impl,
+from fpt_mcp.client import (
+    get_sg,
+    get_project_filter,
+    sg_find,
+    sg_find_one,
+    sg_create,
+    sg_update,
+    sg_upload,
+    sg_upload_thumbnail,
+    sg_download_attachment,
+    sg_schema_field_read,
+    PROJECT_ID,
 )
-from fpt_mcp.tools.sequences import (
-    CreateSequenceInput,
-    create_sequence_impl,
-)
-from fpt_mcp.tools.shots import (
-    CreateShotInput,
-    create_shot_impl,
-)
-from fpt_mcp.tools.versions import (
-    CreateVersionInput,
-    UploadThumbnailInput,
-    create_version_impl,
-    upload_thumbnail_impl,
-)
-from fpt_mcp.tools.publish import (
-    CreatePublishedFileInput,
-    FindPublishedFilesInput,
-    create_published_file_impl,
-    find_published_files_impl,
-)
+from fpt_mcp.paths import resolve_publish_path, next_version_number
 
 
 # ---------------------------------------------------------------------------
-# Server init
+# Server
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP("fpt_mcp")
 
 
 # ---------------------------------------------------------------------------
-# Tool registrations
+# Input models
 # ---------------------------------------------------------------------------
 
-# --- Assets ----------------------------------------------------------------
+class SgFindInput(BaseModel):
+    entity_type: str = Field(description="ShotGrid entity type: Asset, Shot, Sequence, Version, Task, Note, PublishedFile, HumanUser, Project, etc.")
+    filters: list = Field(default_factory=list, description="ShotGrid filter list. Examples: [['sg_status_list','is','ip']], [['id','is',1234]], [['code','contains','hero']]. Use [] for no filter.")
+    fields: list[str] = Field(default_factory=lambda: ["id", "code", "sg_status_list"], description="Fields to return. Use sg_schema to discover available fields.")
+    order: list[dict] = Field(default_factory=list, description="Sort order. Example: [{'field_name':'created_at','direction':'desc'}]")
+    limit: int = Field(default=50, description="Max results to return. 0 = unlimited.")
+    add_project_filter: bool = Field(default=True, description="Auto-add project filter from SHOTGRID_PROJECT_ID env var.")
 
-@mcp.tool(
-    name="fpt_find_assets",
-    annotations={
-        "title": "Find Assets in FPT",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def fpt_find_assets(params: FindAssetsInput) -> str:
-    """List assets from Flow Production Tracking with optional filters.
+class SgCreateInput(BaseModel):
+    entity_type: str = Field(description="Entity type to create: Asset, Shot, Sequence, Task, Version, Note, PublishedFile, etc.")
+    data: dict[str, Any] = Field(description="Field values. Example: {'code':'HERO','sg_asset_type':'Character','description':'Main character'}. Project is auto-added if not specified.")
 
-    Search by asset type (Character, Environment, Prop), status, or name.
-    Returns id, code, asset_type, status, description, and thumbnail URL
-    for each matching asset.
+class SgUpdateInput(BaseModel):
+    entity_type: str = Field(description="Entity type: Asset, Shot, Version, Task, etc.")
+    entity_id: int = Field(description="ID of the entity to update.")
+    data: dict[str, Any] = Field(description="Fields to update. Example: {'sg_status_list':'cmpt','description':'Final version'}.")
 
-    Args:
-        params (FindAssetsInput): Validated input containing:
-            - asset_type (Optional[str]): Filter by type, e.g. 'Character'
-            - status (Optional[str]): Filter by status code, e.g. 'ip'
-            - name_contains (Optional[str]): Substring filter on asset name
-            - limit (int): Max results, default 50
+class SgDeleteInput(BaseModel):
+    entity_type: str = Field(description="Entity type to delete.")
+    entity_id: int = Field(description="ID of the entity to delete.")
 
-    Returns:
-        str: JSON with {"total": int, "assets": [...]}
+class SgSchemaInput(BaseModel):
+    entity_type: str = Field(description="Entity type to inspect: Asset, Shot, Task, Version, PublishedFile, etc.")
+    field_name: Optional[str] = Field(default=None, description="Specific field to inspect. Omit to get all fields.")
+
+class SgUploadInput(BaseModel):
+    entity_type: str = Field(description="Entity type to upload to.")
+    entity_id: int = Field(description="Entity ID.")
+    file_path: str = Field(description="Local path to the file to upload.")
+    field_name: str = Field(default="image", description="Target field: 'image' for thumbnail, 'sg_uploaded_movie' for movie, etc.")
+    display_name: Optional[str] = Field(default=None, description="Display name for the attachment.")
+
+class SgDownloadInput(BaseModel):
+    entity_type: str = Field(description="Entity type.")
+    entity_id: int = Field(description="Entity ID.")
+    field_name: str = Field(default="image", description="Field containing the attachment: 'image', 'sg_uploaded_movie', etc.")
+    download_path: str = Field(description="Local path where to save the file.")
+
+class TkResolvePathInput(BaseModel):
+    entity_type: str = Field(description="'Asset' or 'Shot'.")
+    entity_code: str = Field(description="Entity code, e.g. 'hero_char' or 'SHOT010'.")
+    step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
+    publish_name: str = Field(default="main", description="Publish name for the path.")
+    version: Optional[int] = Field(default=None, description="Version number. Auto-incremented if omitted.")
+    asset_type: Optional[str] = Field(default=None, description="Asset type (required for Asset entities): Character, Environment, Prop, etc.")
+    sequence_code: Optional[str] = Field(default=None, description="Sequence code (optional for Shot entities).")
+    project_name: Optional[str] = Field(default=None, description="Project name for path. Auto-detected if omitted.")
+
+class TkPublishInput(BaseModel):
+    entity_type: str = Field(description="'Asset' or 'Shot'.")
+    entity_id: int = Field(description="Entity ID in ShotGrid.")
+    publish_type: str = Field(description="File type: any string, e.g. 'OBJ', 'Texture', 'Maya Scene', 'Alembic Cache', 'Nuke Script', 'EXR Sequence', 'Flame Batch', etc.")
+    task: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
+    comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
+    local_path: Optional[str] = Field(default=None, description="Explicit file path. Auto-generated with Toolkit conventions if omitted.")
+    version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented if omitted.")
+
+
+# ---------------------------------------------------------------------------
+# Tool implementations
+# ---------------------------------------------------------------------------
+
+@mcp.tool(name="sg_find")
+async def sg_find_tool(params: SgFindInput) -> str:
+    """Search for any entity in ShotGrid with filters.
+
+    Works with ALL entity types: Asset, Shot, Sequence, Version, Task,
+    Note, PublishedFile, HumanUser, Project, Playlist, TimeLog,
+    CustomEntity01-30, etc.
+
+    Filter syntax follows ShotGrid API:
+      [["field", "operator", value], ...]
+    Operators: is, is_not, contains, not_contains, starts_with,
+    greater_than, less_than, in, between, etc.
     """
-    return await find_assets_impl(params)
+    filters = list(params.filters)
+    if params.add_project_filter and PROJECT_ID:
+        filters.append(["project", "is", {"type": "Project", "id": PROJECT_ID}])
+
+    results = await sg_find(
+        params.entity_type, filters, params.fields,
+        order=params.order, limit=params.limit,
+    )
+    return json.dumps({"total": len(results), "entities": results}, default=str)
 
 
-@mcp.tool(
-    name="fpt_get_asset_image",
-    annotations={
-        "title": "Download Asset Reference Image",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def fpt_get_asset_image(params: GetAssetImageInput) -> str:
-    """Download the reference image for an asset from FPT.
+@mcp.tool(name="sg_create")
+async def sg_create_tool(params: SgCreateInput) -> str:
+    """Create any entity in ShotGrid.
 
-    Tries the uploaded_movie field on the latest linked Version first,
-    then falls back to the Version thumbnail, then the Asset thumbnail.
-    Returns the local file path of the downloaded image.
-
-    Args:
-        params (GetAssetImageInput): Validated input containing:
-            - asset_id (int): ShotGrid Asset entity ID
-            - download_dir (Optional[str]): Where to save the image
-
-    Returns:
-        str: JSON with {"path": str, "source": str, "asset_id": int}
+    Works with ALL entity types. Project is auto-linked if SHOTGRID_PROJECT_ID
+    is set and 'project' is not in the data dict.
     """
-    return await get_asset_image_impl(params)
+    data = dict(params.data)
+    if "project" not in data and PROJECT_ID:
+        data["project"] = {"type": "Project", "id": PROJECT_ID}
+
+    result = await sg_create(params.entity_type, data)
+    return json.dumps(result, default=str)
 
 
-# --- Sequences -------------------------------------------------------------
+@mcp.tool(name="sg_update")
+async def sg_update_tool(params: SgUpdateInput) -> str:
+    """Update any entity's fields in ShotGrid."""
+    result = await sg_update(params.entity_type, params.entity_id, params.data)
+    return json.dumps(result, default=str)
 
-@mcp.tool(
-    name="fpt_create_sequence",
-    annotations={
-        "title": "Create Sequence in FPT",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
-)
-async def fpt_create_sequence(params: CreateSequenceInput) -> str:
-    """Create a new Sequence in Flow Production Tracking.
 
-    Checks for duplicate codes before creating. Returns the new
-    Sequence's id and code.
+@mcp.tool(name="sg_delete")
+async def sg_delete_tool(params: SgDeleteInput) -> str:
+    """Delete (retire) an entity in ShotGrid.
 
-    Args:
-        params (CreateSequenceInput): Validated input containing:
-            - code (str): Sequence code, e.g. 'SEQ010'
-            - description (Optional[str]): Description
-            - status (str): Status code, default 'ip'
-
-    Returns:
-        str: JSON with {"id": int, "code": str, "type": "Sequence"}
+    This performs a soft-delete (retire). The entity can be restored
+    from ShotGrid's trash.
     """
-    return await create_sequence_impl(params)
+    sg = get_sg()
+    import asyncio
+    result = await asyncio.to_thread(sg.delete, params.entity_type, params.entity_id)
+    return json.dumps({"deleted": result, "entity_type": params.entity_type, "entity_id": params.entity_id})
 
 
-# --- Shots -----------------------------------------------------------------
+@mcp.tool(name="sg_schema")
+async def sg_schema_tool(params: SgSchemaInput) -> str:
+    """Get the field schema for any ShotGrid entity type.
 
-@mcp.tool(
-    name="fpt_create_shot",
-    annotations={
-        "title": "Create Shot in FPT",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
-)
-async def fpt_create_shot(params: CreateShotInput) -> str:
-    """Create a new Shot linked to a Sequence in Flow Production Tracking.
-
-    Validates the parent Sequence exists and checks for duplicate codes.
-    Supports cut_in, cut_out, and frame_range fields.
-
-    Args:
-        params (CreateShotInput): Validated input containing:
-            - code (str): Shot code, e.g. 'SHOT010'
-            - sequence_id (int): Parent Sequence ID
-            - description (Optional[str]): Shot notes
-            - status (str): Status code, default 'wtg'
-            - cut_in/cut_out (Optional[int]): Frame range
-            - frame_range (Optional[str]): e.g. '1001-1120'
-
-    Returns:
-        str: JSON with {"id": int, "code": str, "sequence": {...}}
+    Returns field names, types, and properties. Use this to discover
+    what fields are available before querying or creating entities.
     """
-    return await create_shot_impl(params)
+    schema = await sg_schema_field_read(params.entity_type, params.field_name)
+    # Simplify output for readability
+    summary = {}
+    for field_name, info in schema.items():
+        summary[field_name] = {
+            "type": info.get("data_type", {}).get("value", "unknown"),
+            "label": info.get("name", {}).get("value", field_name),
+            "editable": info.get("editable", {}).get("value", False),
+        }
+    return json.dumps(summary, default=str)
 
 
-# --- Versions --------------------------------------------------------------
+@mcp.tool(name="sg_upload")
+async def sg_upload_tool(params: SgUploadInput) -> str:
+    """Upload a file to any entity field in ShotGrid.
 
-@mcp.tool(
-    name="fpt_create_version",
-    annotations={
-        "title": "Create Version in FPT",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
-)
-async def fpt_create_version(params: CreateVersionInput) -> str:
-    """Create a Version entity linked to an Asset or Shot.
-
-    Optionally uploads a movie/image to the uploaded_movie field.
-    Useful for tracking renders, playblasts, or reference media.
-
-    Args:
-        params (CreateVersionInput): Validated input containing:
-            - code (str): Version name, e.g. 'MRBone1_model_v003'
-            - entity_type (str): 'Asset' or 'Shot'
-            - entity_id (int): Parent entity ID
-            - description (Optional[str]): Notes
-            - status (str): 'rev', 'app', or 'rej'
-            - movie_path (Optional[str]): File to upload as movie
-            - frame_range (Optional[str]): e.g. '1001-1120'
-
-    Returns:
-        str: JSON with {"id": int, "code": str, "entity": {...}}
+    Use field_name='image' for thumbnails, 'sg_uploaded_movie' for movies,
+    or any file/url field.
     """
-    return await create_version_impl(params)
+    if params.field_name == "image":
+        result_id = await sg_upload_thumbnail(params.entity_type, params.entity_id, params.file_path)
+    else:
+        result_id = await sg_upload(
+            params.entity_type, params.entity_id, params.file_path,
+            params.field_name, params.display_name,
+        )
+    return json.dumps({
+        "attachment_id": result_id,
+        "entity_type": params.entity_type,
+        "entity_id": params.entity_id,
+        "field": params.field_name,
+    })
 
 
-@mcp.tool(
-    name="fpt_upload_thumbnail",
-    annotations={
-        "title": "Upload Thumbnail to FPT Entity",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def fpt_upload_thumbnail(params: UploadThumbnailInput) -> str:
-    """Upload a thumbnail image to any FPT entity (Asset, Shot, Version).
+@mcp.tool(name="sg_download")
+async def sg_download_tool(params: SgDownloadInput) -> str:
+    """Download an attachment from any entity field in ShotGrid."""
+    entity = await sg_find_one(
+        params.entity_type,
+        [["id", "is", params.entity_id]],
+        [params.field_name],
+    )
+    if not entity or not entity.get(params.field_name):
+        return json.dumps({"error": f"No attachment in {params.field_name} for {params.entity_type} #{params.entity_id}"})
 
-    Replaces the existing thumbnail. The entity must exist.
+    attachment = entity[params.field_name]
+    path = await sg_download_attachment(attachment, params.download_path)
+    return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
 
-    Args:
-        params (UploadThumbnailInput): Validated input containing:
-            - entity_type (str): 'Asset', 'Shot', 'Version', etc.
-            - entity_id (int): Entity ID
-            - image_path (str): Local path to the image
 
-    Returns:
-        str: JSON with {"thumbnail_id": int, "entity_type": str, ...}
+@mcp.tool(name="tk_resolve_path")
+async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
+    """Resolve a Toolkit-compatible publish path using tk-config-default2 conventions.
+
+    Returns the full file path that Toolkit loaders (tk-multi-loader2)
+    in Maya, Flame, Nuke, etc. can pick up natively.
     """
-    return await upload_thumbnail_impl(params)
+    # Get project name if not provided
+    project_name = params.project_name
+    if not project_name and PROJECT_ID:
+        proj = await sg_find_one("Project", [["id", "is", PROJECT_ID]], ["name"])
+        project_name = proj["name"] if proj else "unknown_project"
+
+    version = params.version
+    if version is None:
+        version = await next_version_number(
+            params.entity_type, params.entity_code, params.step, params.publish_name
+        )
+
+    path = resolve_publish_path(
+        project_name=project_name or "project",
+        entity_type=params.entity_type.lower(),
+        entity_code=params.entity_code,
+        step=params.step,
+        name=params.publish_name,
+        version=version,
+    )
+    return json.dumps({"path": path, "version": version, "project": project_name})
 
 
-# --- Publishes -------------------------------------------------------------
+@mcp.tool(name="tk_publish")
+async def tk_publish_tool(params: TkPublishInput) -> str:
+    """Create a PublishedFile with Toolkit-compatible auto-versioned path.
 
-@mcp.tool(
-    name="fpt_create_published_file",
-    annotations={
-        "title": "Create Published File in FPT",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    },
-)
-async def fpt_create_published_file(params: CreatePublishedFileInput) -> str:
-    """Register a published file in FPT with Toolkit-compatible paths.
-
-    Supported types: OBJ, Texture, Maya Scene, Rendered Image.
-    Auto-increments version numbers and resolves paths using
-    tk-config-default2 conventions.
-
-    Args:
-        params (CreatePublishedFileInput): Validated input containing:
-            - code (str): Publish name
-            - file_type (str): 'OBJ', 'Texture', 'Maya Scene', 'Rendered Image'
-            - entity_type/entity_id: Parent Asset or Shot
-            - step (str): Pipeline step, default 'model'
-            - project_name (str): For path resolution
-            - local_path (Optional[str]): Explicit path or auto-generated
-            - version_number (Optional[int]): Explicit or auto-incremented
-
-    Returns:
-        str: JSON with {"id": int, "path": str, "version_number": int, ...}
+    Registers a publish in ShotGrid with a path that follows
+    tk-config-default2 conventions so Toolkit loaders can find it.
     """
-    return await create_published_file_impl(params)
+    # Resolve entity info
+    entity = await sg_find_one(
+        params.entity_type,
+        [["id", "is", params.entity_id]],
+        ["code", "sg_asset_type"] if params.entity_type == "Asset" else ["code"],
+    )
+    if not entity:
+        return json.dumps({"error": f"{params.entity_type} #{params.entity_id} not found"})
 
+    entity_code = entity["code"]
 
-@mcp.tool(
-    name="fpt_find_published_files",
-    annotations={
-        "title": "Find Published Files in FPT",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def fpt_find_published_files(params: FindPublishedFilesInput) -> str:
-    """Search for published files in FPT with optional filters.
+    # Get project name
+    project_name = "project"
+    if PROJECT_ID:
+        proj = await sg_find_one("Project", [["id", "is", PROJECT_ID]], ["name"])
+        if proj:
+            project_name = proj["name"]
 
-    Filter by parent entity (Asset/Shot), file type, or list all.
-    Returns id, code, file_type, entity, path, and version_number.
+    # Resolve version
+    version = params.version_number
+    if version is None:
+        version = await next_version_number(
+            params.entity_type, entity_code, params.task, params.publish_type,
+        )
 
-    Args:
-        params (FindPublishedFilesInput): Validated input containing:
-            - entity_type (Optional[str]): 'Asset' or 'Shot'
-            - entity_id (Optional[int]): Parent entity ID
-            - file_type (Optional[str]): Publish type filter
-            - limit (int): Max results, default 50
+    # Resolve path
+    publish_path = params.local_path
+    if not publish_path:
+        publish_path = resolve_publish_path(
+            project_name=project_name,
+            entity_type=params.entity_type.lower(),
+            entity_code=entity_code,
+            step=params.task,
+            name=params.publish_type.replace(" ", "_").lower(),
+            version=version,
+        )
 
-    Returns:
-        str: JSON with {"total": int, "publishes": [...]}
-    """
-    return await find_published_files_impl(params)
+    # Create the PublishedFile
+    data: dict[str, Any] = {
+        "code": f"{entity_code}_{params.task}_{params.publish_type.replace(' ','_')}_v{version:03d}",
+        "published_file_type": {"type": "PublishedFileType", "code": params.publish_type},
+        "entity": {"type": params.entity_type, "id": params.entity_id},
+        "path": {"local_path": publish_path},
+        "version_number": version,
+        "sg_status_list": "wtg",
+    }
+    if params.comment:
+        data["description"] = params.comment
+    if PROJECT_ID:
+        data["project"] = {"type": "Project", "id": PROJECT_ID}
+
+    result = await sg_create("PublishedFile", data)
+    return json.dumps({
+        "id": result["id"],
+        "code": data["code"],
+        "path": publish_path,
+        "version_number": version,
+        "entity": {"type": params.entity_type, "id": params.entity_id, "code": entity_code},
+        "publish_type": params.publish_type,
+    }, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -310,37 +329,17 @@ async def fpt_find_published_files(params: FindPublishedFilesInput) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
-    """Run the FPT MCP server.
-
-    Supports two transports:
-      - stdio (default): for Claude Desktop / Claude Code
-      - http: for inter-service communication (Maya, Flame, AMIs, scripts)
-
-    Usage:
-      python -m fpt_mcp.server                    # stdio (default)
-      python -m fpt_mcp.server --http              # HTTP on port 8090
-      python -m fpt_mcp.server --http --port 9000  # HTTP on custom port
-    """
     parser = argparse.ArgumentParser(description="FPT MCP Server")
-    parser.add_argument(
-        "--http", action="store_true",
-        help="Run as HTTP server instead of stdio",
-    )
-    parser.add_argument(
-        "--port", type=int, default=8090,
-        help="HTTP port (default: 8090)",
-    )
-    parser.add_argument(
-        "--host", type=str, default="127.0.0.1",
-        help="HTTP host (default: 127.0.0.1)",
-    )
+    parser.add_argument("--http", action="store_true", help="Run as HTTP server instead of stdio")
+    parser.add_argument("--port", type=int, default=8090, help="HTTP port (default: 8090)")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="HTTP host (default: 127.0.0.1)")
     args = parser.parse_args()
 
     if args.http:
         mcp.settings.host = args.host
         mcp.settings.port = args.port
-        mcp.settings.stateless_http = True    # No session required
-        mcp.settings.json_response = True     # Respond with plain JSON, not SSE
+        mcp.settings.stateless_http = True
+        mcp.settings.json_response = True
         mcp.settings.transport_security = None
         mcp.run(transport="streamable-http")
     else:

@@ -18,78 +18,46 @@
   .header .context-badge {
     background: #0f3460; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #94a3b8;
   }
-  .header .status {
-    margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
-  }
+  .header .context-badge.active { background: #164e63; color: #67e8f9; }
+  .header .status { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
   .header .status.connected { background: #22c55e; }
-  .header .tip {
-    margin-left: 8px; font-size: 11px; color: #64748b;
+
+  .chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 4px; }
+  .msg.system { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; }
+  .msg.error { background: #7f1d1d; color: #fca5a5; }
+  .msg pre {
+    background: #0d1117; padding: 8px; border-radius: 6px; overflow-x: auto; margin-top: 6px;
+    font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: 400px;
+    overflow-y: auto; white-space: pre-wrap; word-break: break-word;
   }
 
-  .main { flex: 1; display: flex; overflow: hidden; }
+  .suggestions {
+    padding: 6px 20px; display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .suggestion {
+    background: #0f3460; border: none; color: #94a3b8; padding: 5px 12px;
+    border-radius: 16px; font-size: 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .suggestion:hover { background: #e94560; color: white; }
 
-  /* Left: tool list */
-  .sidebar {
-    width: 200px; background: #16213e; border-right: 1px solid #0f3460;
-    overflow-y: auto; padding: 8px 0;
+  .input-bar {
+    background: #16213e; padding: 12px 20px; display: flex; gap: 10px;
+    border-top: 1px solid #0f3460;
   }
-  .sidebar .tool-btn {
-    display: block; width: 100%; text-align: left; background: none; border: none;
-    color: #94a3b8; padding: 10px 16px; font-size: 13px; cursor: pointer;
-    border-left: 3px solid transparent; transition: all 0.15s;
-  }
-  .sidebar .tool-btn:hover { background: #1e293b; color: #e0e0e0; }
-  .sidebar .tool-btn.active { border-left-color: #e94560; color: #e94560; background: #1e293b; }
-  .sidebar .tool-btn .icon { margin-right: 6px; }
-
-  /* Right: form + results */
-  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-  .form-area {
-    padding: 20px; border-bottom: 1px solid #0f3460; background: #16213e;
-  }
-  .form-area h2 { font-size: 14px; color: #e94560; margin-bottom: 12px; }
-  .form-area .desc { font-size: 12px; color: #64748b; margin-bottom: 12px; }
-  .form-row { display: flex; gap: 10px; margin-bottom: 8px; align-items: center; }
-  .form-row label {
-    width: 110px; font-size: 12px; color: #94a3b8; text-align: right; flex-shrink: 0;
-  }
-  .form-row input, .form-row select {
+  .input-bar input {
     flex: 1; background: #1e293b; border: 1px solid #334155; color: #e0e0e0;
-    padding: 6px 10px; border-radius: 6px; font-size: 13px; outline: none; max-width: 300px;
+    padding: 10px 14px; border-radius: 10px; font-size: 14px; outline: none;
   }
-  .form-row input:focus, .form-row select:focus { border-color: #e94560; }
-  .form-row .optional { font-size: 10px; color: #475569; margin-left: 4px; }
-
-  .form-actions { margin-top: 12px; }
-  .btn {
-    background: #e94560; border: none; color: white; padding: 8px 20px;
-    border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 600;
+  .input-bar input:focus { border-color: #e94560; }
+  .input-bar button {
+    background: #e94560; border: none; color: white; padding: 10px 20px;
+    border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600;
   }
-  .btn:hover { background: #c13550; }
-  .btn:disabled { background: #334155; cursor: not-allowed; }
-
-  /* Results panel */
-  .results {
-    flex: 1; overflow-y: auto; padding: 16px 20px;
-  }
-  .result-item {
-    background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 10px;
-  }
-  .result-item .meta { font-size: 11px; color: #64748b; margin-bottom: 6px; }
-  .result-item pre {
-    background: #0d1117; padding: 10px; border-radius: 6px; overflow-x: auto;
-    font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; color: #c9d1d9;
-    max-height: 400px; overflow-y: auto;
-  }
-  .result-item .error { color: #fca5a5; }
-  .result-item .summary { color: #86efac; font-size: 13px; margin-bottom: 8px; }
-
-  .empty-state {
-    display: flex; align-items: center; justify-content: center; height: 100%;
-    color: #475569; font-size: 14px; text-align: center; padding: 40px;
-  }
-  .empty-state p { max-width: 300px; line-height: 1.6; }
+  .input-bar button:hover { background: #c13550; }
+  .input-bar button:disabled { background: #334155; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -98,179 +66,81 @@
   <h1>FPT-MCP Console</h1>
   <span class="context-badge" id="contextBadge">Sin contexto</span>
   <div class="status" id="statusDot"></div>
-  <span class="tip">NL: usa Claude Code</span>
 </div>
 
-<div class="main">
-  <div class="sidebar" id="sidebar"></div>
-  <div class="content">
-    <div class="form-area" id="formArea">
-      <div class="empty-state" id="emptyState">
-        <p>Selecciona una herramienta de la izquierda para ejecutarla.<br><br>
-        Para lenguaje natural, usa <strong>Claude Code</strong> o <strong>Claude Desktop</strong> con el MCP server.</p>
-      </div>
-    </div>
-    <div class="results" id="results"></div>
-  </div>
+<div class="chat" id="chat"></div>
+<div class="suggestions" id="suggestions"></div>
+
+<div class="input-bar">
+  <input type="text" id="input" placeholder="Escribe un comando JSON-RPC..." autofocus>
+  <button id="sendBtn" onclick="send()">Enviar</button>
 </div>
 
 <script>
 const MCP_URL = '';
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
 const statusDot = document.getElementById('statusDot');
 const contextBadge = document.getElementById('contextBadge');
-const sidebar = document.getElementById('sidebar');
-const formArea = document.getElementById('formArea');
-const results = document.getElementById('results');
+const suggestionsDiv = document.getElementById('suggestions');
 
-// Parse AMI context from URL params
+// Parse AMI context from ALL sources: URL params, POST body injection, query string
 const params = new URLSearchParams(window.location.search);
 const amiContext = {
-  entity_type: params.get('entity_type'),
+  entity_type: params.get('entity_type') || null,
   entity_id: params.get('selected_ids') ? parseInt(params.get('selected_ids')) : null,
   project_id: params.get('project_id') ? parseInt(params.get('project_id')) : null,
-  project_name: params.get('project_name'),
+  project_name: params.get('project_name') || null,
+  user: params.get('user_login') || null,
 };
+// Also check for injected AMI_CONTEXT from server-side POST handling
+if (typeof AMI_CONTEXT !== 'undefined') {
+  if (AMI_CONTEXT.entity_type) amiContext.entity_type = AMI_CONTEXT.entity_type;
+  if (AMI_CONTEXT.selected_ids) amiContext.entity_id = parseInt(AMI_CONTEXT.selected_ids);
+  if (AMI_CONTEXT.project_id) amiContext.project_id = parseInt(AMI_CONTEXT.project_id);
+  if (AMI_CONTEXT.project_name) amiContext.project_name = AMI_CONTEXT.project_name;
+  if (AMI_CONTEXT.user_login) amiContext.user = AMI_CONTEXT.user_login;
+}
+
 if (amiContext.entity_type && amiContext.entity_id) {
   contextBadge.textContent = `${amiContext.entity_type} #${amiContext.entity_id}`;
-  contextBadge.style.background = '#164e63';
+  contextBadge.classList.add('active');
 }
 
-// ── Tool definitions ────────────────────────────
-const TOOLS = [
-  {
-    name: 'fpt_find_assets', label: 'Assets', icon: '🎨',
-    desc: 'Listar assets del proyecto con filtros opcionales.',
-    fields: [
-      { key: 'asset_type', label: 'Tipo', type: 'select', options: ['', 'Character', 'Environment', 'Prop', 'Vehicle', 'FX'], optional: true },
-      { key: 'status', label: 'Estado', type: 'text', placeholder: 'ip, fin, wtg...', optional: true },
-      { key: 'name_contains', label: 'Nombre', type: 'text', placeholder: 'Filtro de nombre', optional: true },
-    ]
-  },
-  {
-    name: 'fpt_get_asset_image', label: 'Ref Image', icon: '🖼',
-    desc: 'Descargar imagen de referencia de un asset.',
-    fields: [
-      { key: 'asset_id', label: 'Asset ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
-    ]
-  },
-  {
-    name: 'fpt_create_sequence', label: '+ Sequence', icon: '🎬',
-    desc: 'Crear una nueva secuencia.',
-    fields: [
-      { key: 'code', label: 'Código', type: 'text', placeholder: 'SEQ010', required: true },
-      { key: 'description', label: 'Descripción', type: 'text', optional: true },
-    ]
-  },
-  {
-    name: 'fpt_create_shot', label: '+ Shot', icon: '📷',
-    desc: 'Crear un shot vinculado a una secuencia.',
-    fields: [
-      { key: 'code', label: 'Código', type: 'text', placeholder: 'SHOT010', required: true },
-      { key: 'sequence_id', label: 'Sequence ID', type: 'number', optional: true },
-      { key: 'cut_in', label: 'Cut In', type: 'number', optional: true },
-      { key: 'cut_out', label: 'Cut Out', type: 'number', optional: true },
-    ]
-  },
-  {
-    name: 'fpt_create_version', label: '+ Version', icon: '📦',
-    desc: 'Crear una versión de revisión vinculada a un Shot o Asset.',
-    fields: [
-      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Shot', 'Asset'], required: true },
-      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
-      { key: 'description', label: 'Descripción', type: 'text', optional: true },
-    ]
-  },
-  {
-    name: 'fpt_upload_thumbnail', label: 'Thumbnail', icon: '🖼',
-    desc: 'Subir thumbnail a cualquier entidad.',
-    fields: [
-      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Asset', 'Shot', 'Version'], required: true },
-      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
-      { key: 'image_path', label: 'Ruta imagen', type: 'text', required: true },
-    ]
-  },
-  {
-    name: 'fpt_create_published_file', label: '+ Publish', icon: '📤',
-    desc: 'Publicar archivo con ruta Toolkit-compatible auto-versionada.',
-    fields: [
-      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['Asset', 'Shot'], required: true },
-      { key: 'entity_id', label: 'Entity ID', type: 'number', required: true, defaultFromContext: 'entity_id' },
-      { key: 'publish_type', label: 'Tipo publish', type: 'select', options: ['OBJ', 'Texture', 'Maya Scene', 'Rendered Image'], required: true },
-      { key: 'task', label: 'Step', type: 'text', placeholder: 'model, rig, texture, comp', optional: true },
-      { key: 'comment', label: 'Comentario', type: 'text', optional: true },
-    ]
-  },
-  {
-    name: 'fpt_find_published_files', label: 'Publishes', icon: '🔍',
-    desc: 'Buscar archivos publicados con filtros.',
-    fields: [
-      { key: 'entity_id', label: 'Entity ID', type: 'number', optional: true, defaultFromContext: 'entity_id' },
-      { key: 'entity_type', label: 'Tipo entidad', type: 'select', options: ['', 'Asset', 'Shot'], optional: true },
-      { key: 'publish_type', label: 'Tipo publish', type: 'select', options: ['', 'OBJ', 'Texture', 'Maya Scene', 'Rendered Image'], optional: true },
-    ]
-  },
-];
+// ── Dynamic suggestions based on context ────────────
+function buildSuggestions() {
+  const s = [];
+  if (amiContext.entity_type && amiContext.entity_id) {
+    s.push({ label: `Ver ${amiContext.entity_type} #${amiContext.entity_id}`, call: `sg_find`, args: { entity_type: amiContext.entity_type, filters: [["id","is",amiContext.entity_id]], fields: ["id","code","description","sg_status_list","created_at","updated_at"] }});
+    s.push({ label: `Schema de ${amiContext.entity_type}`, call: 'sg_schema', args: { entity_type: amiContext.entity_type }});
+    s.push({ label: `Publishes`, call: 'sg_find', args: { entity_type: 'PublishedFile', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","code","published_file_type","version_number","path","sg_status_list","created_at"] }});
+    s.push({ label: `Versions`, call: 'sg_find', args: { entity_type: 'Version', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","code","sg_status_list","description","created_at"] }});
+    s.push({ label: `Tasks`, call: 'sg_find', args: { entity_type: 'Task', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","content","sg_status_list","task_assignees","step"] }});
+    s.push({ label: `Notes`, call: 'sg_find', args: { entity_type: 'Note', filters: [["note_links","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","subject","content","user","created_at"] }});
+  } else {
+    s.push({ label: 'Assets', call: 'sg_find', args: { entity_type: 'Asset', filters: [], fields: ["id","code","sg_asset_type","sg_status_list","description"] }});
+    s.push({ label: 'Shots', call: 'sg_find', args: { entity_type: 'Shot', filters: [], fields: ["id","code","sg_sequence","sg_status_list","sg_cut_in","sg_cut_out"] }});
+    s.push({ label: 'Sequences', call: 'sg_find', args: { entity_type: 'Sequence', filters: [], fields: ["id","code","sg_status_list","description"] }});
+    s.push({ label: 'Tasks', call: 'sg_find', args: { entity_type: 'Task', filters: [], fields: ["id","content","entity","sg_status_list","task_assignees","step"] }});
+    s.push({ label: 'Publishes', call: 'sg_find', args: { entity_type: 'PublishedFile', filters: [], fields: ["id","code","entity","published_file_type","version_number","path"] }});
+    s.push({ label: 'Schema Asset', call: 'sg_schema', args: { entity_type: 'Asset' }});
+  }
+  return s;
+}
 
-// ── Render sidebar ──────────────────────────────
-let activeTool = null;
-TOOLS.forEach(t => {
+const suggestions = buildSuggestions();
+suggestions.forEach(s => {
   const btn = document.createElement('button');
-  btn.className = 'tool-btn';
-  btn.innerHTML = `<span class="icon">${t.icon}</span>${t.label}`;
-  btn.onclick = () => selectTool(t);
-  btn.id = `btn-${t.name}`;
-  sidebar.appendChild(btn);
+  btn.className = 'suggestion';
+  btn.textContent = s.label;
+  btn.onclick = () => callTool(s.call, s.args, s.label);
+  suggestionsDiv.appendChild(btn);
 });
 
-function selectTool(tool) {
-  activeTool = tool;
-  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`btn-${tool.name}`).classList.add('active');
-  renderForm(tool);
-}
-
-// ── Render form ─────────────────────────────────
-function renderForm(tool) {
-  let html = `<h2>${tool.icon} ${tool.label}</h2><div class="desc">${tool.desc}</div>`;
-  tool.fields.forEach(f => {
-    const val = f.defaultFromContext && amiContext[f.defaultFromContext] ? amiContext[f.defaultFromContext] : '';
-    html += `<div class="form-row"><label>${f.label}${f.optional ? '<span class="optional"> (opt)</span>' : ''}:</label>`;
-    if (f.type === 'select') {
-      html += `<select id="f-${f.key}">${f.options.map(o => `<option value="${o}"${o === '' ? ' selected' : ''}>${o || '— Todos —'}</option>`).join('')}</select>`;
-    } else {
-      html += `<input type="${f.type}" id="f-${f.key}" placeholder="${f.placeholder || ''}" value="${val}">`;
-    }
-    html += `</div>`;
-  });
-  html += `<div class="form-actions"><button class="btn" id="execBtn" onclick="execute()">Ejecutar</button></div>`;
-  formArea.innerHTML = html;
-}
-
-// ── Execute tool ────────────────────────────────
-async function execute() {
-  if (!activeTool) return;
-  const btn = document.getElementById('execBtn');
-  btn.disabled = true;
-  btn.textContent = 'Ejecutando...';
-
-  // Collect args
-  const args = {};
-  for (const f of activeTool.fields) {
-    const el = document.getElementById(`f-${f.key}`);
-    if (!el) continue;
-    let val = el.value.trim();
-    if (!val) {
-      if (f.required) {
-        addResult('error', `Campo requerido: ${f.label}`, null);
-        btn.disabled = false; btn.textContent = 'Ejecutar';
-        return;
-      }
-      continue;
-    }
-    if (f.type === 'number') val = parseInt(val);
-    args[f.key] = val;
-  }
-
+// ── MCP call ────────────────────────────────────
+async function callTool(toolName, args, label) {
+  addMsg(label || `${toolName}(${JSON.stringify(args)})`, 'user');
+  const typing = addMsg('...', 'system');
   try {
     const res = await fetch(`${MCP_URL}/mcp`, {
       method: 'POST',
@@ -278,48 +148,74 @@ async function execute() {
       body: JSON.stringify({
         jsonrpc: '2.0', id: Date.now(),
         method: 'tools/call',
-        params: { name: activeTool.name, arguments: { params: args } }
+        params: { name: toolName, arguments: { params: args } }
       })
     });
     const data = await res.json();
+    chat.removeChild(typing);
     if (data.error) {
-      addResult('error', `Error: ${data.error.message}`, null);
+      addMsg(`Error: ${data.error.message}`, 'error');
     } else {
       const text = data.result?.content?.[0]?.text || JSON.stringify(data.result);
-      addResult('ok', `${activeTool.icon} ${activeTool.label}`, text);
+      addMsgRaw(text);
     }
   } catch (e) {
-    addResult('error', `Conexión: ${e.message}`, null);
+    chat.removeChild(typing);
+    addMsg(`Conexión: ${e.message}`, 'error');
   }
-
-  btn.disabled = false; btn.textContent = 'Ejecutar';
 }
 
-function addResult(type, title, data) {
-  const div = document.createElement('div');
-  div.className = 'result-item';
-  const time = new Date().toLocaleTimeString();
-  let html = `<div class="meta">${time}</div>`;
-  if (type === 'error') {
-    html += `<div class="error">${escapeHtml(title)}</div>`;
-  } else {
-    html += `<div class="summary">${escapeHtml(title)}</div>`;
-    if (data) {
-      try {
-        const formatted = JSON.stringify(JSON.parse(data), null, 2);
-        html += `<pre><code>${escapeHtml(formatted)}</code></pre>`;
-      } catch {
-        html += `<pre><code>${escapeHtml(data)}</code></pre>`;
+// ── Free-form input: parse as JSON-RPC shorthand ────
+async function send() {
+  const raw = input.value.trim();
+  if (!raw) return;
+  input.value = '';
+
+  // Try to parse as: tool_name {"arg": "val"}
+  const match = raw.match(/^(\w+)\s*(\{.*\})?\s*$/s);
+  if (match) {
+    const tool = match[1];
+    let args = {};
+    if (match[2]) {
+      try { args = JSON.parse(match[2]); } catch (e) {
+        addMsg(`JSON inválido: ${e.message}`, 'error');
+        return;
       }
     }
+    await callTool(tool, args, raw);
+  } else {
+    addMsg(raw, 'user');
+    addMsg('Formato: nombre_tool {json_params}\nEjemplo: sg_find {"entity_type":"Shot","filters":[],"fields":["id","code"]}\n\nPara lenguaje natural usa Claude Code o Claude Desktop.', 'system');
   }
-  div.innerHTML = html;
-  results.prepend(div);
+}
+
+function addMsg(text, cls) {
+  const div = document.createElement('div');
+  div.className = `msg ${cls}`;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function addMsgRaw(text) {
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  try {
+    const obj = JSON.parse(text);
+    div.innerHTML = `<pre><code>${escapeHtml(JSON.stringify(obj, null, 2))}</code></pre>`;
+  } catch {
+    div.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
+  }
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
 }
 
 function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 
 // ── Connection check ────────────────────────────
 async function checkConnection() {
@@ -329,16 +225,16 @@ async function checkConnection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
     });
-    if (res.ok) statusDot.classList.add('connected');
+    if (res.ok) {
+      statusDot.classList.add('connected');
+      addMsg('Conectado a FPT-MCP.', 'system');
+    }
   } catch {
     statusDot.classList.remove('connected');
+    addMsg('No se pudo conectar al MCP server.', 'error');
   }
 }
 checkConnection();
-
-// Auto-select first tool if AMI context suggests one
-if (amiContext.entity_type === 'Asset') selectTool(TOOLS[0]);
-else if (amiContext.entity_type === 'Shot') selectTool(TOOLS[3]);
 </script>
 </body>
 </html>
