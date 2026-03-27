@@ -15,8 +15,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
+    "PySide6>=6.6.0",
 ]
 
 [project.scripts]
 fpt-mcp = "fpt_mcp.server:main"
 fpt-ami = "fpt_mcp.ami.handler:main"
+fpt-console = "fpt_mcp.qt.app:main"

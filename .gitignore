@@ -13,3 +13,6 @@ venv/
 
 # Generated plist files (setup_venv.sh creates them dynamically)
 *.plist
+
+# Generated .app bundles
+*.app/

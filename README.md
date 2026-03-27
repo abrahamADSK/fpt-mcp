@@ -8,9 +8,9 @@ Claude Desktop / Claude Code / Terminal
 ├── maya-mcp    → 3D / Arnold render
 ├── flame-mcp   → compositing
 └── fpt-mcp     → production tracking (this repo)
-        ├── stdio       → Claude Desktop / Claude Code
-        ├── HTTP        → Maya, Flame, scripts, inter-service
-        └── AMI console → ShotGrid Action Menu Items
+        ├── stdio         → Claude Desktop / Claude Code
+        ├── HTTP          → Maya, Flame, scripts, inter-service
+        └── Qt console    → native chat app via fpt-mcp:// protocol handler
 ```
 
 ## Tools
@@ -47,7 +47,7 @@ cd fpt-mcp
 pip install -e .
 ```
 
-Or use the automated setup (creates venv + launchd services on macOS):
+Or use the automated setup (creates venv + launchd service + Qt console app on macOS):
 
 ```bash
 chmod +x setup_venv.sh
@@ -75,14 +75,48 @@ Default mode. The server communicates via standard input/output as a subprocess.
 python -m fpt_mcp.server
 ```
 
-### HTTP (inter-service, scripts, AMIs)
+### HTTP (inter-service, scripts)
 
-Runs on a network port so Maya, Flame, scripts, and the AMI console can connect via TCP.
+Runs on a network port so Maya, Flame, and scripts can connect via TCP.
 
 ```bash
 python -m fpt_mcp.server --http                # port 8090 (default)
 python -m fpt_mcp.server --http --port 9000    # custom port
 ```
+
+## Qt Console (native chat app)
+
+Native PySide6 chat window that routes messages through Claude Code CLI. Replaces the browser-based AMI console with a proper desktop app.
+
+Features:
+- Markdown rendering (bold, italic, code, headings, lists)
+- Dark theme matching ShotGrid aesthetic
+- Protocol handler (`fpt-mcp://`) for direct launch from ShotGrid AMIs
+- ShotGrid entity context passed automatically via URL params
+- No HTTP server dependency — launches as a standalone app
+
+### Launch
+
+```bash
+# Direct
+fpt-console
+
+# With entity context
+fpt-console --entity-type Shot --entity-id 456 --project-id 123
+
+# Via protocol handler (from ShotGrid AMI or terminal)
+open "fpt-mcp://chat?entity_type=Asset&selected_ids=123&project_id=456"
+```
+
+### ShotGrid AMI setup
+
+Admin → Action Menu Items → Add:
+- **Title**: FPT Console
+- **Entity types**: Asset, Shot, Sequence, Version, Task (or any)
+- **Light Payload**: Yes
+- **URL**: `fpt-mcp://chat?entity_type={entity_type}&selected_ids={selected_ids}&project_id={project_id}&project_name={project_name}&user_login={user_login}`
+
+When launched from an AMI, the entity context is displayed in the header badge and included in every message sent to Claude.
 
 ## Client configurations
 
@@ -128,61 +162,48 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-## AMI console (ShotGrid Action Menu Items)
-
-Interactive web-based chat powered by Claude that connects to the HTTP server. Can be launched from ShotGrid as an Action Menu Item or opened directly in a browser.
-
-### Start
-
-```bash
-# Terminal 1: MCP HTTP server
-python -m fpt_mcp.server --http
-
-# Terminal 2: AMI console
-python -m fpt_mcp.ami.handler
-```
-
-### Access
-
-- Direct: `http://localhost:8091/ami`
-- From ShotGrid AMI: `http://YOUR_IP:8091/ami`
-
-When launched from a ShotGrid AMI, entity context (asset, shot, project) is passed automatically via query params but is not required — the console works as a free-form chat regardless.
-
-### ShotGrid AMI setup
-
-Admin → Action Menu Items → Add:
-- **Title**: FPT Console
-- **URL**: `http://YOUR_IP:8091/ami`
-- **Entity types**: Asset, Shot, Sequence (or any)
-
 ## Autostart with launchd (macOS)
 
-The `setup_venv.sh` script automatically generates and installs launchd plists with paths resolved to your local install. Run it once:
+The `setup_venv.sh` script automatically:
+1. Creates the venv and installs dependencies
+2. Generates and installs the MCP server launchd plist
+3. Builds the Qt console .app bundle with protocol handler registration
+
+Run it once:
 
 ```bash
 ./setup_venv.sh
 ```
 
-Manage services:
+Manage the MCP server:
 - `launchctl stop com.fpt-mcp.server` — stop
 - `launchctl start com.fpt-mcp.server` — start
 - `launchctl unload ~/Library/LaunchAgents/com.fpt-mcp.server.plist` — uninstall
 
 Logs: `/tmp/fpt-mcp.log` and `/tmp/fpt-mcp.err`
 
-## Pipeline flows
+## Architecture
 
-1. **Assets → 3D**: `fpt_get_asset_image` → Hunyuan3D via maya-mcp → `fpt_create_published_file` (OBJ + Texture)
-2. **Layout**: `fpt_create_sequence` → assemble in Maya → `fpt_create_published_file` (Maya Scene)
-3. **Shots**: `fpt_create_shot` → camera per shot in Maya → publish Maya Scene per shot
-4. **Render → Comp**: `maya_batch_render` → `fpt_create_published_file` (EXR) → load in Flame via flame-mcp
+```
+ShotGrid AMI click
+    → fpt-mcp://chat?entity_type=Shot&selected_ids=123
+    → macOS opens FPT-MCP Console.app (protocol handler)
+    → Qt chat window with entity context
+    → User types natural language
+    → Claude Code CLI (claude -p "message")
+    → Claude calls fpt-mcp tools via MCP (stdio)
+    → ShotGrid API response
+    → Formatted in Qt chat window
+```
 
 ## Requirements
 
 - Python >= 3.10
+- macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
 - `shotgun_api3` (ShotGrid Python API)
 - `mcp[cli]` (MCP Python SDK with FastMCP)
 - `pydantic` >= 2.0
+- `PySide6` >= 6.6 (Qt for Python)
 - `python-dotenv`
 - `httpx`
+- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
