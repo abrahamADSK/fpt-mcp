@@ -24,24 +24,11 @@
 
   .chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 
-  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-wrap: break-word; }
   .msg.user { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 4px; }
-  .msg.system { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; }
-  .msg.error { background: #7f1d1d; color: #fca5a5; }
-  .msg pre {
-    background: #0d1117; padding: 8px; border-radius: 6px; overflow-x: auto; margin-top: 6px;
-    font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: 400px;
-    overflow-y: auto; white-space: pre-wrap; word-break: break-word;
-  }
-
-  .suggestions {
-    padding: 6px 20px; display: flex; gap: 6px; flex-wrap: wrap;
-  }
-  .suggestion {
-    background: #0f3460; border: none; color: #94a3b8; padding: 5px 12px;
-    border-radius: 16px; font-size: 12px; cursor: pointer; transition: all 0.15s;
-  }
-  .suggestion:hover { background: #e94560; color: white; }
+  .msg.assistant { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; white-space: pre-wrap; }
+  .msg.error { align-self: flex-start; background: #7f1d1d; color: #fca5a5; }
+  .msg.thinking { align-self: flex-start; background: #1e293b; color: #64748b; font-style: italic; }
 
   .input-bar {
     background: #16213e; padding: 12px 20px; display: flex; gap: 10px;
@@ -69,124 +56,66 @@
 </div>
 
 <div class="chat" id="chat"></div>
-<div class="suggestions" id="suggestions"></div>
 
 <div class="input-bar">
-  <input type="text" id="input" placeholder="Escribe un comando JSON-RPC..." autofocus>
+  <input type="text" id="input" placeholder="Escribe aquí..." autofocus>
   <button id="sendBtn" onclick="send()">Enviar</button>
 </div>
 
 <script>
-const MCP_URL = '';
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const statusDot = document.getElementById('statusDot');
 const contextBadge = document.getElementById('contextBadge');
-const suggestionsDiv = document.getElementById('suggestions');
 
-// Parse AMI context from ALL sources: URL params, POST body injection, query string
 const params = new URLSearchParams(window.location.search);
-const amiContext = {
-  entity_type: params.get('entity_type') || null,
+const ctx = {
+  entity_type: params.get('entity_type'),
   entity_id: params.get('selected_ids') ? parseInt(params.get('selected_ids')) : null,
   project_id: params.get('project_id') ? parseInt(params.get('project_id')) : null,
-  project_name: params.get('project_name') || null,
-  user: params.get('user_login') || null,
+  project_name: params.get('project_name'),
 };
-// Also check for injected AMI_CONTEXT from server-side POST handling
 if (typeof AMI_CONTEXT !== 'undefined') {
-  if (AMI_CONTEXT.entity_type) amiContext.entity_type = AMI_CONTEXT.entity_type;
-  if (AMI_CONTEXT.selected_ids) amiContext.entity_id = parseInt(AMI_CONTEXT.selected_ids);
-  if (AMI_CONTEXT.project_id) amiContext.project_id = parseInt(AMI_CONTEXT.project_id);
-  if (AMI_CONTEXT.project_name) amiContext.project_name = AMI_CONTEXT.project_name;
-  if (AMI_CONTEXT.user_login) amiContext.user = AMI_CONTEXT.user_login;
+  if (AMI_CONTEXT.entity_type) ctx.entity_type = AMI_CONTEXT.entity_type;
+  if (AMI_CONTEXT.selected_ids) ctx.entity_id = parseInt(AMI_CONTEXT.selected_ids);
+  if (AMI_CONTEXT.project_id) ctx.project_id = parseInt(AMI_CONTEXT.project_id);
+  if (AMI_CONTEXT.project_name) ctx.project_name = AMI_CONTEXT.project_name;
 }
-
-if (amiContext.entity_type && amiContext.entity_id) {
-  contextBadge.textContent = `${amiContext.entity_type} #${amiContext.entity_id}`;
+if (ctx.entity_type && ctx.entity_id) {
+  contextBadge.textContent = `${ctx.entity_type} #${ctx.entity_id}`;
   contextBadge.classList.add('active');
 }
 
-// ── Dynamic suggestions based on context ────────────
-function buildSuggestions() {
-  const s = [];
-  if (amiContext.entity_type && amiContext.entity_id) {
-    s.push({ label: `Ver ${amiContext.entity_type} #${amiContext.entity_id}`, call: `sg_find`, args: { entity_type: amiContext.entity_type, filters: [["id","is",amiContext.entity_id]], fields: ["id","code","description","sg_status_list","created_at","updated_at"] }});
-    s.push({ label: `Schema de ${amiContext.entity_type}`, call: 'sg_schema', args: { entity_type: amiContext.entity_type }});
-    s.push({ label: `Publishes`, call: 'sg_find', args: { entity_type: 'PublishedFile', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","code","published_file_type","version_number","path","sg_status_list","created_at"] }});
-    s.push({ label: `Versions`, call: 'sg_find', args: { entity_type: 'Version', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","code","sg_status_list","description","created_at"] }});
-    s.push({ label: `Tasks`, call: 'sg_find', args: { entity_type: 'Task', filters: [["entity","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","content","sg_status_list","task_assignees","step"] }});
-    s.push({ label: `Notes`, call: 'sg_find', args: { entity_type: 'Note', filters: [["note_links","is",{type:amiContext.entity_type,id:amiContext.entity_id}]], fields: ["id","subject","content","user","created_at"] }});
-  } else {
-    s.push({ label: 'Assets', call: 'sg_find', args: { entity_type: 'Asset', filters: [], fields: ["id","code","sg_asset_type","sg_status_list","description"] }});
-    s.push({ label: 'Shots', call: 'sg_find', args: { entity_type: 'Shot', filters: [], fields: ["id","code","sg_sequence","sg_status_list","sg_cut_in","sg_cut_out"] }});
-    s.push({ label: 'Sequences', call: 'sg_find', args: { entity_type: 'Sequence', filters: [], fields: ["id","code","sg_status_list","description"] }});
-    s.push({ label: 'Tasks', call: 'sg_find', args: { entity_type: 'Task', filters: [], fields: ["id","content","entity","sg_status_list","task_assignees","step"] }});
-    s.push({ label: 'Publishes', call: 'sg_find', args: { entity_type: 'PublishedFile', filters: [], fields: ["id","code","entity","published_file_type","version_number","path"] }});
-    s.push({ label: 'Schema Asset', call: 'sg_schema', args: { entity_type: 'Asset' }});
-  }
-  return s;
-}
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  document.getElementById('sendBtn').disabled = true;
+  addMsg(text, 'user');
+  const thinking = addMsg('Pensando...', 'thinking');
 
-const suggestions = buildSuggestions();
-suggestions.forEach(s => {
-  const btn = document.createElement('button');
-  btn.className = 'suggestion';
-  btn.textContent = s.label;
-  btn.onclick = () => callTool(s.call, s.args, s.label);
-  suggestionsDiv.appendChild(btn);
-});
-
-// ── MCP call ────────────────────────────────────
-async function callTool(toolName, args, label) {
-  addMsg(label || `${toolName}(${JSON.stringify(args)})`, 'user');
-  const typing = addMsg('...', 'system');
   try {
-    const res = await fetch(`${MCP_URL}/mcp`, {
+    const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0', id: Date.now(),
-        method: 'tools/call',
-        params: { name: toolName, arguments: { params: args } }
+        message: text,
+        context: (ctx.entity_type && ctx.entity_id) ? ctx : undefined,
       })
     });
     const data = await res.json();
-    chat.removeChild(typing);
+    chat.removeChild(thinking);
+
     if (data.error) {
-      addMsg(`Error: ${data.error.message}`, 'error');
+      addMsg(data.error, 'error');
     } else {
-      const text = data.result?.content?.[0]?.text || JSON.stringify(data.result);
-      addMsgRaw(text);
+      addMsg(data.text, 'assistant');
     }
   } catch (e) {
-    chat.removeChild(typing);
-    addMsg(`Conexión: ${e.message}`, 'error');
+    chat.removeChild(thinking);
+    addMsg(`Error de conexión: ${e.message}`, 'error');
   }
-}
-
-// ── Free-form input: parse as JSON-RPC shorthand ────
-async function send() {
-  const raw = input.value.trim();
-  if (!raw) return;
-  input.value = '';
-
-  // Try to parse as: tool_name {"arg": "val"}
-  const match = raw.match(/^(\w+)\s*(\{.*\})?\s*$/s);
-  if (match) {
-    const tool = match[1];
-    let args = {};
-    if (match[2]) {
-      try { args = JSON.parse(match[2]); } catch (e) {
-        addMsg(`JSON inválido: ${e.message}`, 'error');
-        return;
-      }
-    }
-    await callTool(tool, args, raw);
-  } else {
-    addMsg(raw, 'user');
-    addMsg('Formato: nombre_tool {json_params}\nEjemplo: sg_find {"entity_type":"Shot","filters":[],"fields":["id","code"]}\n\nPara lenguaje natural usa Claude Code o Claude Desktop.', 'system');
-  }
+  document.getElementById('sendBtn').disabled = false;
 }
 
 function addMsg(text, cls) {
@@ -198,43 +127,12 @@ function addMsg(text, cls) {
   return div;
 }
 
-function addMsgRaw(text) {
-  const div = document.createElement('div');
-  div.className = 'msg system';
-  try {
-    const obj = JSON.parse(text);
-    div.innerHTML = `<pre><code>${escapeHtml(JSON.stringify(obj, null, 2))}</code></pre>`;
-  } catch {
-    div.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
-  }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-function escapeHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 
-// ── Connection check ────────────────────────────
-async function checkConnection() {
-  try {
-    const res = await fetch(`${MCP_URL}/mcp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
-    });
-    if (res.ok) {
-      statusDot.classList.add('connected');
-      addMsg('Conectado a FPT-MCP.', 'system');
-    }
-  } catch {
-    statusDot.classList.remove('connected');
-    addMsg('No se pudo conectar al MCP server.', 'error');
-  }
-}
-checkConnection();
+// Check connection
+fetch('/health').then(r => r.json()).then(d => {
+  if (d.status === 'ok') statusDot.classList.add('connected');
+}).catch(() => {});
 </script>
 </body>
 </html>

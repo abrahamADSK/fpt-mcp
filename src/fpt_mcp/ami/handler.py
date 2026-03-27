@@ -1,19 +1,17 @@
 """AMI (Action Menu Item) HTTP handler for ShotGrid.
 
-Serves the interactive console and proxies MCP tool calls to the FPT MCP server.
-The proxy eliminates CORS issues — the browser only talks to this server.
+Serves the interactive console and routes natural language messages
+through Claude Code CLI, which has fpt-mcp configured as an MCP server.
+No API key needed — Claude Code handles authentication and tool calling.
 
-Flow:  Browser  →  POST /mcp (JSON-RPC tool call)
-       Handler  →  FPT MCP server (localhost:8090)
-       Handler  →  Browser (JSON result)
-
-For natural language access, use Claude Code / Claude Desktop which connects
-to fpt-mcp via stdio and interprets commands automatically.
+Flow:  Browser  →  POST /chat {"message":"..."}
+       Handler  →  claude -p "message" (Claude Code CLI)
+       Claude   →  calls fpt-mcp tools as needed (via stdio MCP)
+       Handler  →  Browser (Claude's response)
 
 Usage:
   python -m fpt_mcp.ami.handler                  # port 8091
   python -m fpt_mcp.ami.handler --port 9091      # custom port
-  python -m fpt_mcp.ami.handler --mcp-port 8090  # point to MCP server
 """
 
 from __future__ import annotations
@@ -21,26 +19,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import shutil
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 CONSOLE_HTML = os.path.join(os.path.dirname(__file__), "console.html")
-DEFAULT_MCP_PORT = 8090
+
+# Find claude CLI
+CLAUDE_BIN = shutil.which("claude") or os.path.expanduser("~/.npm-global/bin/claude")
 
 
 class AMIHandler(BaseHTTPRequestHandler):
-    """Handles AMI requests, serves console, and proxies MCP calls."""
-
-    mcp_port: int = DEFAULT_MCP_PORT
+    """Serves console and routes chat through Claude Code."""
 
     def _serve_console(self):
         """Serve the console HTML."""
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
-        # If POST, also read form-encoded body (ShotGrid AMIs send POST)
         if self.command == "POST" and parsed.path in ("/", "/ami", "/console"):
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length:
@@ -70,87 +67,81 @@ class AMIHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404, "console.html not found")
 
-    def _proxy_mcp(self):
-        """Proxy a JSON-RPC request to the MCP HTTP server."""
+    def _handle_chat(self):
+        """Route natural language through Claude Code CLI."""
         content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length) if content_length else b""
-
-        mcp_url = f"http://127.0.0.1:{self.mcp_port}/mcp"
+        raw = self.rfile.read(content_length) if content_length else b"{}"
         try:
-            req = Request(
-                mcp_url,
-                data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
-                method="POST",
+            req_data = json.loads(raw)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+
+        user_msg = req_data.get("message", "").strip()
+        if not user_msg:
+            self._send_json(400, {"error": "Empty message"})
+            return
+
+        # Add context if available
+        context = req_data.get("context", {})
+        if context:
+            ctx_str = f" [Contexto ShotGrid: {json.dumps(context)}]"
+            prompt = user_msg + ctx_str
+        else:
+            prompt = user_msg
+
+        if not os.path.isfile(CLAUDE_BIN):
+            self._send_json(500, {"error": f"Claude Code CLI not found. Install: npm install -g @anthropic-ai/claude-code"})
+            return
+
+        try:
+            result = subprocess.run(
+                [CLAUDE_BIN, "-p", prompt, "--output-format", "text"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env={**os.environ, "CLAUDE_NO_TELEMETRY": "1"},
             )
-            with urlopen(req, timeout=30) as resp:
-                resp_body = resp.read().decode("utf-8")
+            response = result.stdout.strip()
+            if not response and result.stderr:
+                response = f"Error: {result.stderr.strip()}"
+            if not response:
+                response = "Sin respuesta de Claude."
 
-                # Parse SSE or plain JSON
-                json_result = None
-                for line in resp_body.splitlines():
-                    if line.startswith("data: "):
-                        data = line[6:].strip()
-                        if data:
-                            try:
-                                json_result = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
+            self._send_json(200, {"text": response})
 
-                if json_result:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(json.dumps(json_result).encode())
-                else:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    self.wfile.write(resp_body.encode())
-
-        except URLError as e:
-            self._send_json_error(502, f"MCP server not reachable: {e}")
+        except subprocess.TimeoutExpired:
+            self._send_json(504, {"error": "Claude Code timeout (120s)"})
         except Exception as e:
-            self._send_json_error(500, str(e))
+            self._send_json(500, {"error": str(e)})
 
-    def _send_json_error(self, status, message):
-        resp = json.dumps({
-            "jsonrpc": "2.0", "id": None,
-            "error": {"code": -32000, "message": message}
-        })
+    def _send_json(self, status, data):
+        body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(resp.encode())
+        self.wfile.write(body)
 
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/ami", "/console"):
             self._serve_console()
         elif parsed.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok","service":"fpt-ami-console"}')
+            self._send_json(200, {"status": "ok", "service": "fpt-ami-console", "claude": os.path.isfile(CLAUDE_BIN)})
         else:
-            self.send_error(404, "Not found. Use /ami or /console")
+            self.send_error(404)
 
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/ami", "/console"):
             self._serve_console()
-        elif parsed.path == "/mcp":
-            self._proxy_mcp()
+        elif parsed.path == "/chat":
+            self._handle_chat()
         else:
             self.send_error(404)
 
     def do_OPTIONS(self):
-        """Handle CORS preflight."""
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -163,16 +154,16 @@ class AMIHandler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description="FPT AMI Console Server")
-    parser.add_argument("--port", type=int, default=8091, help="Console HTTP port (default: 8091)")
-    parser.add_argument("--mcp-port", type=int, default=8090, help="FPT MCP HTTP port (default: 8090)")
+    parser.add_argument("--port", type=int, default=8091)
     args = parser.parse_args()
 
-    AMIHandler.mcp_port = args.mcp_port
+    if not os.path.isfile(CLAUDE_BIN):
+        print(f"⚠️  Claude Code CLI not found at {CLAUDE_BIN}")
+        print("   Install: npm install -g @anthropic-ai/claude-code")
 
     server = HTTPServer(("127.0.0.1", args.port), AMIHandler)
-    print(f"FPT AMI Console running on http://127.0.0.1:{args.port}")
-    print(f"  → MCP proxy at /mcp → http://127.0.0.1:{args.mcp_port}/mcp")
-    print(f"  → Console: http://127.0.0.1:{args.port}/ami")
+    print(f"FPT AMI Console: http://127.0.0.1:{args.port}/ami")
+    print(f"  → Chat via Claude Code CLI: {CLAUDE_BIN}")
 
     try:
         server.serve_forever()
