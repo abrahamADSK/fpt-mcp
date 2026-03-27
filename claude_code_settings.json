@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "fpt-mcp": {
+      "command": "python",
+      "args": ["-m", "fpt_mcp.server"],
+      "cwd": "~/Claude_projects/fpt-mcp/src",
+      "env": {
+        "SHOTGRID_URL": "https://ableviadsk.shotgrid.autodesk.com",
+        "SHOTGRID_SCRIPT_NAME": "mcp_server",
+        "SHOTGRID_SCRIPT_KEY": "3voplsoawvokdca(mqhhdsXnp"
+      }
+    },
+    "maya-mcp": {
+      "command": "python",
+      "args": ["server.py"],
+      "cwd": "~/Claude_projects/maya-mcp-project/core"
+    },
+    "flame-mcp": "PENDIENTE — añadir cuando esté instalado en esta máquina"
+  }
+}

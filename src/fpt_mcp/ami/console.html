@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FPT Console</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column;
+  }
+  .header {
+    background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid #0f3460;
+  }
+  .header h1 { font-size: 16px; font-weight: 600; color: #e94560; }
+  .header .context-badge {
+    background: #0f3460; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #94a3b8;
+  }
+  .header .status {
+    margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
+  }
+  .header .status.connected { background: #22c55e; }
+
+  .chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 4px; }
+  .msg.system { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; }
+  .msg.error { background: #7f1d1d; color: #fca5a5; }
+  .msg pre { background: #0d1117; padding: 8px; border-radius: 6px; overflow-x: auto; margin-top: 6px; font-size: 12px; }
+  .msg code { font-family: 'SF Mono', 'Fira Code', monospace; }
+
+  .tools-panel {
+    background: #16213e; border-top: 1px solid #0f3460; padding: 8px 20px;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .tool-chip {
+    background: #0f3460; border: none; color: #94a3b8; padding: 4px 10px;
+    border-radius: 8px; font-size: 11px; cursor: pointer; transition: all 0.2s;
+  }
+  .tool-chip:hover { background: #e94560; color: white; }
+
+  .input-bar {
+    background: #16213e; padding: 12px 20px; display: flex; gap: 10px;
+    border-top: 1px solid #0f3460;
+  }
+  .input-bar input {
+    flex: 1; background: #1e293b; border: 1px solid #334155; color: #e0e0e0;
+    padding: 10px 14px; border-radius: 10px; font-size: 14px; outline: none;
+  }
+  .input-bar input:focus { border-color: #e94560; }
+  .input-bar button {
+    background: #e94560; border: none; color: white; padding: 10px 20px;
+    border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  .input-bar button:hover { background: #c13550; }
+  .input-bar button:disabled { background: #334155; cursor: not-allowed; }
+
+  .typing { opacity: 0.5; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>FPT Console</h1>
+  <span class="context-badge" id="contextBadge">Sin contexto</span>
+  <div class="status" id="statusDot"></div>
+</div>
+
+<div class="chat" id="chat"></div>
+
+<div class="tools-panel" id="toolsPanel"></div>
+
+<div class="input-bar">
+  <input type="text" id="input" placeholder="Escribe un comando o pregunta..." autofocus>
+  <button id="sendBtn" onclick="send()">Enviar</button>
+</div>
+
+<script>
+const MCP_URL = new URLSearchParams(window.location.search).get('server') || 'http://127.0.0.1:8090';
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const statusDot = document.getElementById('statusDot');
+const contextBadge = document.getElementById('contextBadge');
+const toolsPanel = document.getElementById('toolsPanel');
+
+// Parse AMI context from URL params (ShotGrid passes these)
+const params = new URLSearchParams(window.location.search);
+const amiContext = {
+  entity_type: params.get('entity_type'),
+  entity_id: params.get('selected_ids') ? parseInt(params.get('selected_ids')) : null,
+  project_id: params.get('project_id') ? parseInt(params.get('project_id')) : null,
+  project_name: params.get('project_name'),
+  user: params.get('user_login'),
+};
+
+if (amiContext.entity_type && amiContext.entity_id) {
+  contextBadge.textContent = `${amiContext.entity_type} #${amiContext.entity_id}`;
+  contextBadge.style.background = '#164e63';
+}
+
+// Available tools
+const TOOLS = [
+  { name: 'fpt_find_assets', label: 'Assets', hint: 'Lista assets del proyecto' },
+  { name: 'fpt_get_asset_image', label: 'Ref Image', hint: 'Descarga imagen de referencia' },
+  { name: 'fpt_create_sequence', label: '+ Sequence', hint: 'Crear secuencia' },
+  { name: 'fpt_create_shot', label: '+ Shot', hint: 'Crear shot' },
+  { name: 'fpt_create_version', label: '+ Version', hint: 'Crear version' },
+  { name: 'fpt_upload_thumbnail', label: 'Thumbnail', hint: 'Subir thumbnail' },
+  { name: 'fpt_create_published_file', label: '+ Publish', hint: 'Publicar archivo' },
+  { name: 'fpt_find_published_files', label: 'Publishes', hint: 'Buscar publishes' },
+];
+
+// Render tool chips
+TOOLS.forEach(t => {
+  const chip = document.createElement('button');
+  chip.className = 'tool-chip';
+  chip.textContent = t.label;
+  chip.title = t.hint;
+  chip.onclick = () => { input.value = t.hint; input.focus(); };
+  toolsPanel.appendChild(chip);
+});
+
+function addMsg(text, cls) {
+  const div = document.createElement('div');
+  div.className = `msg ${cls}`;
+  // Detect JSON and wrap in pre/code
+  if (text.startsWith('{') || text.startsWith('[')) {
+    try {
+      const formatted = JSON.stringify(JSON.parse(text), null, 2);
+      div.innerHTML = `<pre><code>${escapeHtml(formatted)}</code></pre>`;
+    } catch { div.textContent = text; }
+  } else {
+    div.textContent = text;
+  }
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function callTool(toolName, args) {
+  const res = await fetch(`${MCP_URL}/mcp/v1`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: { name: toolName, arguments: { params: args } }
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.result?.content?.[0]?.text || JSON.stringify(data.result);
+}
+
+// Simple command parser — maps natural language to tool calls
+function parseCommand(text) {
+  const lower = text.toLowerCase();
+
+  if (lower.match(/list|busca|encuentra|show|muestra.*asset/)) {
+    const typeMatch = text.match(/type[=: ]+(\w+)/i) || text.match(/(character|environment|prop)/i);
+    return { tool: 'fpt_find_assets', args: { asset_type: typeMatch?.[1] || null } };
+  }
+  if (lower.match(/imagen|image|referencia|ref|descarga.*asset/)) {
+    const idMatch = text.match(/(?:id[=: ]+|#)(\d+)/);
+    if (amiContext.entity_type === 'Asset' && !idMatch) {
+      return { tool: 'fpt_get_asset_image', args: { asset_id: amiContext.entity_id } };
+    }
+    if (idMatch) return { tool: 'fpt_get_asset_image', args: { asset_id: parseInt(idMatch[1]) } };
+  }
+  if (lower.match(/crea.*sequ?enc/)) {
+    const codeMatch = text.match(/code[=: ]+(\S+)/i) || text.match(/SEQ\w+/);
+    return { tool: 'fpt_create_sequence', args: { code: codeMatch?.[0] || 'SEQ010' } };
+  }
+  if (lower.match(/crea.*shot/)) {
+    const codeMatch = text.match(/SHOT\w+/) || text.match(/code[=: ]+(\S+)/i);
+    const seqMatch = text.match(/seq(?:uence)?[=: #]+(\d+)/i);
+    return { tool: 'fpt_create_shot', args: {
+      code: codeMatch?.[0] || 'SHOT010',
+      sequence_id: seqMatch ? parseInt(seqMatch[1]) : null
+    }};
+  }
+  if (lower.match(/publish|publica/)) {
+    if (lower.match(/busca|find|list|muestra/)) {
+      const idMatch = text.match(/(?:id[=: ]+|#)(\d+)/);
+      return { tool: 'fpt_find_published_files', args: {
+        entity_id: idMatch ? parseInt(idMatch[1]) : amiContext.entity_id
+      }};
+    }
+  }
+
+  return null;
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg(text, 'user');
+
+  const parsed = parseCommand(text);
+  if (!parsed) {
+    addMsg('No entendí el comando. Usa los chips de abajo o prueba: "lista assets", "crea sequence SEQ010", "busca publishes #123"', 'error');
+    return;
+  }
+  if (parsed.args && Object.values(parsed.args).some(v => v === null && parsed.tool !== 'fpt_find_assets')) {
+    addMsg(`Faltan parámetros. Tool: ${parsed.tool}, args: ${JSON.stringify(parsed.args)}`, 'error');
+    return;
+  }
+
+  const typing = addMsg('Procesando...', 'system typing');
+  try {
+    const result = await callTool(parsed.tool, parsed.args);
+    chat.removeChild(typing);
+    addMsg(result, 'system');
+  } catch (e) {
+    chat.removeChild(typing);
+    addMsg(`Error: ${e.message}`, 'error');
+  }
+}
+
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+// Check connection
+async function checkConnection() {
+  try {
+    const res = await fetch(`${MCP_URL}/mcp/v1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+    });
+    if (res.ok) {
+      statusDot.classList.add('connected');
+      addMsg('Conectado a FPT MCP Server. Escribe un comando o usa los chips.', 'system');
+    }
+  } catch {
+    statusDot.classList.remove('connected');
+    addMsg(`No se pudo conectar a ${MCP_URL}. Asegúrate de que el servidor HTTP esté corriendo: python -m fpt_mcp.server --http`, 'error');
+  }
+}
+checkConnection();
+</script>
+</body>
+</html>

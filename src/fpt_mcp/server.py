@@ -13,6 +13,7 @@ publish paths, ensuring compatibility with Toolkit loaders.
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 from mcp.server.fastmcp import FastMCP
@@ -309,8 +310,36 @@ async def fpt_find_published_files(params: FindPublishedFilesInput) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
-    """Run the FPT MCP server via stdio transport."""
-    mcp.run()
+    """Run the FPT MCP server.
+
+    Supports two transports:
+      - stdio (default): for Claude Desktop / Claude Code
+      - http: for inter-service communication (Maya, Flame, AMIs, scripts)
+
+    Usage:
+      python -m fpt_mcp.server                    # stdio (default)
+      python -m fpt_mcp.server --http              # HTTP on port 8090
+      python -m fpt_mcp.server --http --port 9000  # HTTP on custom port
+    """
+    parser = argparse.ArgumentParser(description="FPT MCP Server")
+    parser.add_argument(
+        "--http", action="store_true",
+        help="Run as HTTP server instead of stdio",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8090,
+        help="HTTP port (default: 8090)",
+    )
+    parser.add_argument(
+        "--host", type=str, default="127.0.0.1",
+        help="HTTP host (default: 127.0.0.1)",
+    )
+    args = parser.parse_args()
+
+    if args.http:
+        mcp.run(transport="streamable-http", host=args.host, port=args.port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

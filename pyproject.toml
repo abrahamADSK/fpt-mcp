@@ -19,3 +19,4 @@ dependencies = [
 
 [project.scripts]
 fpt-mcp = "fpt_mcp.server:main"
+fpt-ami = "fpt_mcp.ami.handler:main"
