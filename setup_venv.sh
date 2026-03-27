@@ -42,7 +42,7 @@ echo ""
 echo "[3/4] Installing launchd services..."
 
 FPT_PYTHON="$FPT_DIR/.venv/bin/python3"
-FPT_SRC="$FPT_DIR/src"
+FPT_WORKDIR="$FPT_DIR"
 
 # Unload existing services (ignore errors)
 launchctl unload "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" 2>/dev/null || true
@@ -68,7 +68,7 @@ cat > "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" <<PLIST
     </array>
 
     <key>WorkingDirectory</key>
-    <string>$FPT_SRC</string>
+    <string>$FPT_WORKDIR</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -102,7 +102,7 @@ cat > "$HOME/Library/LaunchAgents/$PLIST_LABEL_AMI.plist" <<PLIST
     </array>
 
     <key>WorkingDirectory</key>
-    <string>$FPT_SRC</string>
+    <string>$FPT_WORKDIR</string>
 
     <key>RunAtLoad</key>
     <true/>
