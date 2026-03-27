@@ -285,6 +285,37 @@ class ChatWindow(QMainWindow):
 
         self._input.setFocus()
 
+    # ---- Context update (for protocol handler late-arriving URLs) ----
+
+    def update_context(self, ctx: dict):
+        """Update the ShotGrid context after window creation.
+
+        Called by FPTApplication when a protocol URL arrives via Apple Event.
+        """
+        if ctx.get("entity_type"):
+            self._context["entity_type"] = ctx["entity_type"]
+        if ctx.get("entity_id"):
+            self._context["entity_id"] = ctx["entity_id"]
+        if ctx.get("project_id"):
+            self._context["project_id"] = ctx["project_id"]
+        if ctx.get("project_name"):
+            self._context["project_name"] = ctx["project_name"]
+        if ctx.get("user_login"):
+            self._context["user_login"] = ctx["user_login"]
+
+        # Update the badge
+        if self._context.get("entity_type") and self._context.get("entity_id"):
+            self._context_badge.setText(
+                f"{self._context['entity_type']} #{self._context['entity_id']}"
+            )
+            self._context_badge.setProperty("active", True)
+            self._context_badge.style().unpolish(self._context_badge)
+            self._context_badge.style().polish(self._context_badge)
+
+        # Bring window to front
+        self.raise_()
+        self.activateWindow()
+
     # ---- Chat logic ----
 
     def _append_bubble(self, html_content: str, role: str):
