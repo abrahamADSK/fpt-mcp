@@ -240,19 +240,26 @@ async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
 
     version = params.version
     if version is None:
-        version = await next_version_number(
-            params.entity_type, params.entity_code, params.step, params.publish_name
-        )
+        # Build the publish base path (without version) to scan existing versions
+        publish_base = resolve_publish_path(
+            project=project_name or "project",
+            entity_type=params.entity_type.lower(),
+            entity=params.entity_code,
+            step=params.step,
+            name=params.publish_name,
+            version=0,
+        ).parent  # go up from v000 to the name directory
+        version = next_version_number(publish_base)
 
     path = resolve_publish_path(
-        project_name=project_name or "project",
+        project=project_name or "project",
         entity_type=params.entity_type.lower(),
-        entity_code=params.entity_code,
+        entity=params.entity_code,
         step=params.step,
         name=params.publish_name,
         version=version,
     )
-    return json.dumps({"path": path, "version": version, "project": project_name})
+    return json.dumps({"path": str(path), "version": version, "project": project_name})
 
 
 @mcp.tool(name="tk_publish")
@@ -283,21 +290,27 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
     # Resolve version
     version = params.version_number
     if version is None:
-        version = await next_version_number(
-            params.entity_type, entity_code, params.task, params.publish_type,
-        )
+        publish_base = resolve_publish_path(
+            project=project_name,
+            entity_type=params.entity_type.lower(),
+            entity=entity_code,
+            step=params.task,
+            name=params.publish_type.replace(" ", "_").lower(),
+            version=0,
+        ).parent
+        version = next_version_number(publish_base)
 
     # Resolve path
     publish_path = params.local_path
     if not publish_path:
-        publish_path = resolve_publish_path(
-            project_name=project_name,
+        publish_path = str(resolve_publish_path(
+            project=project_name,
             entity_type=params.entity_type.lower(),
-            entity_code=entity_code,
+            entity=entity_code,
             step=params.task,
             name=params.publish_type.replace(" ", "_").lower(),
             version=version,
-        )
+        ))
 
     # Create the PublishedFile
     data: dict[str, Any] = {
