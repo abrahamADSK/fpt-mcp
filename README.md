@@ -197,9 +197,10 @@ User: "Download the reference image for Asset #1478 and generate a 3D model in M
 Claude:
   1. sg_find → get Asset #1478 details and linked Version with thumbnail
   2. sg_download → download the reference image to local disk
-  3. texture_mesh_remote → send image to GPU server, generate 3D mesh via Hunyuan3D-2
-  4. maya_execute_python → import the textured mesh into the Maya scene
-  5. sg_create → register a PublishedFile in ShotGrid with the new mesh path
+  3. shape_generate_remote → send image to GPU, generate mesh.glb via Hunyuan3D-2 DiT
+  4. texture_mesh_remote → paint texture on mesh.glb via Hunyuan3D-2 Paint
+  5. maya_execute_python → import the textured mesh into the Maya scene
+  6. sg_create → register a PublishedFile in ShotGrid with the new mesh path
 ```
 
 To enable this, add both servers to your `~/.claude/settings.json` (see the maya-mcp README for its configuration) and include permissions for both in `permissions.allow`.
