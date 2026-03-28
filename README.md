@@ -93,6 +93,7 @@ Features:
 - Dark theme matching ShotGrid aesthetic
 - Protocol handler (`fpt-mcp://`) for direct launch from ShotGrid AMIs
 - ShotGrid entity context passed automatically via URL params
+- Light Payload support (fetches full context from EventLogEntry API)
 - No HTTP server dependency — launches as a standalone app
 
 ### Launch
@@ -113,8 +114,13 @@ open "fpt-mcp://chat?entity_type=Asset&selected_ids=123&project_id=456"
 Admin → Action Menu Items → Add:
 - **Title**: FPT Console
 - **Entity types**: Asset, Shot, Sequence, Version, Task (or any)
-- **Light Payload**: Yes
-- **URL**: `fpt-mcp://chat?entity_type={entity_type}&selected_ids={selected_ids}&project_id={project_id}&project_name={project_name}&user_login={user_login}`
+- **URL**: `fpt-mcp://chat`
+
+ShotGrid automatically appends entity context parameters (`entity_type`, `selected_ids`, `project_id`, `project_name`, `user_login`) to custom protocol URLs. Do not add `{placeholder}` tokens — they are only substituted for `http://` and `https://` URLs.
+
+If **Light Payload** is enabled in the AMI configuration, ShotGrid sends only an `event_log_entry_id` instead of the full entity context. The Qt console detects this automatically and fetches the real entity context from the ShotGrid API via `EventLogEntry.meta.ami_payload`. This requires valid ShotGrid API credentials in `.env`.
+
+After changing an AMI URL in ShotGrid, you may need to hard-refresh the browser (Cmd+Shift+R) to clear the cached AMI configuration.
 
 When launched from an AMI, the entity context is displayed in the header badge and included in every message sent to Claude.
 
@@ -128,18 +134,21 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "fpt-mcp": {
-      "command": "python",
+      "command": "/path/to/fpt-mcp/.venv/bin/python",
       "args": ["-m", "fpt_mcp.server"],
-      "cwd": "/path/to/fpt-mcp/src",
+      "cwd": "/path/to/fpt-mcp",
       "env": {
         "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
         "SHOTGRID_SCRIPT_NAME": "your_script_name",
-        "SHOTGRID_SCRIPT_KEY": "your_key"
+        "SHOTGRID_SCRIPT_KEY": "your_key",
+        "SHOTGRID_PROJECT_ID": "123"
       }
     }
   }
 }
 ```
+
+The `cwd` field is required so the server can find the `.env` file and resolve relative paths correctly.
 
 ### Claude Code
 
@@ -147,27 +156,61 @@ Add to `~/.claude/settings.json`:
 
 ```json
 {
+  "permissions": {
+    "allow": [
+      "mcp__fpt-mcp__sg_find",
+      "mcp__fpt-mcp__sg_create",
+      "mcp__fpt-mcp__sg_update",
+      "mcp__fpt-mcp__sg_delete",
+      "mcp__fpt-mcp__sg_schema",
+      "mcp__fpt-mcp__sg_upload",
+      "mcp__fpt-mcp__sg_download",
+      "mcp__fpt-mcp__tk_resolve_path",
+      "mcp__fpt-mcp__tk_publish"
+    ]
+  },
   "mcpServers": {
     "fpt-mcp": {
-      "command": "python",
+      "command": "/path/to/fpt-mcp/.venv/bin/python",
       "args": ["-m", "fpt_mcp.server"],
-      "cwd": "/path/to/fpt-mcp/src",
+      "cwd": "/path/to/fpt-mcp",
       "env": {
         "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
         "SHOTGRID_SCRIPT_NAME": "your_script_name",
-        "SHOTGRID_SCRIPT_KEY": "your_key"
+        "SHOTGRID_SCRIPT_KEY": "your_key",
+        "SHOTGRID_PROJECT_ID": "123"
       }
     }
   }
 }
 ```
 
+The `permissions.allow` list auto-approves all fpt-mcp tools so Claude Code (and the Qt console, which uses Claude Code CLI internally) can call them without manual confirmation each time.
+
+## Cross-MCP pipeline (fpt-mcp + maya-mcp)
+
+When both fpt-mcp and maya-mcp are configured in Claude Code or Claude Desktop, Claude can orchestrate cross-tool workflows in a single conversation. For example:
+
+```
+User: "Download the reference image for Asset #1478 and generate a 3D model in Maya"
+
+Claude:
+  1. sg_find → get Asset #1478 details and linked Version with thumbnail
+  2. sg_download → download the reference image to local disk
+  3. texture_mesh_remote → send image to GPU server, generate 3D mesh via Hunyuan3D-2
+  4. maya_execute_python → import the textured mesh into the Maya scene
+  5. sg_create → register a PublishedFile in ShotGrid with the new mesh path
+```
+
+To enable this, add both servers to your `~/.claude/settings.json` (see the maya-mcp README for its configuration) and include permissions for both in `permissions.allow`.
+
 ## Autostart with launchd (macOS)
 
 The `setup_venv.sh` script automatically:
 1. Creates the venv and installs dependencies
-2. Generates and installs the MCP server launchd plist
+2. Generates and installs the MCP server launchd plist (HTTP mode on port 8090)
 3. Builds the Qt console .app bundle with protocol handler registration
+4. Registers the protocol handler with macOS Launch Services
 
 Run it once:
 
@@ -181,19 +224,22 @@ Manage the MCP server:
 - `launchctl unload ~/Library/LaunchAgents/com.fpt-mcp.server.plist` — uninstall
 
 Logs: `/tmp/fpt-mcp.log` and `/tmp/fpt-mcp.err`
+Qt console logs: `/tmp/fpt-console.log`
 
 ## Architecture
 
 ```
 ShotGrid AMI click
-    → fpt-mcp://chat?entity_type=Shot&selected_ids=123
-    → macOS opens FPT-MCP Console.app (protocol handler)
-    → Qt chat window with entity context
+    → fpt-mcp://chat  (macOS appends entity params automatically)
+    → macOS opens FPT-MCP Console.app (protocol handler via Apple Events)
+    → QFileOpenEvent delivers the URL to the Qt app
+    → If Light Payload: fetch real context from EventLogEntry API
+    → Qt chat window with entity context badge
     → User types natural language
-    → Claude Code CLI (claude -p "message")
+    → Claude Code CLI (claude -p "message" --output-format text)
     → Claude calls fpt-mcp tools via MCP (stdio)
     → ShotGrid API response
-    → Formatted in Qt chat window
+    → Markdown rendered in Qt chat window
 ```
 
 ## Requirements
