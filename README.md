@@ -152,7 +152,34 @@ The `cwd` field is required so the server can find the `.env` file and resolve r
 
 ### Claude Code
 
-Add to `~/.claude/settings.json`:
+Claude Code uses **two separate files** for MCP configuration:
+
+**1. MCP server definitions** — `~/.claude.json` (note: file in home dir, not inside `~/.claude/`):
+
+```bash
+# Add the server via CLI (recommended):
+claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com -e SHOTGRID_SCRIPT_NAME=your_script_name -e SHOTGRID_SCRIPT_KEY=your_key -- /path/to/fpt-mcp/.venv/bin/python -m fpt_mcp.server
+
+# Or edit ~/.claude.json manually:
+```
+
+```json
+{
+  "mcpServers": {
+    "fpt-mcp": {
+      "command": "/path/to/fpt-mcp/.venv/bin/python",
+      "args": ["-m", "fpt_mcp.server"],
+      "env": {
+        "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
+        "SHOTGRID_SCRIPT_NAME": "your_script_name",
+        "SHOTGRID_SCRIPT_KEY": "your_key"
+      }
+    }
+  }
+}
+```
+
+**2. Tool permissions** — `~/.claude/settings.json`:
 
 ```json
 {
@@ -168,22 +195,11 @@ Add to `~/.claude/settings.json`:
       "mcp__fpt-mcp__tk_resolve_path",
       "mcp__fpt-mcp__tk_publish"
     ]
-  },
-  "mcpServers": {
-    "fpt-mcp": {
-      "command": "/path/to/fpt-mcp/.venv/bin/python",
-      "args": ["-m", "fpt_mcp.server"],
-      "cwd": "/path/to/fpt-mcp",
-      "env": {
-        "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
-        "SHOTGRID_SCRIPT_NAME": "your_script_name",
-        "SHOTGRID_SCRIPT_KEY": "your_key",
-        "SHOTGRID_PROJECT_ID": "123"
-      }
-    }
   }
 }
 ```
+
+> **Important:** `mcpServers` must be in `~/.claude.json`, NOT in `~/.claude/settings.json`. The `settings.json` file is only for permissions and other settings. If you put `mcpServers` in the wrong file, `claude mcp list` will not show the server.
 
 The `permissions.allow` list auto-approves all fpt-mcp tools so Claude Code (and the Qt console, which uses Claude Code CLI internally) can call them without manual confirmation each time.
 

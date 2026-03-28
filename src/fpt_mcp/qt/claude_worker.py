@@ -45,35 +45,50 @@ sg_upload, sg_download, tk_resolve_path, tk_publish
 2. **maya-mcp** — Maya + GPU: maya_launch, maya_ping, maya_create_primitive, \
 maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, \
 maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera, \
-shape_generate_remote, texture_mesh_remote
+shape_generate_remote, shape_generate_text, texture_mesh_remote
 
 DECIDE QUÉ HERRAMIENTAS USAR SEGÚN EL PEDIDO:
 
-A) "Crea el modelo del asset / genera la geometría del personaje" → PIPELINE IMAGEN→3D:
-   El asset tiene imagen de referencia en ShotGrid. Usa este flujo:
+Cuando el usuario pida crear un objeto 3D (prop, asset, modelo), SIEMPRE pregúntale primero:
+
+  "¿Cómo prefieres que lo cree?
+   1. **IA generativa** — text-to-3D o image-to-3D en el servidor GPU (~3-8 min, resultado \
+detallado y orgánico)
+   2. **Modelado directo** — primitivas y operaciones en Maya (rápido, resultado geométrico/low-poly)
+   3. **Decide tú** — elige la mejor opción según el caso"
+
+Luego sigue el flujo correspondiente:
+
+A) PIPELINE IMAGEN→3D (el asset tiene imagen de referencia en ShotGrid):
    1. sg_find → buscar el Asset y sus Versions con thumbnail/imagen
    2. sg_download → descargar la imagen de referencia a disco local
    3. shape_generate_remote → enviar imagen al servidor GPU, genera mesh.glb (~3-8 min)
    4. texture_mesh_remote → pintar textura sobre mesh.glb (~3-5 min)
    5. maya_execute_python → importar el mesh texturizado en la escena de Maya
 
-B) "Crea un buzón / una mesa / un prop en Maya" → MODELADO DIRECTO EN MAYA:
-   No hay imagen de referencia. Construye el objeto directamente con herramientas Maya:
+B) PIPELINE TEXT→3D (sin imagen de referencia, el usuario describe el objeto):
+   1. shape_generate_text → enviar prompt de texto al servidor GPU, genera mesh.glb (~3-8 min)
+   2. texture_mesh_remote → pintar textura (si hay imagen), o dejar sin textura
+   3. maya_execute_python → importar el mesh en la escena de Maya
+
+C) MODELADO DIRECTO EN MAYA (rápido, geométrico):
    - maya_create_primitive → cubos, esferas, cilindros como base
    - maya_transform → posicionar, escalar, rotar piezas
    - maya_assign_material → colores y materiales
    - maya_execute_python → operaciones avanzadas (booleans, extrude, bevel, combinar meshes)
    - maya_create_light + maya_create_camera → iluminación y cámara si pide render
 
-C) "Busca / consulta / actualiza en ShotGrid" → SOLO fpt-mcp:
+D) "Busca / consulta / actualiza en ShotGrid" → SOLO fpt-mcp:
    sg_find, sg_update, sg_create, sg_schema, etc.
 
-D) "Publica / registra el archivo" → TOOLKIT:
+E) "Publica / registra el archivo" → TOOLKIT:
    tk_resolve_path + tk_publish + sg_update (estado de tarea)
 
 REGLAS:
 - Usa SIEMPRE las herramientas MCP para ejecutar acciones. NUNCA le digas al usuario \
 que lo haga manualmente si puedes hacerlo tú con las herramientas disponibles.
+- SIEMPRE pregunta al usuario cómo prefiere crear el objeto 3D ANTES de empezar.
+- Para text-to-3D, usa prompts en inglés para mejores resultados (traduce internamente).
 - Para modelado directo en Maya, usa maya_execute_python con código Python de Maya \
 (cmds.polyExtrudeFacet, cmds.polyBevel, cmds.polyUnite, etc.) para formas complejas.
 - Si Maya no responde al ping, usa maya_launch para abrirlo automáticamente. \
@@ -112,7 +127,8 @@ class ClaudeWorker(QThread):
         "sg_download": "Descargando desde ShotGrid",
         "tk_resolve_path": "Resolviendo ruta Toolkit",
         "tk_publish": "Publicando en ShotGrid",
-        "shape_generate_remote": "Generando geometría 3D en GPU remota",
+        "shape_generate_remote": "Generando geometría 3D desde imagen (GPU remota)",
+        "shape_generate_text": "Generando geometría 3D desde texto (GPU remota)",
         "texture_mesh_remote": "Texturizando mesh en GPU remota",
         "maya_ping": "Verificando conexión con Maya",
         "maya_launch": "Abriendo Maya",
