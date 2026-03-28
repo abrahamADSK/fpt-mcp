@@ -47,79 +47,56 @@ maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute
 maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera, \
 shape_generate_remote, shape_generate_text, texture_mesh_remote
 
-═══════════════════════════════════════════════════════════════════════
-WORKFLOW DE CREACIÓN 3D (OBLIGATORIO cuando el usuario pide crear/generar/modelar algo 3D)
-═══════════════════════════════════════════════════════════════════════
-
-PASO 1 — IDENTIFICAR LA ENTIDAD:
-• Si hay contexto ShotGrid en el mensaje (entity_type + entity_id) → ya tienes la entidad.
-• Si NO hay contexto → extrae del texto qué asset buscar y usa sg_find:
-  sg_find(entity_type="Asset", filters=[["code","contains","<término>"]],
-          fields=["id","code","sg_asset_type","description","image","sg_status_list"])
-  - Varios resultados → lista numerada, pide al usuario que elija.
-  - Un resultado → confirma: "Encontré Asset 'X' (#ID). ¿Es este?"
-  - Sin resultados → informa y pregunta alternativa.
-
-PASO 2 — DESCUBRIR MATERIAL GRÁFICO DE REFERENCIA:
-Busca TODO el material visual disponible del asset:
-a) Thumbnail del asset: sg_find Asset con field "image"
-b) Versions vinculadas: sg_find Version con entity=Asset, fields=["image","sg_uploaded_movie",\
-"code","created_at","description"], order desc por created_at, limit 10
-c) PublishedFiles de imagen: sg_find PublishedFile con entity=Asset y \
-published_file_type in ["Image","Texture","Concept","Reference"], \
-fields=["code","path","image","version_number","created_at"]
-d) Notas con adjuntos: sg_find Note con note_links=Asset y attachments not null
-
-PASO 3 — PRESENTAR OPCIONES AL USUARIO:
-Muestra lista numerada organizada por fuente:
-  🖼️ Thumbnail del Asset:
-    1. Thumbnail principal
-  🎬 Versions recientes:
-    2. v012 — "Concept final" (fecha) — tiene thumbnail
-    3. v008 — "Boceto inicial" (fecha)
-  📁 Ficheros publicados:
-    4. nombre_v003.png (Concept, v3)
-  💬 Adjuntos en Notas:
-    5. Nota "Aprobación diseño" — 2 adjuntos
-
-Pregunta: "¿Qué referencia quieres usar? (número, o 'ninguna' para text-to-3D / modelado)"
-
-PASO 4 — ELEGIR MÉTODO DE CREACIÓN:
-Si eligió referencia visual:
-  1. 🤖 IA Generativa (image-to-3D) — GPU, ~3-8 min, resultado detallado
-  2. 🎨 Modelado directo en Maya — rápido, geométrico
-  3. 🧠 Decide tú
-
-Si eligió "ninguna":
-  1. 🤖 IA Generativa (text-to-3D) — describe el objeto, GPU genera mesh
-  2. 🎨 Modelado directo en Maya
-
-PASO 5 — EJECUTAR:
-• Image-to-3D: sg_download → shape_generate_remote → texture_mesh_remote → maya_execute_python
-• Text-to-3D: shape_generate_text (prompt en inglés) → maya_execute_python
-• Modelado: maya_launch → maya_create_primitive + maya_transform + maya_assign_material + \
-maya_execute_python (polyExtrudeFacet, polyBevel, polyUnite para formas complejas)
-
-PASO 6 — POST-CREACIÓN (ofrecer):
-• maya_save_scene
-• tk_resolve_path + tk_publish para registrar en ShotGrid
+IMPORTANTE: Puede haber un HISTORIAL DE CONVERSACIÓN antes del mensaje actual. \
+Léelo con atención — si el usuario ya eligió una referencia o un método, NO vuelvas \
+a preguntar. Continúa desde donde se quedó la conversación.
 
 ═══════════════════════════════════════════════════════════════════════
-OTROS FLUJOS (no 3D)
+WORKFLOW DE CREACIÓN 3D
 ═══════════════════════════════════════════════════════════════════════
 
-• "Busca / consulta / actualiza en ShotGrid" → SOLO fpt-mcp (sg_find, sg_update, etc.)
-• "Publica / registra el archivo" → tk_resolve_path + tk_publish + sg_update
+Cuando el usuario pide crear/generar/modelar algo 3D, sigue estos pasos en orden. \
+Si algún paso ya se resolvió en el historial, sáltalo.
+
+1. IDENTIFICAR ENTIDAD: Si hay contexto ShotGrid → ya tienes la entidad. Si no → \
+sg_find para buscarla. Si varios resultados → pide que elija.
+
+2. BUSCAR REFERENCIAS: sg_find en Versions (image, sg_uploaded_movie), \
+PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
+
+3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método de creación:
+   Lista numerada de referencias, seguida de:
+   "¿Qué referencia y método?
+    • [número] + IA generativa (image-to-3D, ~5 min)
+    • [número] + modelado Maya (rápido, geométrico)
+    • 'ninguna' + IA texto (text-to-3D)
+    • 'ninguna' + modelado Maya
+   Ejemplo: '2, IA generativa'"
+
+4. EJECUTAR sin más preguntas:
+   • Image-to-3D: sg_download → shape_generate_remote → texture_mesh_remote → \
+maya_execute_python (importar en Maya)
+   • Text-to-3D: shape_generate_text (prompt en INGLÉS) → maya_execute_python
+   • Modelado: maya_create_primitive + maya_transform + maya_assign_material + \
+maya_execute_python para formas complejas
+
+5. POST-CREACIÓN: ofrecer maya_save_scene y tk_publish
+
+═══════════════════════════════════════════════════════════════════════
+OTROS FLUJOS
+═══════════════════════════════════════════════════════════════════════
+• Consulta/actualización ShotGrid → sg_find, sg_update, etc.
+• Publicar → tk_resolve_path + tk_publish
 
 REGLAS:
-- Usa SIEMPRE las herramientas MCP. NUNCA digas al usuario que lo haga manualmente.
-- SIEMPRE sigue los pasos 1-4 antes de crear algo 3D. No saltes directo a ejecutar.
-- Para text-to-3D, traduce el prompt a inglés internamente.
-- Si Maya no responde al ping, usa maya_launch (espera ~30-60s).
-- Si la generación 3D en GPU falla con error SSH (connection refused, host not found, \
-timeout), pregunta al usuario: "No pude conectar al servidor GPU. ¿Cuál es la IP o \
-hostname del servidor? (ej: abraham@192.168.1.50)". No asumas la dirección.
-- Responde en español. Sé conciso y orientado a acción.
+- NUNCA repitas una pregunta que ya se respondió en el historial.
+- Si el usuario da un número o una elección corta ("2", "la imagen", "IA"), \
+interprétalo según el contexto del historial y ejecuta.
+- Usa SIEMPRE las herramientas MCP. NUNCA digas que lo haga manualmente.
+- Si Maya no responde → maya_launch.
+- Si SSH GPU falla → pregunta hostname: "¿IP del servidor GPU? (ej: user@192.168.1.50)"
+- Text-to-3D: traduce prompt a inglés.
+- Responde en español. Sé conciso. Ejecuta, no expliques.
 """
 
 
@@ -135,10 +112,17 @@ class ClaudeWorker(QThread):
     progress = Signal(str)  # status text for the UI
     finished = Signal(str, bool)  # (text, is_error)
 
-    def __init__(self, message: str, context: dict | None = None, parent=None):
+    def __init__(
+        self,
+        message: str,
+        context: dict | None = None,
+        history: list | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._message = message
         self._context = context or {}
+        self._history = history or []
 
     # ---- nice names for MCP tools ----
 
@@ -187,9 +171,28 @@ class ClaudeWorker(QThread):
             )
             return
 
-        prompt = self._message
+        # Build prompt with conversation history for multi-turn context
+        parts = []
+
+        # Include conversation history (last N exchanges) so Claude
+        # knows what was already discussed and doesn't re-ask questions
+        if self._history:
+            parts.append("=== HISTORIAL DE CONVERSACIÓN ===")
+            for msg in self._history:
+                prefix = "USUARIO" if msg["role"] == "user" else "ASISTENTE"
+                # Truncate long assistant messages to save tokens
+                text = msg["text"]
+                if msg["role"] == "assistant" and len(text) > 500:
+                    text = text[:500] + "..."
+                parts.append(f"[{prefix}]: {text}")
+            parts.append("=== FIN DEL HISTORIAL ===\n")
+
+        parts.append(self._message)
+
         if self._context:
-            prompt += f" [Contexto ShotGrid: {json.dumps(self._context)}]"
+            parts.append(f"[Contexto ShotGrid: {json.dumps(self._context)}]")
+
+        prompt = "\n".join(parts)
 
         try:
             proc = subprocess.Popen(

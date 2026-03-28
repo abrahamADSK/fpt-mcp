@@ -198,6 +198,7 @@ class ChatWindow(QMainWindow):
         user_login: str | None = None,
     ):
         super().__init__()
+        self._history: list = []
         self._context: dict = {}
         if entity_type and entity_id:
             self._context["entity_type"] = entity_type
@@ -316,6 +317,10 @@ class ChatWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    # ---- Conversation history (passed to Claude for multi-turn context) ----
+
+    _history: list  # list of {"role": "user"|"assistant", "text": str}
+
     # ---- Chat logic ----
 
     def _append_bubble(self, html_content: str, role: str):
@@ -346,11 +351,16 @@ class ChatWindow(QMainWindow):
         self._send_btn.setEnabled(False)
         self._append_bubble(html.escape(text), "user")
 
+        # Record user message in history
+        self._history.append({"role": "user", "text": text})
+
         # Status bubble that will be updated with progress events
         self._status_id = self._chat.document().blockCount()
         self._append_bubble("<i>Pensando...</i>", "thinking")
 
-        self._worker = ClaudeWorker(text, self._context, parent=self)
+        self._worker = ClaudeWorker(
+            text, self._context, history=self._history[:-1], parent=self
+        )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_response)
         self._worker.start()
@@ -391,4 +401,11 @@ class ChatWindow(QMainWindow):
         self._update_last_bubble(_md_to_html(text), role)
         self._send_btn.setEnabled(True)
         self._input.setFocus()
+
+        # Record assistant response in history (keep last 10 exchanges max)
+        if not is_error:
+            self._history.append({"role": "assistant", "text": text})
+        if len(self._history) > 20:
+            self._history = self._history[-20:]
+
         self._worker = None
