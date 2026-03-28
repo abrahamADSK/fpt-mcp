@@ -142,12 +142,26 @@ async def sg_upload_thumbnail(
 
 
 async def sg_download_attachment(
-    attachment: dict[str, Any],
+    attachment: dict[str, Any] | str,
     file_path: str,
 ) -> str:
-    """Async wrapper around sg.download_attachment(). Returns the written path."""
-    sg = get_sg()
-    await asyncio.to_thread(sg.download_attachment, attachment, file_path=file_path)
+    """Download an attachment or thumbnail URL from ShotGrid.
+
+    Handles two cases:
+    - dict attachment (e.g. from 'sg_uploaded_movie'): uses sg.download_attachment()
+    - str URL (e.g. from 'image' thumbnail field): downloads via HTTP directly
+    """
+    import pathlib
+    pathlib.Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if isinstance(attachment, str) and attachment.startswith("http"):
+        # Thumbnail URL — download directly
+        import urllib.request
+        await asyncio.to_thread(urllib.request.urlretrieve, attachment, file_path)
+    else:
+        # Standard attachment dict
+        sg = get_sg()
+        await asyncio.to_thread(sg.download_attachment, attachment, file_path=file_path)
     return file_path
 
 

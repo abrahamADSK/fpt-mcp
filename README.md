@@ -219,7 +219,7 @@ Claude:
   6. sg_create → register a PublishedFile in ShotGrid with the new mesh path
 ```
 
-To enable this, add both servers to your `~/.claude/settings.json` (see the maya-mcp README for its configuration) and include permissions for both in `permissions.allow`.
+To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Note that `GPU_SSH_HOST` in the maya-mcp env should be an SSH alias from `~/.ssh/config`, not a raw hostname.
 
 ## Autostart with launchd (macOS)
 
