@@ -345,22 +345,50 @@ class ChatWindow(QMainWindow):
         self._input.clear()
         self._send_btn.setEnabled(False)
         self._append_bubble(html.escape(text), "user")
+
+        # Status bubble that will be updated with progress events
+        self._status_id = self._chat.document().blockCount()
         self._append_bubble("<i>Pensando...</i>", "thinking")
 
         self._worker = ClaudeWorker(text, self._context, parent=self)
+        self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_response)
         self._worker.start()
 
-    def _on_response(self, text: str, is_error: bool):
-        # Remove the "Pensando..." bubble (last added)
+    def _on_progress(self, status: str):
+        """Update the thinking bubble with current operation status."""
+        self._update_last_bubble(f"<i>{html.escape(status)}</i>", "thinking")
+
+    def _update_last_bubble(self, html_content: str, role: str):
+        """Replace the last bubble in the chat with new content."""
+        colors = {
+            "user":      ("text-align:right;", "#0f3460", "#e0e0e0"),
+            "assistant": ("text-align:left;",  "#1e293b", "#cbd5e1"),
+            "error":     ("text-align:left;",  "#7f1d1d", "#fca5a5"),
+            "thinking":  ("text-align:left;",  "#1e293b", "#64748b"),
+        }
+        align, bg, fg = colors.get(role, colors["assistant"])
+        bubble = (
+            f'<div style="{align}margin:6px 4px;">'
+            f'<div style="display:inline-block;background:{bg};color:{fg};'
+            f'padding:10px 14px;border-radius:12px;max-width:85%;'
+            f'text-align:left;font-size:14px;line-height:1.6;">'
+            f'{html_content}'
+            f'</div></div>'
+        )
+        # Remove last block and append updated one
         cursor = self._chat.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
+        cursor.movePosition(cursor.MoveOperation.StartOfBlock, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.deletePreviousChar()  # remove trailing newline
         self._chat.setTextCursor(cursor)
+        self._chat.append(bubble)
 
-        # Clear and re-render: simpler than removing last element
-        # We keep the thinking bubble — it scrolls naturally
+    def _on_response(self, text: str, is_error: bool):
         role = "error" if is_error else "assistant"
-        self._append_bubble(_md_to_html(text), role)
+        # Replace the thinking/status bubble with the final response
+        self._update_last_bubble(_md_to_html(text), role)
         self._send_btn.setEnabled(True)
         self._input.setFocus()
         self._worker = None
