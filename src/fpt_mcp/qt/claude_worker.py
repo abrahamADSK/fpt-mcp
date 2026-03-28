@@ -36,10 +36,56 @@ CLAUDE_BIN = _find_claude()
 # Max time for a single invocation (shape gen can take ~15 min)
 TIMEOUT_SECONDS = 900
 
+# System prompt that tells Claude Code about the cross-MCP pipeline
+SYSTEM_PROMPT = """\
+Eres un asistente VFX integrado en ShotGrid via MCP. Tienes acceso a dos servidores MCP:
+
+1. **fpt-mcp** — ShotGrid API: sg_find, sg_create, sg_update, sg_delete, sg_schema, \
+sg_upload, sg_download, tk_resolve_path, tk_publish
+2. **maya-mcp** — Maya + GPU: maya_launch, maya_ping, maya_create_primitive, \
+maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, \
+maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera, \
+shape_generate_remote, texture_mesh_remote
+
+DECIDE QUÉ HERRAMIENTAS USAR SEGÚN EL PEDIDO:
+
+A) "Crea el modelo del asset / genera la geometría del personaje" → PIPELINE IMAGEN→3D:
+   El asset tiene imagen de referencia en ShotGrid. Usa este flujo:
+   1. sg_find → buscar el Asset y sus Versions con thumbnail/imagen
+   2. sg_download → descargar la imagen de referencia a disco local
+   3. shape_generate_remote → enviar imagen al servidor GPU, genera mesh.glb (~3-8 min)
+   4. texture_mesh_remote → pintar textura sobre mesh.glb (~3-5 min)
+   5. maya_execute_python → importar el mesh texturizado en la escena de Maya
+
+B) "Crea un buzón / una mesa / un prop en Maya" → MODELADO DIRECTO EN MAYA:
+   No hay imagen de referencia. Construye el objeto directamente con herramientas Maya:
+   - maya_create_primitive → cubos, esferas, cilindros como base
+   - maya_transform → posicionar, escalar, rotar piezas
+   - maya_assign_material → colores y materiales
+   - maya_execute_python → operaciones avanzadas (booleans, extrude, bevel, combinar meshes)
+   - maya_create_light + maya_create_camera → iluminación y cámara si pide render
+
+C) "Busca / consulta / actualiza en ShotGrid" → SOLO fpt-mcp:
+   sg_find, sg_update, sg_create, sg_schema, etc.
+
+D) "Publica / registra el archivo" → TOOLKIT:
+   tk_resolve_path + tk_publish + sg_update (estado de tarea)
+
+REGLAS:
+- Usa SIEMPRE las herramientas MCP para ejecutar acciones. NUNCA le digas al usuario \
+que lo haga manualmente si puedes hacerlo tú con las herramientas disponibles.
+- Para modelado directo en Maya, usa maya_execute_python con código Python de Maya \
+(cmds.polyExtrudeFacet, cmds.polyBevel, cmds.polyUnite, etc.) para formas complejas.
+- Si Maya no responde al ping, usa maya_launch para abrirlo automáticamente. \
+maya_launch espera hasta que el Command Port esté listo (~30-60s).
+- Responde en español.
+- Sé conciso y orientado a acción. Ejecuta, no expliques.
+"""
+
 
 class ClaudeWorker(QThread):
-    """Runs ``claude -p "prompt" --output-format stream-json`` and emits
-    progress events plus the final result.
+    """Runs ``claude -p "prompt" --output-format stream-json --verbose``
+    and emits progress events plus the final result.
 
     Signals:
         progress(str)          — status updates ("Llamando sg_find...", etc.)
@@ -69,6 +115,7 @@ class ClaudeWorker(QThread):
         "shape_generate_remote": "Generando geometría 3D en GPU remota",
         "texture_mesh_remote": "Texturizando mesh en GPU remota",
         "maya_ping": "Verificando conexión con Maya",
+        "maya_launch": "Abriendo Maya",
         "maya_create_primitive": "Creando primitiva en Maya",
         "maya_assign_material": "Asignando material en Maya",
         "maya_transform": "Transformando objeto en Maya",
@@ -81,7 +128,6 @@ class ClaudeWorker(QThread):
 
     def _label_for_tool(self, tool_name: str) -> str:
         """Return a human-friendly label for an MCP tool name."""
-        # Strip mcp__server__ prefix if present
         short = tool_name
         for prefix in ("mcp__fpt-mcp__", "mcp__maya-mcp__"):
             if tool_name.startswith(prefix):
@@ -106,17 +152,26 @@ class ClaudeWorker(QThread):
 
         try:
             proc = subprocess.Popen(
-                [CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json"],
+                [CLAUDE_BIN, "-p", prompt,
+                 "--output-format", "stream-json", "--verbose",
+                 "--append-system-prompt", SYSTEM_PROMPT],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                bufsize=1,  # line-buffered
                 text=True,
                 env={**os.environ, "CLAUDE_NO_TELEMETRY": "1"},
             )
 
             text_parts: list[str] = []
             active_tools: dict[int, str] = {}  # index → tool_name
+            result_text = ""
 
-            for line in proc.stdout:
+            # readline() is unbuffered per-line, unlike iterating proc.stdout
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    # Process ended or pipe closed
+                    break
                 line = line.strip()
                 if not line:
                     continue
@@ -124,6 +179,8 @@ class ClaudeWorker(QThread):
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
+                    # Not JSON — might be raw text output
+                    text_parts.append(line)
                     continue
 
                 ev_type = event.get("type", "")
@@ -138,7 +195,7 @@ class ClaudeWorker(QThread):
                         label = self._label_for_tool(tool_name)
                         self.progress.emit(f"{label}...")
 
-                # ── Text chunk ────────────────────────────────────────
+                # ── Text chunk (API streaming format) ─────────────────
                 elif ev_type == "content_block_delta":
                     delta = event.get("delta", {})
                     if delta.get("type") == "text_delta":
@@ -150,7 +207,6 @@ class ClaudeWorker(QThread):
                     if idx in active_tools:
                         del active_tools[idx]
                         if active_tools:
-                            # Still running other tools
                             remaining = list(active_tools.values())
                             self.progress.emit(
                                 f"{self._label_for_tool(remaining[0])}..."
@@ -158,17 +214,32 @@ class ClaudeWorker(QThread):
                         else:
                             self.progress.emit("Procesando respuesta...")
 
-                # ── Result event (Claude Code CLI specific) ───────────
+                # ── Result event (Claude Code CLI wraps final text) ───
                 elif ev_type == "result":
-                    result_text = event.get("result", "")
-                    if result_text:
-                        text_parts.append(result_text)
+                    # Claude Code CLI emits {"type":"result","result":"..."}
+                    r = event.get("result", "")
+                    if r:
+                        result_text = r
+
+                # ── Message event with content (alternative format) ───
+                elif ev_type == "message":
+                    content = event.get("content", [])
+                    for block in content:
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+
+                # ── Assistant text event (another CLI variant) ────────
+                elif ev_type == "assistant":
+                    msg = event.get("message", event.get("text", ""))
+                    if msg:
+                        text_parts.append(msg)
 
             proc.wait(timeout=TIMEOUT_SECONDS)
 
-            response = "".join(text_parts).strip()
+            # Prefer result_text if available, else join text parts
+            response = result_text or "".join(text_parts).strip()
 
-            # Fallback: if stream-json gave no text, try stderr
+            # Fallback: if stream gave nothing, try stderr
             if not response:
                 stderr_out = proc.stderr.read().strip()
                 if stderr_out:
