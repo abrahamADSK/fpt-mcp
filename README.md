@@ -213,13 +213,14 @@ User: "Download the reference image for Asset #1478 and generate a 3D model in M
 Claude:
   1. sg_find → get Asset #1478 details and linked Version with thumbnail
   2. sg_download → download the reference image to local disk
-  3. shape_generate_remote → send image to GPU, generate mesh.glb via Hunyuan3D-2 DiT
-  4. texture_mesh_remote → paint texture on mesh.glb via Hunyuan3D-2 Paint
-  5. maya_execute_python → import the textured mesh into the Maya scene
-  6. sg_create → register a PublishedFile in ShotGrid with the new mesh path
+  3. shape_generate_remote(preset='high') → start Vision3D job, get job_id
+  4. vision3d_poll(job_id) → repeat until completed (shows real-time progress)
+  5. vision3d_download(job_id) → download textured.glb, mesh_uv.obj, texture_baked.png
+  6. maya_execute_python → import the textured mesh into the Maya scene
+  7. tk_publish → register a PublishedFile in ShotGrid with the new mesh path
 ```
 
-To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Note that `GPU_SSH_HOST` in the maya-mcp env should be an SSH alias from `~/.ssh/config`, not a raw hostname.
+To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Make sure to include `vision3d_poll` and `vision3d_download` in the maya-mcp permissions.
 
 ## Autostart with launchd (macOS)
 

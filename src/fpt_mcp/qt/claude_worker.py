@@ -67,21 +67,28 @@ sg_find para buscarla. Si varios resultados → pide que elija.
 PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
 
 3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método + calidad:
-   Lista numerada de referencias, seguida de:
-   "¿Qué referencia y método?
+   Lista numerada de referencias, seguida de EXACTAMENTE este bloque (cópialo tal cual):
+
+   "¿Qué referencia, método y calidad?
+
+   Método:
     • [número] + IA generativa (image-to-3D)
     • [número] + modelado Maya (rápido, geométrico)
     • 'ninguna' + IA texto (text-to-3D)
     • 'ninguna' + modelado Maya
 
-   Calidad IA (de más rápido a más detalle):
-    • low    — turbo, octree 256, 10 steps, 10k faces  (~1 min)
-    • medium — turbo, octree 384, 20 steps, 50k faces  (~2 min)
-    • high   — full,  octree 384, 30 steps, 150k faces (~8 min)
-    • ultra  — full,  octree 512, 50 steps, sin límite  (~12 min)
-   (por defecto: medium)
+   Calidad IA (incluye modelo, octree, steps y faces):
+    • low    — modelo turbo, octree 256, 10 steps, 10k faces  (~1 min)
+    • medium — modelo turbo, octree 384, 20 steps, 50k faces  (~2 min) ← default
+    • high   — modelo full,  octree 384, 30 steps, 150k faces (~8 min)
+    • ultra  — modelo full,  octree 512, 50 steps, sin límite  (~12 min)
+   También puedes personalizar: '1, IA generativa, low con modelo full'
+   o '2, IA generativa, octree 512, 30 steps, 100k faces'
 
    Ejemplo: '2, IA generativa, high'"
+
+   OBLIGATORIO: mostrar SIEMPRE el bloque de calidad con modelo, octree, steps y faces. \
+No resumir ni simplificar — el usuario necesita ver los parámetros técnicos.
 
 4. EJECUTAR — flujo granular Vision3D (IMPORTANTE — seguir este orden exacto):
 
