@@ -64,21 +64,26 @@ sg_find para buscarla. Si varios resultados → pide que elija.
 2. BUSCAR REFERENCIAS: sg_find en Versions (image, sg_uploaded_movie), \
 PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
 
-3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método de creación:
+3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método + calidad:
    Lista numerada de referencias, seguida de:
-   "¿Qué referencia y método?
-    • [número] + IA generativa (image-to-3D, ~5 min)
+   "¿Qué referencia, método y calidad?
+    • [número] + IA generativa (image-to-3D)
     • [número] + modelado Maya (rápido, geométrico)
     • 'ninguna' + IA texto (text-to-3D)
     • 'ninguna' + modelado Maya
-   Ejemplo: '2, IA generativa'"
+   Calidad IA: low (~1 min), medium (~2 min), high (~8 min), ultra (~12 min, máx detalle)
+   Ejemplo: '2, IA generativa, high'"
 
 4. EJECUTAR sin más preguntas:
-   • Image-to-3D: sg_download → shape_generate_remote → texture_mesh_remote → \
+   • Image-to-3D: sg_download → shape_generate_remote(preset='high') → \
 maya_execute_python (importar en Maya)
-   • Text-to-3D: shape_generate_text (prompt en INGLÉS) → maya_execute_python
+   • Text-to-3D: shape_generate_text(prompt en INGLÉS, preset='medium') → \
+maya_execute_python
    • Modelado: maya_create_primitive + maya_transform + maya_assign_material + \
 maya_execute_python para formas complejas
+   CALIDAD: si el usuario dice calidad, pasar preset= al tool. \
+Si dice 'high' o 'ultra' se usa modelo full (más detalle en picos, dientes, etc). \
+Si no dice nada, usar preset='medium' por defecto.
 
 5. POST-CREACIÓN: ofrecer maya_save_scene y tk_publish
 
