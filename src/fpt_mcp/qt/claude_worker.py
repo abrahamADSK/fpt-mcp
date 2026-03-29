@@ -248,6 +248,7 @@ class ClaudeWorker(QThread):
             text_parts: list[str] = []
             active_tools: dict[int, str] = {}  # index → tool_name
             result_text = ""
+            _text_buffer = ""  # Buffer for streaming text lines to progress
 
             # readline() is unbuffered per-line, unlike iterating proc.stdout
             while True:
@@ -282,7 +283,15 @@ class ClaudeWorker(QThread):
                 elif ev_type == "content_block_delta":
                     delta = event.get("delta", {})
                     if delta.get("type") == "text_delta":
-                        text_parts.append(delta.get("text", ""))
+                        chunk = delta.get("text", "")
+                        text_parts.append(chunk)
+                        # Stream complete lines as progress (Vision3D log, etc.)
+                        _text_buffer += chunk
+                        while "\n" in _text_buffer:
+                            line_text, _text_buffer = _text_buffer.split("\n", 1)
+                            line_text = line_text.strip()
+                            if line_text:
+                                self.progress.emit(line_text)
 
                 # ── Tool finished ─────────────────────────────────────
                 elif ev_type == "content_block_stop":

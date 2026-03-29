@@ -356,6 +356,7 @@ class ChatWindow(QMainWindow):
 
         # Status bubble that will be updated with progress events
         self._status_id = self._chat.document().blockCount()
+        self._progress_lines = []  # Accumulated progress lines
         self._append_bubble("<i>Pensando...</i>", "thinking")
 
         self._worker = ClaudeWorker(
@@ -366,8 +367,17 @@ class ChatWindow(QMainWindow):
         self._worker.start()
 
     def _on_progress(self, status: str):
-        """Update the thinking bubble with current operation status."""
-        self._update_last_bubble(f"<i>{html.escape(status)}</i>", "thinking")
+        """Update the thinking bubble with accumulated progress lines."""
+        self._progress_lines.append(status)
+        # Show last 12 lines to keep the bubble manageable
+        visible = self._progress_lines[-12:]
+        lines_html = "<br>".join(html.escape(l) for l in visible)
+        if len(self._progress_lines) > 12:
+            lines_html = f"<i style='color:#4a5568;'>... ({len(self._progress_lines) - 12} líneas anteriores)</i><br>" + lines_html
+        self._update_last_bubble(
+            f"<div style='font-family:monospace;font-size:12px;line-height:1.5;'>{lines_html}</div>",
+            "thinking",
+        )
 
     def _update_last_bubble(self, html_content: str, role: str):
         """Replace the last bubble in the chat with new content."""
