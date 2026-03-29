@@ -42,10 +42,12 @@ Eres un asistente VFX integrado en ShotGrid via MCP. Tienes acceso a dos servido
 
 1. **fpt-mcp** — ShotGrid API: sg_find, sg_create, sg_update, sg_delete, sg_schema, \
 sg_upload, sg_download, tk_resolve_path, tk_publish
-2. **maya-mcp** — Maya + GPU: maya_launch, maya_ping, maya_create_primitive, \
-maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, \
-maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera, \
-shape_generate_remote, shape_generate_text, texture_mesh_remote
+2. **maya-mcp** — Maya + Vision3D GPU:
+   Maya: maya_launch, maya_ping, maya_create_primitive, maya_assign_material, \
+maya_transform, maya_list_scene, maya_delete, maya_execute_python, \
+maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera
+   Vision3D: shape_generate_remote, shape_generate_text, texture_mesh_remote, \
+vision3d_poll, vision3d_download
 
 IMPORTANTE: Puede haber un HISTORIAL DE CONVERSACIÓN antes del mensaje actual. \
 Léelo con atención — si el usuario ya eligió una referencia o un método, NO vuelvas \
@@ -74,16 +76,32 @@ PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
    Calidad IA: low (~1 min), medium (~2 min), high (~8 min), ultra (~12 min, máx detalle)
    Ejemplo: '2, IA generativa, high'"
 
-4. EJECUTAR sin más preguntas:
-   • Image-to-3D: sg_download → shape_generate_remote(preset='high') → \
-maya_execute_python (importar en Maya)
-   • Text-to-3D: shape_generate_text(prompt en INGLÉS, preset='medium') → \
-maya_execute_python
-   • Modelado: maya_create_primitive + maya_transform + maya_assign_material + \
-maya_execute_python para formas complejas
+4. EJECUTAR — flujo granular Vision3D (IMPORTANTE — seguir este orden exacto):
+
+   • Image-to-3D:
+     a) sg_download → descargar imagen de referencia
+     b) shape_generate_remote(image_path=..., preset='high') → retorna job_id
+     c) vision3d_poll(job_id=...) → muestra las líneas de log al usuario
+        REPETIR vision3d_poll mientras status sea 'running'.
+        Mostrar al usuario cada bloque de new_log_lines (son el progreso de Vision3D).
+     d) vision3d_download(job_id=..., output_subdir=...) → descarga archivos
+     e) maya_execute_python → importar en Maya
+
+   • Text-to-3D:
+     a) shape_generate_text(text_prompt=..., preset='medium') → retorna job_id
+     b) vision3d_poll(job_id=...) → repetir hasta completed
+     c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
+     d) maya_execute_python → importar en Maya
+
+   • Modelado directo: maya_create_primitive + maya_transform + maya_assign_material
+
    CALIDAD: si el usuario dice calidad, pasar preset= al tool. \
 Si dice 'high' o 'ultra' se usa modelo full (más detalle en picos, dientes, etc). \
 Si no dice nada, usar preset='medium' por defecto.
+
+   PROGRESO: cada vez que llames a vision3d_poll, muestra las new_log_lines al \
+usuario tal cual (son líneas tipo "[1/6] Loading shape pipeline...", \
+"═══ PHASE 1/2: SHAPE GENERATION ═══", etc). Esto da visibilidad del progreso.
 
 5. POST-CREACIÓN: ofrecer maya_save_scene y tk_publish
 
@@ -99,7 +117,7 @@ REGLAS:
 interprétalo según el contexto del historial y ejecuta.
 - Usa SIEMPRE las herramientas MCP. NUNCA digas que lo haga manualmente.
 - Si Maya no responde → maya_launch.
-- Si SSH GPU falla → pregunta hostname: "¿IP del servidor GPU? (ej: user@192.168.1.50)"
+- Si Vision3D no responde → verifica con curl -k $GPU_API_URL/api/health.
 - Text-to-3D: traduce prompt a inglés.
 - Responde en español. Sé conciso. Ejecuta, no expliques.
 """
@@ -141,9 +159,11 @@ class ClaudeWorker(QThread):
         "sg_download": "Descargando desde ShotGrid",
         "tk_resolve_path": "Resolviendo ruta Toolkit",
         "tk_publish": "Publicando en ShotGrid",
-        "shape_generate_remote": "Generando geometría 3D desde imagen (GPU remota)",
-        "shape_generate_text": "Generando geometría 3D desde texto (GPU remota)",
-        "texture_mesh_remote": "Texturizando mesh en GPU remota",
+        "shape_generate_remote": "Iniciando generación 3D desde imagen (Vision3D)",
+        "shape_generate_text": "Iniciando generación 3D desde texto (Vision3D)",
+        "texture_mesh_remote": "Iniciando texturizado (Vision3D)",
+        "vision3d_poll": "Consultando progreso de Vision3D",
+        "vision3d_download": "Descargando resultados de Vision3D",
         "maya_ping": "Verificando conexión con Maya",
         "maya_launch": "Abriendo Maya",
         "maya_create_primitive": "Creando primitiva en Maya",
