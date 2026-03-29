@@ -68,12 +68,19 @@ PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
 
 3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método + calidad:
    Lista numerada de referencias, seguida de:
-   "¿Qué referencia, método y calidad?
+   "¿Qué referencia y método?
     • [número] + IA generativa (image-to-3D)
     • [número] + modelado Maya (rápido, geométrico)
     • 'ninguna' + IA texto (text-to-3D)
     • 'ninguna' + modelado Maya
-   Calidad IA: low (~1 min), medium (~2 min), high (~8 min), ultra (~12 min, máx detalle)
+
+   Calidad IA (de más rápido a más detalle):
+    • low    — turbo, octree 256, 10 steps, 10k faces  (~1 min)
+    • medium — turbo, octree 384, 20 steps, 50k faces  (~2 min)
+    • high   — full,  octree 384, 30 steps, 150k faces (~8 min)
+    • ultra  — full,  octree 512, 50 steps, sin límite  (~12 min)
+   (por defecto: medium)
+
    Ejemplo: '2, IA generativa, high'"
 
 4. EJECUTAR — flujo granular Vision3D (IMPORTANTE — seguir este orden exacto):
