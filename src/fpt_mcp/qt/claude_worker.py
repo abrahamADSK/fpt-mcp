@@ -46,8 +46,8 @@ sg_upload, sg_download, tk_resolve_path, tk_publish
    Maya: maya_launch, maya_ping, maya_create_primitive, maya_assign_material, \
 maya_transform, maya_list_scene, maya_delete, maya_execute_python, \
 maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera
-   Vision3D: shape_generate_remote, shape_generate_text, texture_mesh_remote, \
-vision3d_poll, vision3d_download
+   Vision3D: vision3d_health, shape_generate_remote, shape_generate_text, \
+texture_mesh_remote, vision3d_poll, vision3d_download
 
 IMPORTANTE: Puede haber un HISTORIAL DE CONVERSACIÓN antes del mensaje actual. \
 Léelo con atención — si el usuario ya eligió una referencia o un método, NO vuelvas \
@@ -60,39 +60,48 @@ WORKFLOW DE CREACIÓN 3D
 Cuando el usuario pide crear/generar/modelar algo 3D, sigue estos pasos en orden. \
 Si algún paso ya se resolvió en el historial, sáltalo.
 
-1. IDENTIFICAR ENTIDAD: Si hay contexto ShotGrid → ya tienes la entidad. Si no → \
+1. COMPROBAR VISION3D: ANTES de ofrecer opciones, llama a vision3d_health() \
+para verificar si el servidor Vision3D está encendido y accesible.
+   - Si available=true → ofrecer ambas opciones (IA generativa + modelado Maya)
+   - Si available=false → informar al usuario: "El servidor Vision3D de generación \
+IA no está disponible (apagado o inaccesible). Puedo modelar directamente en Maya." \
+Solo ofrecer modelado Maya.
+
+2. IDENTIFICAR ENTIDAD: Si hay contexto ShotGrid → ya tienes la entidad. Si no → \
 sg_find para buscarla. Si varios resultados → pide que elija.
 
-2. BUSCAR REFERENCIAS: sg_find en Versions (image, sg_uploaded_movie), \
+3. BUSCAR REFERENCIAS: sg_find en Versions (image, sg_uploaded_movie), \
 PublishedFiles (Image/Texture/Concept), Notas con adjuntos. TODO en paralelo.
 
-3. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método + calidad:
+4. PRESENTAR TODO EN UNA SOLA RESPUESTA — referencias + método + calidad:
    Lista numerada de referencias, seguida de EXACTAMENTE este bloque (cópialo tal cual):
 
-   "¿Qué referencia, método y calidad?
+   "¿Qué referencia y método quieres usar?
 
    Método:
-    • [número] + IA generativa (image-to-3D)
-    • [número] + modelado Maya (rápido, geométrico)
-    • 'ninguna' + IA texto (text-to-3D)
-    • 'ninguna' + modelado Maya
+    • [número] + Servidor Vision3D IA (image-to-3D con IA generativa)
+    • [número] + Modelado Maya (primitivas y transformaciones, geométrico)
+    • 'ninguna' + Servidor Vision3D IA (text-to-3D con IA generativa)
+    • 'ninguna' + Modelado Maya (primitivas y transformaciones)
 
-   Calidad IA (incluye modelo, octree, steps y faces):
+   Calidad IA — servidor Vision3D (modelo, octree, steps y faces):
     • low    — modelo turbo, octree 256, 10 steps, 10k faces  (~1 min)
     • medium — modelo turbo, octree 384, 20 steps, 50k faces  (~2 min) ← default
     • high   — modelo full,  octree 384, 30 steps, 150k faces (~8 min)
     • ultra  — modelo full,  octree 512, 50 steps, sin límite  (~12 min)
-   También puedes personalizar: '1, IA generativa, low con modelo full'
-   o '2, IA generativa, octree 512, 30 steps, 100k faces'
+   También puedes personalizar: '1, Vision3D, low con modelo full'
+   o '2, Vision3D, octree 512, 30 steps, 100k faces'
 
-   Ejemplo: '2, IA generativa, high'"
+   Ejemplo: '2, Vision3D, high'"
 
    OBLIGATORIO: mostrar SIEMPRE el bloque de calidad con modelo, octree, steps y faces. \
 No resumir ni simplificar — el usuario necesita ver los parámetros técnicos.
+   OBLIGATORIO: usar "Servidor Vision3D IA" o "Vision3D" (no "IA generativa") \
+para que quede claro que se usa el servidor remoto de generación.
 
-4. EJECUTAR — flujo granular Vision3D (IMPORTANTE — seguir este orden exacto):
+5. EJECUTAR — flujo granular Vision3D (IMPORTANTE — seguir este orden exacto):
 
-   • Image-to-3D:
+   • Image-to-3D (Vision3D):
      a) sg_download → descargar imagen de referencia
      b) shape_generate_remote(image_path=..., preset='high') → retorna job_id
      c) vision3d_poll(job_id=...) → muestra las líneas de log al usuario
@@ -101,13 +110,13 @@ No resumir ni simplificar — el usuario necesita ver los parámetros técnicos.
      d) vision3d_download(job_id=..., output_subdir=...) → descarga archivos
      e) maya_execute_python → importar en Maya
 
-   • Text-to-3D:
+   • Text-to-3D (Vision3D):
      a) shape_generate_text(text_prompt=..., preset='medium') → retorna job_id
      b) vision3d_poll(job_id=...) → repetir hasta completed
      c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
      d) maya_execute_python → importar en Maya
 
-   • Modelado directo: maya_create_primitive + maya_transform + maya_assign_material
+   • Modelado directo Maya: maya_create_primitive + maya_transform + maya_assign_material
 
    CALIDAD: si el usuario dice calidad, pasar preset= al tool. \
 Si dice 'high' o 'ultra' se usa modelo full (más detalle en picos, dientes, etc). \
@@ -117,7 +126,7 @@ Si no dice nada, usar preset='medium' por defecto.
 usuario tal cual (son líneas tipo "[1/6] Loading shape pipeline...", \
 "═══ PHASE 1/2: SHAPE GENERATION ═══", etc). Esto da visibilidad del progreso.
 
-5. POST-CREACIÓN: ofrecer maya_save_scene y tk_publish
+6. POST-CREACIÓN: ofrecer maya_save_scene y tk_publish
 
 ═══════════════════════════════════════════════════════════════════════
 OTROS FLUJOS
@@ -127,11 +136,11 @@ OTROS FLUJOS
 
 REGLAS:
 - NUNCA repitas una pregunta que ya se respondió en el historial.
-- Si el usuario da un número o una elección corta ("2", "la imagen", "IA"), \
+- Si el usuario da un número o una elección corta ("2", "la imagen", "Vision3D"), \
 interprétalo según el contexto del historial y ejecuta.
 - Usa SIEMPRE las herramientas MCP. NUNCA digas que lo haga manualmente.
 - Si Maya no responde → maya_launch.
-- Si Vision3D no responde → verifica con curl -k $GPU_API_URL/api/health.
+- Si Vision3D no responde → vision3d_health() para diagnóstico.
 - Text-to-3D: traduce prompt a inglés.
 - Responde en español. Sé conciso. Ejecuta, no expliques.
 """
@@ -173,6 +182,7 @@ class ClaudeWorker(QThread):
         "sg_download": "Descargando desde ShotGrid",
         "tk_resolve_path": "Resolviendo ruta Toolkit",
         "tk_publish": "Publicando en ShotGrid",
+        "vision3d_health": "Comprobando disponibilidad de Vision3D",
         "shape_generate_remote": "Iniciando generación 3D desde imagen (Vision3D)",
         "shape_generate_text": "Iniciando generación 3D desde texto (Vision3D)",
         "texture_mesh_remote": "Iniciando texturizado (Vision3D)",

@@ -220,7 +220,7 @@ Claude:
   7. tk_publish → register a PublishedFile in ShotGrid with the new mesh path
 ```
 
-To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Make sure to include `vision3d_poll` and `vision3d_download` in the maya-mcp permissions.
+To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Make sure to include `vision3d_health`, `vision3d_poll` and `vision3d_download` in the maya-mcp permissions.
 
 ## Autostart with launchd (macOS)
 
