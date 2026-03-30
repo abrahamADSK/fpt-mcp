@@ -131,10 +131,10 @@ Calidad IA — servidor Vision3D (modelo, octree, steps y faces):
 4. `vision3d_download(job_id=..., output_subdir=...)` → descargar archivos
 5. `maya_execute_python` → importar en Maya
 
-**Text-to-3D**:
+**Text-to-3D** (pipeline completo con textura):
 1. `shape_generate_text(text_prompt=..., preset='medium')` → retorna job_id
-2. `vision3d_poll(job_id=...)` → repetir hasta completed
-3. `vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])`
+2. `vision3d_poll(job_id=...)` → repetir hasta completed (3 fases: text→image, shape, texture)
+3. `vision3d_download(job_id=..., output_subdir=..., files=['textured.glb', 'mesh.glb', 'mesh_uv.obj', 'texture_baked.png'])`
 4. `maya_execute_python` → importar en Maya
 
 **Modelado directo Maya**: `maya_create_primitive` + `maya_transform` + `maya_assign_material`
@@ -202,14 +202,18 @@ En `~/.claude/settings.json`, habilitar todos estos tools:
 
 ## 7. Relación con Otros Proyectos
 
-Los tres repos están en `~/Developer/Claude_projects/` en el Mac local:
+Los tres repos están en `~/Claude_projects/` en el Mac local:
 
 - **maya-mcp**: servidor MCP que la consola usa para Maya + Vision3D
+  - Repo: `~/Claude_projects/maya-mcp-project/`
   - Contiene tools para maya_launch, maya_create_primitive, maya_execute_python, etc.
-  - Internamente llama a vision3d (servidor GPU remoto) para generación 3D
+  - Internamente llama a vision3d (servidor GPU remoto) vía HTTP REST (puerto 8000)
+  - Incluye `vision3d_health` para verificar disponibilidad antes de ofrecer opciones
 
 - **vision3d**: servidor GPU remoto accesible vía maya-mcp
+  - Repo: `~/Claude_projects/vision3d/` (Mac) / `/home/flame/ai-studio/vision3d/` (glorfindel)
   - Maneja shape_generate_remote, shape_generate_text, texture_mesh_remote
+  - Text-to-3D: pipeline de 3 fases (HunyuanDiT → rembg → shape → paint → textured.glb)
   - Retorna job_id para polling
 
 - **fpt-mcp**: este repo (ShotGrid + consola Qt)
