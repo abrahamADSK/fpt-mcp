@@ -1,5 +1,10 @@
-"""Toolkit-compatible path resolver (hybrid mode).
+"""DEPRECATED — replaced by tk_config.py (2026-03-30).
 
+This module is no longer imported by server.py. It will be removed in a
+future version. Use tk_config.discover_or_fallback() instead.
+
+Original description:
+Toolkit-compatible path resolver (hybrid mode).
 Generates file-system paths that follow tk-config-default2 conventions
 so that publishes created via the ShotGrid API are compatible with
 Toolkit loaders in Maya and Flame.

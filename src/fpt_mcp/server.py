@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""FPT MCP Server — Full Flow Production Tracking (ShotGrid) + Toolkit integration.
+"""FPT MCP Server — Full Flow Production Tracking (ShotGrid) + Toolkit + RAG.
 
-General-purpose MCP server exposing the complete ShotGrid API and Toolkit
-path conventions. No entity restrictions — works with any entity type,
-any field, any filter.
+General-purpose MCP server exposing the complete ShotGrid API, Toolkit
+path conventions, and RAG-powered documentation search.
+
+Features:
+    - 7 ShotGrid API tools (CRUD, schema, media)
+    - 2 Toolkit tools (path resolution, publish pipeline)
+    - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
+    - Dangerous pattern detection (safety.py)
+    - Hybrid search: ChromaDB + BM25 + HyDE + RRF fusion
+    - Token tracking with RAG savings measurement
+    - Model trust gates for self-learning
 
 Designed to work alongside maya-mcp and flame-mcp as part of a
 VFX pipeline orchestrated by Claude.
@@ -12,9 +20,11 @@ VFX pipeline orchestrated by Claude.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -33,14 +43,105 @@ from fpt_mcp.client import (
     sg_schema_field_read,
     PROJECT_ID,
 )
-from fpt_mcp.paths import resolve_publish_path, next_version_number
+from fpt_mcp.tk_config import discover_or_fallback, TkConfigError, PUBLISH_TYPE_MAP
+from fpt_mcp.safety import check_dangerous
+
+_SERVER_DIR = Path(__file__).parent
+
+# ---------------------------------------------------------------------------
+# Token tracking (REC-001 — from flame-mcp proven architecture)
+# ---------------------------------------------------------------------------
+
+_FULL_DOC_TOKENS = 13000  # combined size of all indexed docs
+
+_stats = {
+    "exec_calls": 0,       # total tool calls
+    "tokens_in": 0,        # tokens in parameters
+    "tokens_out": 0,       # tokens in responses
+    "rag_calls": 0,        # search_sg_docs calls
+    "tokens_saved": 0,     # tokens saved by RAG vs loading full doc
+    "patterns_learned": 0, # patterns added to docs
+    "patterns_staged": 0,  # candidates staged by non-trusted models
+    "safety_blocks": 0,    # dangerous pattern detections
+    "cache_hits": 0,       # RAG cache hits
+}
+_stats_reset_at = datetime.datetime.now()
+
+# RAG state
+_last_rag_score: int = 100
+_rag_called_this_session: bool = False
+
+
+def _tok(text: str) -> int:
+    """Rough token estimate: 1 token ≈ 3 characters."""
+    return max(1, len(text) // 3)
+
+
+def _rating(tokens: int) -> str:
+    if tokens < 500:
+        return "🟢 low"
+    elif tokens < 2000:
+        return "🟡 medium"
+    return "🔴 high"
+
+
+# ---------------------------------------------------------------------------
+# Model trust gates (C5 — from flame-mcp)
+# ---------------------------------------------------------------------------
+
+WRITE_ALLOWED_MODELS = {
+    "claude-opus", "claude-sonnet", "claude-sonnet-4",
+    "claude-sonnet-4-6", "claude-opus-4-5", "claude-opus-4-6",
+}
+
+
+def _get_config() -> dict:
+    try:
+        return json.loads((_SERVER_DIR / "config.json").read_text())
+    except Exception:
+        return {}
+
+
+def _get_current_model() -> str:
+    return _get_config().get("model", "unknown")
+
+
+def _model_can_write() -> bool:
+    model = _get_current_model().lower()
+    cfg_list = _get_config().get("write_allowed_models")
+    if cfg_list:
+        return any(allowed.lower() in model for allowed in cfg_list)
+    return any(allowed in model for allowed in WRITE_ALLOWED_MODELS)
 
 
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("fpt_mcp")
+mcp = FastMCP(
+    "fpt_mcp",
+    instructions="""You are controlling ShotGrid (Flow Production Tracking) via the fpt-mcp server.
+
+## MANDATORY WORKFLOW
+
+1. For any ShotGrid query you're unsure about — filter syntax, entity format,
+   field names, template tokens — call search_sg_docs FIRST.
+   NEVER guess filter operators, entity reference format, or template tokens.
+
+2. The safety module will warn you about dangerous patterns. Heed its warnings.
+
+3. Entity references in filters MUST be dicts: {"type": "Asset", "id": 123}
+   NEVER use plain integers or strings for entity links.
+
+4. Toolkit template tokens are case-sensitive: {Shot}, {Asset}, {Step} (PascalCase).
+   NEVER use {shot_name}, {asset_name}, {step} (lowercase).
+
+5. When a working pattern succeeds and search_sg_docs returned < 60% relevance,
+   call learn_pattern to save the validated pattern for future sessions.
+
+6. Call session_stats at the end of multi-step tasks to report token efficiency.
+""",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -87,22 +188,36 @@ class SgDownloadInput(BaseModel):
 
 class TkResolvePathInput(BaseModel):
     entity_type: str = Field(description="'Asset' or 'Shot'.")
-    entity_code: str = Field(description="Entity code, e.g. 'hero_char' or 'SHOT010'.")
+    entity_id: int = Field(description="Entity ID in ShotGrid. Used to auto-fetch entity context (code, asset_type, sequence).")
+    publish_type: str = Field(
+        default="Maya Scene",
+        description=(
+            "Publish type determines the template. Supported: "
+            "'Maya Scene', 'USD Scene', 'FBX Model', 'Texture', "
+            "'Alembic Cache', 'Camera FBX', 'EXR Render', 'Review MOV'."
+        ),
+    )
     step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
-    publish_name: str = Field(default="main", description="Publish name for the path.")
+    name: str = Field(default="main", description="Publish name (e.g. 'main', 'turntable', 'hero_robot').")
     version: Optional[int] = Field(default=None, description="Version number. Auto-incremented if omitted.")
-    asset_type: Optional[str] = Field(default=None, description="Asset type (required for Asset entities): Character, Environment, Prop, etc.")
-    sequence_code: Optional[str] = Field(default=None, description="Sequence code (optional for Shot entities).")
-    project_name: Optional[str] = Field(default=None, description="Project name for path. Auto-detected if omitted.")
+    extension: Optional[str] = Field(default=None, description="File extension override (e.g. 'ma', 'mb', 'usd'). Auto-detected from publish_type if omitted.")
 
 class TkPublishInput(BaseModel):
     entity_type: str = Field(description="'Asset' or 'Shot'.")
     entity_id: int = Field(description="Entity ID in ShotGrid.")
-    publish_type: str = Field(description="File type: any string, e.g. 'OBJ', 'Texture', 'Maya Scene', 'Alembic Cache', 'Nuke Script', 'EXR Sequence', 'Flame Batch', etc.")
-    task: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
+    publish_type: str = Field(
+        description=(
+            "File type to publish. Supported: "
+            "'Maya Scene', 'USD Scene', 'FBX Model', 'Texture', "
+            "'Alembic Cache', 'Camera FBX', 'EXR Render'."
+        ),
+    )
+    step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
+    name: str = Field(default="main", description="Publish name.")
     comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
-    local_path: Optional[str] = Field(default=None, description="Explicit file path. Auto-generated with Toolkit conventions if omitted.")
+    local_path: Optional[str] = Field(default=None, description="Explicit source file path to copy to publish location. If omitted, only registers the path in ShotGrid.")
     version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented if omitted.")
+    extension: Optional[str] = Field(default=None, description="File extension override.")
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +237,16 @@ async def sg_find_tool(params: SgFindInput) -> str:
     Operators: is, is_not, contains, not_contains, starts_with,
     greater_than, less_than, in, between, etc.
     """
+    _stats["exec_calls"] += 1
+
+    # Safety check
+    params_str = json.dumps({"filters": params.filters, "limit": params.limit}, default=str)
+    _stats["tokens_in"] += _tok(params_str)
+    warning = check_dangerous(params_str)
+    if warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": warning})
+
     filters = list(params.filters)
     if params.add_project_filter and PROJECT_ID:
         filters.append(["project", "is", {"type": "Project", "id": PROJECT_ID}])
@@ -130,7 +255,9 @@ async def sg_find_tool(params: SgFindInput) -> str:
         params.entity_type, filters, params.fields,
         order=params.order, limit=params.limit,
     )
-    return json.dumps({"total": len(results), "entities": results}, default=str)
+    response = json.dumps({"total": len(results), "entities": results}, default=str)
+    _stats["tokens_out"] += _tok(response)
+    return response
 
 
 @mcp.tool(name="sg_create")
@@ -162,6 +289,15 @@ async def sg_delete_tool(params: SgDeleteInput) -> str:
     This performs a soft-delete (retire). The entity can be restored
     from ShotGrid's trash.
     """
+    _stats["exec_calls"] += 1
+
+    # Safety check
+    params_str = json.dumps({"entity_type": params.entity_type, "entity_id": params.entity_id})
+    warning = check_dangerous(params_str)
+    if warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": warning})
+
     sg = get_sg()
     import asyncio
     result = await asyncio.to_thread(sg.delete, params.entity_type, params.entity_id)
@@ -225,116 +361,417 @@ async def sg_download_tool(params: SgDownloadInput) -> str:
     return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
 
 
+async def _get_tk_config():
+    """Get or discover the TkConfig for the current project.
+
+    Uses discover_or_fallback: tries to read the real PipelineConfiguration
+    first, falls back to tk-config-default2 standard templates if not available.
+    """
+    if not PROJECT_ID:
+        raise TkConfigError("SHOTGRID_PROJECT_ID not set. Cannot discover Toolkit config.")
+    return await discover_or_fallback(PROJECT_ID, sg_find)
+
+
+async def _build_template_fields(
+    entity_type: str,
+    entity_id: int,
+    step: str,
+    name: str,
+    version: int,
+    extension: Optional[str] = None,
+) -> dict[str, Any]:
+    """Build the template fields dict by fetching entity context from ShotGrid."""
+    fields_to_fetch = ["code"]
+    if entity_type == "Asset":
+        fields_to_fetch.append("sg_asset_type")
+    elif entity_type == "Shot":
+        fields_to_fetch.extend(["sg_sequence"])
+
+    entity = await sg_find_one(
+        entity_type,
+        [["id", "is", entity_id]],
+        fields_to_fetch,
+    )
+    if not entity:
+        raise TkConfigError(f"{entity_type} #{entity_id} not found in ShotGrid.")
+
+    template_fields: dict[str, Any] = {
+        "Step": step,
+        "name": name,
+        "version": version,
+    }
+
+    if entity_type == "Asset":
+        template_fields["Asset"] = entity["code"]
+        template_fields["sg_asset_type"] = entity.get("sg_asset_type", "Generic")
+    elif entity_type == "Shot":
+        template_fields["Shot"] = entity["code"]
+        seq = entity.get("sg_sequence")
+        if seq:
+            template_fields["Sequence"] = seq.get("name", seq.get("code", "SEQ"))
+
+    if extension:
+        # Map extension to the right key (maya_extension, etc.)
+        template_fields["maya_extension"] = extension
+
+    return template_fields
+
+
+def _resolve_template_name(publish_type: str, entity_type: str) -> str:
+    """Map a publish_type + entity_type to the correct template name."""
+    mapping = PUBLISH_TYPE_MAP.get(publish_type)
+    if mapping:
+        key = "asset" if entity_type == "Asset" else "shot"
+        template_name = mapping.get(key)
+        if template_name:
+            return template_name
+
+    raise TkConfigError(
+        f"No template mapping for publish_type='{publish_type}' + "
+        f"entity_type='{entity_type}'. "
+        f"Supported types: {list(PUBLISH_TYPE_MAP.keys())}"
+    )
+
+
+def _default_extension(publish_type: str) -> Optional[str]:
+    """Return default extension for a publish type, if needed by the template."""
+    defaults = {
+        "Maya Scene": "ma",
+        "USD Scene": None,   # extension baked into template
+        "FBX Model": None,
+        "Texture": None,
+        "Alembic Cache": None,
+        "Camera FBX": None,
+        "EXR Render": None,
+        "Review MOV": None,
+    }
+    return defaults.get(publish_type)
+
+
 @mcp.tool(name="tk_resolve_path")
 async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
-    """Resolve a Toolkit-compatible publish path using tk-config-default2 conventions.
+    """Resolve a Toolkit-compatible publish path using the project's real config.
 
-    Returns the full file path that Toolkit loaders (tk-multi-loader2)
-    in Maya, Flame, Nuke, etc. can pick up natively.
+    Reads the PipelineConfiguration from ShotGrid, loads templates.yml,
+    and resolves the full file path. Works with any tk-config-default2
+    project — local or distributed.
     """
-    # Get project name if not provided
-    project_name = params.project_name
-    if not project_name and PROJECT_ID:
-        proj = await sg_find_one("Project", [["id", "is", PROJECT_ID]], ["name"])
-        project_name = proj["name"] if proj else "unknown_project"
+    try:
+        tk_config = await _get_tk_config()
 
-    version = params.version
-    if version is None:
-        # Build the publish base path (without version) to scan existing versions
-        publish_base = resolve_publish_path(
-            project=project_name or "project",
-            entity_type=params.entity_type.lower(),
-            entity=params.entity_code,
-            step=params.step,
-            name=params.publish_name,
-            version=0,
-        ).parent  # go up from v000 to the name directory
-        version = next_version_number(publish_base)
+        # Determine template
+        template_name = _resolve_template_name(params.publish_type, params.entity_type)
 
-    path = resolve_publish_path(
-        project=project_name or "project",
-        entity_type=params.entity_type.lower(),
-        entity=params.entity_code,
-        step=params.step,
-        name=params.publish_name,
-        version=version,
-    )
-    return json.dumps({"path": str(path), "version": version, "project": project_name})
+        # Determine extension
+        ext = params.extension or _default_extension(params.publish_type)
+
+        # Build fields from SG entity context
+        version = params.version
+        if version is None:
+            # First build fields with placeholder version to scan filesystem
+            fields_probe = await _build_template_fields(
+                params.entity_type, params.entity_id,
+                params.step, params.name, 0, ext,
+            )
+            version = tk_config.next_version(template_name, fields_probe)
+
+        fields = await _build_template_fields(
+            params.entity_type, params.entity_id,
+            params.step, params.name, version, ext,
+        )
+
+        path = tk_config.resolve_path(template_name, fields)
+
+        return json.dumps({
+            "path": str(path),
+            "version": version,
+            "template": template_name,
+            "project_root": str(tk_config.project_root),
+        })
+
+    except TkConfigError as e:
+        return json.dumps({"error": str(e)})
 
 
 @mcp.tool(name="tk_publish")
 async def tk_publish_tool(params: TkPublishInput) -> str:
-    """Create a PublishedFile with Toolkit-compatible auto-versioned path.
+    """Publish a file to ShotGrid with Toolkit-compatible path.
 
-    Registers a publish in ShotGrid with a path that follows
-    tk-config-default2 conventions so Toolkit loaders can find it.
+    Resolves the publish path from the project's real PipelineConfiguration,
+    optionally copies the source file, finds or creates the PublishedFileType,
+    and registers the PublishedFile in ShotGrid.
     """
-    # Resolve entity info
-    entity = await sg_find_one(
-        params.entity_type,
-        [["id", "is", params.entity_id]],
-        ["code", "sg_asset_type"] if params.entity_type == "Asset" else ["code"],
+    try:
+        tk_config = await _get_tk_config()
+
+        # Determine template
+        template_name = _resolve_template_name(params.publish_type, params.entity_type)
+
+        # Determine extension
+        ext = params.extension or _default_extension(params.publish_type)
+
+        # Auto-increment version
+        version = params.version_number
+        if version is None:
+            fields_probe = await _build_template_fields(
+                params.entity_type, params.entity_id,
+                params.step, params.name, 0, ext,
+            )
+            version = tk_config.next_version(template_name, fields_probe)
+
+        # Build fields and resolve path
+        fields = await _build_template_fields(
+            params.entity_type, params.entity_id,
+            params.step, params.name, version, ext,
+        )
+        publish_path = tk_config.resolve_path(template_name, fields)
+
+        # Copy source file to publish path if provided
+        if params.local_path:
+            import shutil
+            publish_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(params.local_path, str(publish_path))
+
+        # Find or create PublishedFileType
+        pft = await sg_find_one(
+            "PublishedFileType",
+            [["code", "is", params.publish_type]],
+            ["id", "code"],
+        )
+        if not pft:
+            pft = await sg_create("PublishedFileType", {"code": params.publish_type})
+
+        # Fetch entity code for the publish name
+        entity = await sg_find_one(
+            params.entity_type,
+            [["id", "is", params.entity_id]],
+            ["code"],
+        )
+        entity_code = entity["code"] if entity else f"{params.entity_type}_{params.entity_id}"
+
+        # Find linked Task (if exists)
+        task = await sg_find_one(
+            "Task",
+            [
+                ["entity", "is", {"type": params.entity_type, "id": params.entity_id}],
+                ["step.Step.short_name", "is", params.step],
+            ],
+            ["id", "content"],
+        )
+
+        # Create the PublishedFile
+        data: dict[str, Any] = {
+            "code": f"{entity_code}_{params.step}_{params.publish_type.replace(' ', '_')}_v{version:03d}",
+            "published_file_type": {"type": "PublishedFileType", "id": pft["id"]},
+            "entity": {"type": params.entity_type, "id": params.entity_id},
+            "path": {"local_path": str(publish_path)},
+            "version_number": version,
+            "sg_status_list": "wtg",
+        }
+        if task:
+            data["task"] = {"type": "Task", "id": task["id"]}
+        if params.comment:
+            data["description"] = params.comment
+        if PROJECT_ID:
+            data["project"] = {"type": "Project", "id": PROJECT_ID}
+
+        result = await sg_create("PublishedFile", data)
+
+        return json.dumps({
+            "id": result["id"],
+            "code": data["code"],
+            "path": str(publish_path),
+            "version_number": version,
+            "template": template_name,
+            "entity": {"type": params.entity_type, "id": params.entity_id, "code": entity_code},
+            "publish_type": params.publish_type,
+            "task": task["content"] if task else None,
+            "file_copied": params.local_path is not None,
+            "project_root": str(tk_config.project_root),
+        }, default=str)
+
+    except TkConfigError as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# RAG tools — search_sg_docs, learn_pattern, session_stats
+# ---------------------------------------------------------------------------
+
+class SearchSgDocsInput(BaseModel):
+    query: str = Field(
+        description=(
+            "Natural language query about ShotGrid API, Toolkit, or REST API. "
+            "Examples: 'how to filter Assets by type', 'template tokens for Shot publish', "
+            "'entity reference format in filters', 'batch operation semantics'."
+        ),
     )
-    if not entity:
-        return json.dumps({"error": f"{params.entity_type} #{params.entity_id} not found"})
+    n_results: int = Field(
+        default=5,
+        description="Number of documentation chunks to return (default: 5, max: 10).",
+        ge=1, le=10,
+    )
 
-    entity_code = entity["code"]
 
-    # Get project name
-    project_name = "project"
-    if PROJECT_ID:
-        proj = await sg_find_one("Project", [["id", "is", PROJECT_ID]], ["name"])
-        if proj:
-            project_name = proj["name"]
+@mcp.tool(name="search_sg_docs")
+async def search_sg_docs_tool(params: SearchSgDocsInput) -> str:
+    """Search ShotGrid API documentation using hybrid RAG (semantic + BM25).
 
-    # Resolve version
-    version = params.version_number
-    if version is None:
-        publish_base = resolve_publish_path(
-            project=project_name,
-            entity_type=params.entity_type.lower(),
-            entity=entity_code,
-            step=params.task,
-            name=params.publish_type.replace(" ", "_").lower(),
-            version=0,
-        ).parent
-        version = next_version_number(publish_base)
+    Call this BEFORE writing complex queries, using unfamiliar filters,
+    or when unsure about entity format, template tokens, or operator names.
+    Returns the most relevant documentation chunks with relevance scores.
 
-    # Resolve path
-    publish_path = params.local_path
-    if not publish_path:
-        publish_path = str(resolve_publish_path(
-            project=project_name,
-            entity_type=params.entity_type.lower(),
-            entity=entity_code,
-            step=params.task,
-            name=params.publish_type.replace(" ", "_").lower(),
-            version=version,
-        ))
+    Covers three APIs: shotgun_api3 (Python SDK), Toolkit (sgtk), REST API.
+    Uses HyDE query expansion + Reciprocal Rank Fusion for high precision.
+    """
+    global _last_rag_score, _rag_called_this_session
 
-    # Create the PublishedFile
-    data: dict[str, Any] = {
-        "code": f"{entity_code}_{params.task}_{params.publish_type.replace(' ','_')}_v{version:03d}",
-        "published_file_type": {"type": "PublishedFileType", "code": params.publish_type},
-        "entity": {"type": params.entity_type, "id": params.entity_id},
-        "path": {"local_path": publish_path},
-        "version_number": version,
-        "sg_status_list": "wtg",
+    try:
+        from fpt_mcp.rag.search import search
+        text, relevance = search(params.query, n_results=params.n_results)
+    except ImportError:
+        return json.dumps({
+            "error": "RAG dependencies not installed. Run: pip install chromadb sentence-transformers rank-bm25",
+            "fallback": "Proceed with caution — no documentation verification available.",
+        })
+    except Exception as e:
+        return json.dumps({"error": f"RAG search failed: {e}"})
+
+    _stats["rag_calls"] += 1
+    _stats["tokens_saved"] += _FULL_DOC_TOKENS - _tok(text)
+    _last_rag_score = relevance
+    _rag_called_this_session = True
+
+    result = {
+        "documentation": text,
+        "max_relevance": relevance,
+        "chunks_returned": params.n_results,
     }
-    if params.comment:
-        data["description"] = params.comment
-    if PROJECT_ID:
-        data["project"] = {"type": "Project", "id": PROJECT_ID}
 
-    result = await sg_create("PublishedFile", data)
+    if relevance < 60:
+        result["warning"] = (
+            f"Low relevance ({relevance}%) — this query may cover an undocumented area. "
+            "Proceed carefully. If your approach works, call learn_pattern to save it."
+        )
+
+    return json.dumps(result, default=str)
+
+
+class LearnPatternInput(BaseModel):
+    description: str = Field(
+        description="Short description of what the pattern does (e.g. 'filter PublishedFiles by Shot and type').",
+    )
+    code: str = Field(
+        description="The working code/query pattern to remember (e.g. sg.find filter syntax, template fields).",
+    )
+    api: str = Field(
+        default="shotgun_api3",
+        description="Which API this pattern belongs to: 'shotgun_api3', 'toolkit', or 'rest_api'.",
+    )
+
+
+@mcp.tool(name="learn_pattern")
+async def learn_pattern_tool(params: LearnPatternInput) -> str:
+    """Save a validated working pattern to the RAG knowledge base.
+
+    Call this after a successful operation when search_sg_docs returned
+    low relevance (< 60%), indicating the pattern was not well-documented.
+    The pattern will be available in future sessions.
+
+    Model trust gates: only Sonnet/Opus can write directly.
+    Other models stage candidates for review.
+    """
+    if _model_can_write():
+        # Direct write to docs
+        api_file_map = {
+            "shotgun_api3": "SG_API.md",
+            "toolkit": "TK_API.md",
+            "rest_api": "REST_API.md",
+        }
+        doc_file = api_file_map.get(params.api, "SG_API.md")
+        doc_path = _SERVER_DIR / "docs" / doc_file
+
+        try:
+            entry = (
+                f"\n\n## Learned: {params.description}\n\n"
+                f"```python\n{params.code}\n```\n"
+            )
+            with open(doc_path, "a", encoding="utf-8") as f:
+                f.write(entry)
+            _stats["patterns_learned"] += 1
+
+            # Clear RAG cache so new pattern is found on next search
+            try:
+                from fpt_mcp.rag.search import clear_cache
+                clear_cache()
+            except ImportError:
+                pass
+
+            return json.dumps({
+                "status": "learned",
+                "description": params.description,
+                "file": doc_file,
+                "note": "Pattern appended to docs. Run build_index to include in RAG.",
+            })
+        except Exception as e:
+            return json.dumps({"error": f"Failed to write pattern: {e}"})
+    else:
+        # Stage candidate for review
+        candidates_path = _SERVER_DIR / "rag" / "candidates.json"
+        try:
+            candidates = json.loads(candidates_path.read_text()) if candidates_path.exists() else []
+        except Exception:
+            candidates = []
+
+        candidates.append({
+            "description": params.description,
+            "code": params.code,
+            "api": params.api,
+            "model": _get_current_model(),
+            "timestamp": datetime.datetime.now().isoformat(),
+        })
+
+        try:
+            candidates_path.parent.mkdir(parents=True, exist_ok=True)
+            candidates_path.write_text(json.dumps(candidates, indent=2, ensure_ascii=False))
+        except Exception:
+            pass
+
+        _stats["patterns_staged"] += 1
+
+        return json.dumps({
+            "status": "staged",
+            "description": params.description,
+            "note": f"Model '{_get_current_model()}' is read-only. Pattern staged for review.",
+        })
+
+
+@mcp.tool(name="session_stats")
+async def session_stats_tool() -> str:
+    """Show session efficiency statistics: token usage, RAG savings, patterns learned.
+
+    Call at the end of multi-step tasks or when asked about efficiency.
+    Shows how much context was saved by RAG vs loading full documentation.
+    """
+    used = _stats["tokens_in"] + _stats["tokens_out"]
+    saved = _stats["tokens_saved"]
+    total = used + saved
+    ratio = f"{saved / total * 100:.0f}%" if total > 0 else "—"
+    uptime = str(datetime.datetime.now() - _stats_reset_at).split(".")[0]
+
     return json.dumps({
-        "id": result["id"],
-        "code": data["code"],
-        "path": publish_path,
-        "version_number": version,
-        "entity": {"type": params.entity_type, "id": params.entity_id, "code": entity_code},
-        "publish_type": params.publish_type,
-    }, default=str)
+        "session_duration": uptime,
+        "tool_calls": _stats["exec_calls"],
+        "rag_calls": _stats["rag_calls"],
+        "tokens_used": used,
+        "tokens_saved_by_rag": saved,
+        "token_efficiency": ratio,
+        "patterns_learned": _stats["patterns_learned"],
+        "patterns_staged": _stats["patterns_staged"],
+        "safety_blocks": _stats["safety_blocks"],
+        "cache_hits": _stats["cache_hits"],
+        "full_doc_baseline": _FULL_DOC_TOKENS,
+    }, indent=2)
 
 
 # ---------------------------------------------------------------------------

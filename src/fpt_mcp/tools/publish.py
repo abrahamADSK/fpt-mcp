@@ -1,5 +1,11 @@
-"""Tools for creating and querying PublishedFile entities in FPT.
+"""DEPRECATED — replaced by tk_publish in server.py (2026-03-30).
 
+This module is no longer imported. The publish functionality now lives
+in server.py (tk_publish_tool) using tk_config.py for path resolution.
+Will be removed in a future version.
+
+Original description:
+Tools for creating and querying PublishedFile entities in FPT.
 Hybrid approach: creates PublishedFile via ShotGrid API but resolves
 paths using Toolkit conventions so publishes are compatible with
 tk-multi-loader2 in Maya and Flame.

@@ -13,11 +13,11 @@ Claude Desktop / Claude Code / Terminal
         └── Qt console    → native chat app via fpt-mcp:// protocol handler
 ```
 
-## Tools
+## Tools (12)
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
 
-### ShotGrid API
+### ShotGrid API (7 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -29,16 +29,142 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
 | `sg_download` | Download attachment from any entity field |
 
-### Toolkit
+### Toolkit (2 tools)
 
 | Tool | Description |
 |------|-------------|
-| `tk_resolve_path` | Resolve publish path using tk-config-default2 conventions |
-| `tk_publish` | Create PublishedFile with auto-versioned Toolkit-compatible path |
+| `tk_resolve_path` | Resolve publish path from the project's real PipelineConfiguration |
+| `tk_publish` | Publish file: resolve path, copy file, find/create PublishedFileType, link Task, register in ShotGrid |
+
+### RAG — API Knowledge Engine (3 tools)
+
+| Tool | Description |
+|------|-------------|
+| `search_sg_docs` | Hybrid search across ShotGrid API documentation (ChromaDB + BM25 + HyDE + RRF). Returns relevant API patterns, correct filter syntax, and entity format examples. **Called automatically before complex queries** |
+| `learn_pattern` | Persist validated API patterns into the knowledge base. Model trust gates: Sonnet/Opus write directly, other models stage candidates for human review |
+| `session_stats` | Token usage statistics: calls, tokens in/out, RAG savings, cache hits, efficiency ratio |
+
+#### Supported publish types
+
+| Type | Asset template | Shot template |
+|------|---------------|---------------|
+| Maya Scene | `maya_asset_publish` | `maya_shot_publish` |
+| USD Scene | `usd_asset_publish` | `usd_shot_publish` |
+| FBX Model | `fbx_asset_publish` | `fbx_shot_publish` |
+| Texture | `texture_asset_publish` | — |
+| Alembic Cache | `asset_alembic_cache` | — |
+| Camera FBX | — | `camera_shot_fbx_publish` |
+| EXR Render | — | `exr_shot_render` |
+| Review MOV | `review_asset_mov` | `review_shot_mov` |
 
 ## Approach
 
-Full ShotGrid API access via `shotgun_api3` with no entity restrictions. Publish paths follow `tk-config-default2` conventions so that Toolkit loaders (tk-multi-loader2) in Maya and Flame can pick them up natively.
+Full ShotGrid API access via `shotgun_api3` with no entity restrictions.
+
+### Toolkit path resolution — two modes
+
+**Mode 1 — Automatic discovery** (projects with Advanced Setup):
+
+The server queries the `PipelineConfiguration` entity from ShotGrid, reads the local `roots.yml` and `templates.yml`, and resolves publish paths using the project's real Toolkit config. This works with local configs and `dev` descriptor distributed configs. No hardcoded templates — paths come from the actual tk-config.
+
+**Mode 2 — Fallback** (projects without Advanced Setup):
+
+If no `PipelineConfiguration` is found, the server uses `tk-config-default2` standard templates with a configurable `PUBLISH_ROOT` (from `.env`). Paths follow the same conventions, so PublishedFiles are compatible with Toolkit loaders if the project later gets an Advanced Setup.
+
+Both modes produce paths that `tk-multi-loader2` in Maya, Flame, and Nuke can resolve natively.
+
+### Custom pipeline config
+
+For a customized pipeline, the Advanced Project Setup wizard in ShotGrid Desktop supports three sources:
+
+- **Default configuration** — `tk-config-default2` from the App Store
+- **Git repository** — clone from a URL (e.g. `https://github.com/yourorg/tk-config-custom.git`)
+- **Existing project** — copy the config from another project
+
+The `tk_config.py` module reads whatever config is installed — default, custom, or forked. Templates specific to Vision3D pipeline types (USD, FBX, textures, etc.) are injected as derived templates that follow the same `@asset_root/publish/{tool}/{name}.v{version}.{ext}` convention. These can later be added to a custom tk-config repo for full Toolkit integration.
+
+## RAG — Anti-hallucination Engine
+
+fpt-mcp includes a hybrid Retrieval-Augmented Generation (RAG) system that provides Claude with verified ShotGrid API knowledge at query time, eliminating common hallucinations like invalid filter operators, incorrect entity reference formats, and wrong Toolkit template tokens.
+
+### Architecture
+
+```
+User query → search_sg_docs tool
+                ↓
+        ┌───────┴───────┐
+        │  HyDE Expander │ ← Adaptive: detects shotgun_api3 / Toolkit / REST
+        └───────┬───────┘
+                ↓
+    ┌───────────┼───────────┐
+    │           │           │
+ChromaDB    BM25 Index   In-session
+(semantic)  (lexical)     Cache
+    │           │
+    └─────┬─────┘
+          ↓
+    RRF Fusion (k=60)
+          ↓
+    Top-N chunks + relevance score
+```
+
+### Technology stack
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Vector DB | ChromaDB (persistent) | Semantic search with cosine similarity |
+| Embeddings | BAAI/bge-large-en-v1.5 | Document and query encoding (~570 MB model) |
+| Lexical search | BM25Okapi (rank_bm25) | Exact API method name matching |
+| Query expansion | HyDE (adaptive) | Generates domain-specific hypothetical code before embedding |
+| Rank fusion | RRF (k=60) | Combines semantic + BM25 rankings without score calibration |
+| Safety | 12+ regex patterns | Detects dangerous operations before execution |
+| Token tracking | Session stats | Measures tokens used vs saved by RAG, calculates efficiency |
+| Self-learning | learn_pattern + model gates | Grows the knowledge base from validated patterns |
+| Cache | In-session dict | Avoids redundant ChromaDB queries within a session |
+
+### Knowledge corpus
+
+The RAG indexes three ShotGrid API reference documents covering distinct domains:
+
+| Document | Content | Size |
+|----------|---------|------|
+| `docs/SG_API.md` | shotgun_api3 Python SDK — methods, filter operators by field type, entity format rules, anti-patterns | ~7 KB |
+| `docs/TK_API.md` | Toolkit (sgtk) — PipelineConfiguration discovery, template tokens (case-sensitive), descriptor types, path resolution | ~7 KB |
+| `docs/REST_API.md` | REST API — comparison table vs Python SDK, filter syntax differences | ~2.5 KB |
+
+### HyDE adaptive expansion
+
+Unlike generic HyDE, fpt-mcp detects which API domain the query targets and generates a domain-specific hypothetical document:
+
+- **Toolkit queries** (template, publish path, roots.yml) → generates `import sgtk` code skeleton
+- **REST API queries** (oauth, bearer, endpoint) → generates `import requests` HTTP skeleton
+- **Default** (most queries) → generates `from shotgun_api3 import Shotgun` skeleton
+
+This produces embeddings closer to the relevant corpus section, improving retrieval precision.
+
+### Dangerous pattern detection
+
+The `safety.py` module scans tool parameters before execution and blocks or warns about dangerous operations:
+
+- Bulk delete without specific IDs
+- Unfiltered search with no limit (returns entire database)
+- Entity reference format errors (int instead of `{type, id}` dict)
+- Path traversal in publish paths (`../`)
+- Schema modifications (field create/delete)
+- PublishedFile deletion (breaks Toolkit references)
+- Invalid filter operators (hallucinated by LLMs)
+- Large batch operations (>100 entities)
+- Incorrect template tokens
+
+### Building the RAG index
+
+After installing dependencies, build the ChromaDB index from the documentation corpus:
+
+```bash
+python -m fpt_mcp.rag.build_index
+```
+
+This creates the persistent ChromaDB database and BM25 corpus.json. The index only needs rebuilding when the documentation files in `docs/` change.
 
 ## Install
 
@@ -193,7 +319,10 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "mcp__fpt-mcp__sg_upload",
       "mcp__fpt-mcp__sg_download",
       "mcp__fpt-mcp__tk_resolve_path",
-      "mcp__fpt-mcp__tk_publish"
+      "mcp__fpt-mcp__tk_publish",
+      "mcp__fpt-mcp__search_sg_docs",
+      "mcp__fpt-mcp__learn_pattern",
+      "mcp__fpt-mcp__session_stats"
     ]
   }
 }
@@ -270,4 +399,9 @@ ShotGrid AMI click
 - `PySide6` >= 6.6 (Qt for Python)
 - `python-dotenv`
 - `httpx`
+- `pyyaml` (Toolkit config parsing)
+- `chromadb` >= 0.5.0 (RAG vector database)
+- `sentence-transformers` >= 2.2.0 (RAG embeddings — BAAI/bge-large-en-v1.5)
+- `rank-bm25` >= 0.2.2 (RAG lexical search)
 - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
+
