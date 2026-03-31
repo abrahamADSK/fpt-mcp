@@ -5,10 +5,9 @@ desde la PipelineConfiguration registrada en ShotGrid. Compatible con:
   - Configs locales (mac_path / linux_path / windows_path)
   - Distributed configs (descriptor → bundle cache) — TODO fase 2
 
-Para tipos de fichero que no existen en tk-config-default2 (GLB, USD, etc.),
-genera templates derivados siguiendo la convención existente.
-
 No modifica la config del usuario. No requiere sgtk bootstrap.
+Si el proyecto no tiene PipelineConfiguration, discover_or_fallback() devuelve
+None y tk_publish solicita un path explícito al usuario.
 """
 
 from __future__ import annotations
@@ -49,40 +48,6 @@ KEY_FORMATS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Derived templates for types NOT in tk-config-default2
-# These follow the same convention: @{root}/publish/{tool}/{name}.v{version}.{ext}
-# ---------------------------------------------------------------------------
-
-DERIVED_TEMPLATES = {
-    # Asset publishes — Vision3D pipeline
-    "usd_asset_publish": "@asset_root/publish/usd/{name}.v{version}.usd",
-    "fbx_asset_publish": "@asset_root/publish/fbx/{name}.v{version}.fbx",
-    "texture_asset_publish": "@asset_root/publish/textures/{name}.v{version}.png",
-    "review_asset_mov": "@asset_root/review/{Asset}_{name}_v{version}.mov",
-
-    # Shot publishes
-    "usd_shot_publish": "@shot_root/publish/usd/{name}.v{version}.usd",
-    "fbx_shot_publish": "@shot_root/publish/fbx/{name}.v{version}.fbx",
-    "camera_shot_fbx_publish": "@shot_root/publish/camera/{name}.v{version}.fbx",
-    "exr_shot_render": "@shot_root/publish/renders/{name}/v{version}/{name}.v{version}.{SEQ}.exr",
-    "review_shot_mov": "@shot_root/review/{Shot}_{name}_v{version}.mov",
-}
-
-# Map publish_type → template name for quick lookup
-PUBLISH_TYPE_MAP = {
-    # Asset types
-    "Maya Scene":   {"asset": "maya_asset_publish", "shot": "maya_shot_publish"},
-    "USD Scene":    {"asset": "usd_asset_publish", "shot": "usd_shot_publish"},
-    "FBX Model":    {"asset": "fbx_asset_publish", "shot": "fbx_shot_publish"},
-    "Texture":      {"asset": "texture_asset_publish", "shot": None},
-    "Alembic Cache": {"asset": "asset_alembic_cache", "shot": None},
-    # Shot types
-    "Camera FBX":   {"asset": None, "shot": "camera_shot_fbx_publish"},
-    "EXR Render":   {"asset": None, "shot": "exr_shot_render"},
-    # Review (Version, not PublishedFile)
-    "Review MOV":   {"asset": "review_asset_mov", "shot": "review_shot_mov"},
-}
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +87,6 @@ class TkConfig:
                 self._aliases[name] = value
             elif isinstance(value, dict) and "definition" in value:
                 self._templates[name] = value["definition"]
-
-        # Add derived templates for types not in tk-config-default2
-        for name, template in DERIVED_TEMPLATES.items():
-            if name not in self._templates:
-                self._templates[name] = template
 
     def resolve_alias(self, template: str) -> str:
         """Expand @alias references in a template string.
@@ -269,55 +229,6 @@ def _read_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
-# ---------------------------------------------------------------------------
-# Default templates — tk-config-default2 conventions (fallback mode)
-# ---------------------------------------------------------------------------
-
-_DEFAULT_TEMPLATES_RAW = {
-    "keys": {
-        "version": {"type": "int", "format_spec": "03"},
-        "maya_extension": {"type": "str", "default": "ma"},
-    },
-    "paths": {
-        # Aliases
-        "shot_root": "sequences/{Sequence}/{Shot}/{Step}",
-        "asset_root": "assets/{sg_asset_type}/{Asset}/{Step}",
-        "sequence_root": "sequences/{Sequence}",
-        # Maya
-        "maya_asset_publish": {"definition": "@asset_root/publish/maya/{name}.v{version}.{maya_extension}"},
-        "maya_shot_publish": {"definition": "@shot_root/publish/maya/{name}.v{version}.{maya_extension}"},
-        "maya_asset_work": {"definition": "@asset_root/work/maya/{name}.v{version}.{maya_extension}"},
-        "maya_shot_work": {"definition": "@shot_root/work/maya/{name}.v{version}.{maya_extension}"},
-        # Alembic
-        "asset_alembic_cache": {"definition": "@asset_root/publish/caches/{name}.v{version}.abc"},
-        # Nuke
-        "nuke_asset_publish": {"definition": "@asset_root/publish/nuke/{name}.v{version}.nk"},
-        "nuke_shot_publish": {"definition": "@shot_root/publish/nuke/{name}.v{version}.nk"},
-    },
-}
-
-
-def _build_fallback_config(project_root: Path) -> TkConfig:
-    """Create a TkConfig with tk-config-default2 default templates.
-
-    Used when no PipelineConfiguration is found in ShotGrid (basic project
-    without Advanced Setup). Paths follow standard conventions and are
-    compatible with any tk-config-default2 based project.
-
-    The project_root comes from PUBLISH_ROOT env var or a sensible default.
-    """
-    return TkConfig(
-        project_root=project_root,
-        config_path=Path("(fallback — no PipelineConfiguration)"),
-        templates_raw=_DEFAULT_TEMPLATES_RAW,
-        keys_raw=_DEFAULT_TEMPLATES_RAW.get("keys", {}),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Discovery functions
-# ---------------------------------------------------------------------------
-
 async def discover_config(
     project_id: int,
     sg_find_func,
@@ -456,22 +367,14 @@ async def discover_or_fallback(
     project_id: int,
     sg_find_func,
     pipeline_config_name: str = "Primary",
-) -> TkConfig:
-    """Discover the Toolkit config, falling back to defaults if not available.
+) -> Optional[TkConfig]:
+    """Discover the Toolkit configuration for a project.
 
-    This is the recommended entry point. It tries, in order:
+    This is the recommended entry point. Returns the resolved TkConfig
+    if the project has a PipelineConfiguration, or None if it doesn't.
 
-    1. **Full discovery**: Query PipelineConfiguration → read local config
-       → real templates from the project's tk-config.
-
-    2. **Fallback mode**: If no PipelineConfiguration exists, or if the config
-       is distributed and not locally resolvable, uses tk-config-default2
-       standard templates with PUBLISH_ROOT from the environment.
-
-    The fallback produces paths compatible with any standard tk-config-default2
-    project. PublishedFiles registered with these paths will be found by
-    Toolkit loaders if the project later gets an Advanced Setup with the
-    default config.
+    When None is returned, the caller (tk_publish) should ask the user
+    for an explicit publish path instead of guessing a directory structure.
 
     Args:
         project_id: ShotGrid project ID.
@@ -479,7 +382,7 @@ async def discover_or_fallback(
         pipeline_config_name: PipelineConfiguration name (default: "Primary").
 
     Returns:
-        TkConfig — either from the real config or from fallback defaults.
+        TkConfig if the project has a discoverable pipeline config, None otherwise.
     """
     # Check cache
     if project_id in _config_cache:
@@ -488,32 +391,7 @@ async def discover_or_fallback(
     try:
         return await discover_config(project_id, sg_find_func, pipeline_config_name)
     except TkConfigError:
-        pass
-
-    # Fallback: use PUBLISH_ROOT from env, or derive from project name
-    publish_root = os.getenv("PUBLISH_ROOT")
-    if publish_root:
-        project_root = Path(publish_root)
-    else:
-        # Try to get project name from SG for a sensible default path
-        try:
-            projects = await sg_find_func(
-                "Project",
-                [["id", "is", project_id]],
-                ["name", "tank_name"],
-            )
-            if projects:
-                tank_name = projects[0].get("tank_name") or projects[0].get("name", "project")
-                # Use a standard location
-                project_root = Path.home() / "ShotGrid" / _sanitize(tank_name)
-            else:
-                project_root = Path.home() / "ShotGrid" / f"project_{project_id}"
-        except Exception:
-            project_root = Path.home() / "ShotGrid" / f"project_{project_id}"
-
-    tk_config = _build_fallback_config(project_root)
-    _config_cache[project_id] = tk_config
-    return tk_config
+        return None
 
 
 def clear_cache() -> None:

@@ -43,7 +43,7 @@ from fpt_mcp.client import (
     sg_schema_field_read,
     PROJECT_ID,
 )
-from fpt_mcp.tk_config import discover_or_fallback, TkConfigError, PUBLISH_TYPE_MAP
+from fpt_mcp.tk_config import discover_or_fallback, TkConfigError
 from fpt_mcp.safety import check_dangerous
 
 _SERVER_DIR = Path(__file__).parent
@@ -189,34 +189,40 @@ class SgDownloadInput(BaseModel):
 class TkResolvePathInput(BaseModel):
     entity_type: str = Field(description="'Asset' or 'Shot'.")
     entity_id: int = Field(description="Entity ID in ShotGrid. Used to auto-fetch entity context (code, asset_type, sequence).")
-    publish_type: str = Field(
-        default="Maya Scene",
+    template_name: str = Field(
         description=(
-            "Publish type determines the template. Supported: "
-            "'Maya Scene', 'USD Scene', 'FBX Model', 'Texture', "
-            "'Alembic Cache', 'Camera FBX', 'EXR Render', 'Review MOV'."
+            "Name of the template from the project's templates.yml "
+            "(e.g. 'maya_asset_publish', 'nuke_shot_publish'). "
+            "Use search_sg_docs to find available templates."
         ),
     )
     step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
     name: str = Field(default="main", description="Publish name (e.g. 'main', 'turntable', 'hero_robot').")
     version: Optional[int] = Field(default=None, description="Version number. Auto-incremented if omitted.")
-    extension: Optional[str] = Field(default=None, description="File extension override (e.g. 'ma', 'mb', 'usd'). Auto-detected from publish_type if omitted.")
+    extension: Optional[str] = Field(default=None, description="File extension override (e.g. 'ma', 'mb'). Only needed for templates with extension tokens.")
 
 class TkPublishInput(BaseModel):
     entity_type: str = Field(description="'Asset' or 'Shot'.")
     entity_id: int = Field(description="Entity ID in ShotGrid.")
     publish_type: str = Field(
         description=(
-            "File type to publish. Supported: "
-            "'Maya Scene', 'USD Scene', 'FBX Model', 'Texture', "
-            "'Alembic Cache', 'Camera FBX', 'EXR Render'."
+            "PublishedFileType code in ShotGrid (e.g. 'Maya Scene', 'Nuke Script', "
+            "'Alembic Cache', 'Image'). Created automatically if it doesn't exist."
         ),
     )
     step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
     name: str = Field(default="main", description="Publish name.")
     comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
-    local_path: Optional[str] = Field(default=None, description="Explicit source file path to copy to publish location. If omitted, only registers the path in ShotGrid.")
-    version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented if omitted.")
+    local_path: Optional[str] = Field(default=None, description="Source file path. Copied to the resolved publish location if a PipelineConfiguration exists.")
+    publish_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Explicit publish path. Required when the project has no PipelineConfiguration. "
+            "The file at local_path (if provided) is copied here. "
+            "This path is stored in the PublishedFile entity."
+        ),
+    )
+    version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented from existing files if omitted (requires PipelineConfiguration).")
     extension: Optional[str] = Field(default=None, description="File extension override.")
 
 
@@ -364,11 +370,10 @@ async def sg_download_tool(params: SgDownloadInput) -> str:
 async def _get_tk_config():
     """Get or discover the TkConfig for the current project.
 
-    Uses discover_or_fallback: tries to read the real PipelineConfiguration
-    first, falls back to tk-config-default2 standard templates if not available.
+    Returns TkConfig if the project has a PipelineConfiguration, None otherwise.
     """
     if not PROJECT_ID:
-        raise TkConfigError("SHOTGRID_PROJECT_ID not set. Cannot discover Toolkit config.")
+        return None
     return await discover_or_fallback(PROJECT_ID, sg_find)
 
 
@@ -417,75 +422,47 @@ async def _build_template_fields(
     return template_fields
 
 
-def _resolve_template_name(publish_type: str, entity_type: str) -> str:
-    """Map a publish_type + entity_type to the correct template name."""
-    mapping = PUBLISH_TYPE_MAP.get(publish_type)
-    if mapping:
-        key = "asset" if entity_type == "Asset" else "shot"
-        template_name = mapping.get(key)
-        if template_name:
-            return template_name
-
-    raise TkConfigError(
-        f"No template mapping for publish_type='{publish_type}' + "
-        f"entity_type='{entity_type}'. "
-        f"Supported types: {list(PUBLISH_TYPE_MAP.keys())}"
-    )
-
-
-def _default_extension(publish_type: str) -> Optional[str]:
-    """Return default extension for a publish type, if needed by the template."""
-    defaults = {
-        "Maya Scene": "ma",
-        "USD Scene": None,   # extension baked into template
-        "FBX Model": None,
-        "Texture": None,
-        "Alembic Cache": None,
-        "Camera FBX": None,
-        "EXR Render": None,
-        "Review MOV": None,
-    }
-    return defaults.get(publish_type)
 
 
 @mcp.tool(name="tk_resolve_path")
 async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
-    """Resolve a Toolkit-compatible publish path using the project's real config.
+    """Resolve a Toolkit publish path using the project's PipelineConfiguration.
 
     Reads the PipelineConfiguration from ShotGrid, loads templates.yml,
-    and resolves the full file path. Works with any tk-config-default2
-    project — local or distributed.
+    and resolves the full file path. Requires the project to have an
+    Advanced Setup with a PipelineConfiguration entity.
+
+    Use search_sg_docs to find available template names for the project's config.
     """
     try:
         tk_config = await _get_tk_config()
-
-        # Determine template
-        template_name = _resolve_template_name(params.publish_type, params.entity_type)
-
-        # Determine extension
-        ext = params.extension or _default_extension(params.publish_type)
+        if tk_config is None:
+            return json.dumps({
+                "error": "No PipelineConfiguration found for this project. "
+                         "Cannot resolve Toolkit paths without a pipeline config. "
+                         "Use an explicit publish_path in tk_publish instead."
+            })
 
         # Build fields from SG entity context
         version = params.version
         if version is None:
-            # First build fields with placeholder version to scan filesystem
             fields_probe = await _build_template_fields(
                 params.entity_type, params.entity_id,
-                params.step, params.name, 0, ext,
+                params.step, params.name, 0, params.extension,
             )
-            version = tk_config.next_version(template_name, fields_probe)
+            version = tk_config.next_version(params.template_name, fields_probe)
 
         fields = await _build_template_fields(
             params.entity_type, params.entity_id,
-            params.step, params.name, version, ext,
+            params.step, params.name, version, params.extension,
         )
 
-        path = tk_config.resolve_path(template_name, fields)
+        path = tk_config.resolve_path(params.template_name, fields)
 
         return json.dumps({
             "path": str(path),
             "version": version,
-            "template": template_name,
+            "template": params.template_name,
             "project_root": str(tk_config.project_root),
         })
 
@@ -495,39 +472,81 @@ async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
 
 @mcp.tool(name="tk_publish")
 async def tk_publish_tool(params: TkPublishInput) -> str:
-    """Publish a file to ShotGrid with Toolkit-compatible path.
+    """Publish a file to ShotGrid.
 
-    Resolves the publish path from the project's real PipelineConfiguration,
-    optionally copies the source file, finds or creates the PublishedFileType,
-    and registers the PublishedFile in ShotGrid.
+    Two modes:
+    - With PipelineConfiguration: resolves the publish path from Toolkit
+      templates automatically (use tk_resolve_path first to preview the path).
+    - Without PipelineConfiguration: requires an explicit publish_path parameter.
+      The path is stored in the PublishedFile and is accessible by any tool
+      that reads the path field. If the project has a Local File Storage
+      configured in ShotGrid, the file will be browsable from the web UI.
     """
     try:
         tk_config = await _get_tk_config()
+        publish_path = None
+        version = params.version_number or 1
+        template_name = None
 
-        # Determine template
-        template_name = _resolve_template_name(params.publish_type, params.entity_type)
+        if tk_config is not None and params.publish_path is None:
+            # Mode 1: Resolve path from PipelineConfiguration templates
+            # Caller should provide a template_name-like approach, but for
+            # tk_publish we infer from publish_type + entity_type
+            # Try to find a matching template by convention
+            entity_key = "asset" if params.entity_type == "Asset" else "shot"
+            # Search templates for one matching the publish type
+            ptype_lower = params.publish_type.lower().replace(" ", "_")
+            candidates = [
+                f"{ptype_lower}_{entity_key}_publish",
+                f"{entity_key}_{ptype_lower}_publish",
+                f"{ptype_lower}_{entity_key}",
+            ]
+            for candidate in candidates:
+                if tk_config.get_template(candidate):
+                    template_name = candidate
+                    break
 
-        # Determine extension
-        ext = params.extension or _default_extension(params.publish_type)
+            if template_name is None:
+                # Try listing templates for a partial match
+                all_templates = tk_config.list_templates(ptype_lower)
+                if all_templates:
+                    template_name = next(iter(all_templates))
 
-        # Auto-increment version
-        version = params.version_number
-        if version is None:
-            fields_probe = await _build_template_fields(
+            if template_name is None:
+                return json.dumps({
+                    "error": f"No template found matching publish_type='{params.publish_type}' "
+                             f"for entity_type='{params.entity_type}'. "
+                             f"Available templates: {list(tk_config.list_templates().keys())}. "
+                             f"Provide an explicit publish_path instead."
+                })
+
+            ext = params.extension
+            if version == 1 and params.version_number is None:
+                fields_probe = await _build_template_fields(
+                    params.entity_type, params.entity_id,
+                    params.step, params.name, 0, ext,
+                )
+                version = tk_config.next_version(template_name, fields_probe)
+
+            fields = await _build_template_fields(
                 params.entity_type, params.entity_id,
-                params.step, params.name, 0, ext,
+                params.step, params.name, version, ext,
             )
-            version = tk_config.next_version(template_name, fields_probe)
+            publish_path = tk_config.resolve_path(template_name, fields)
 
-        # Build fields and resolve path
-        fields = await _build_template_fields(
-            params.entity_type, params.entity_id,
-            params.step, params.name, version, ext,
-        )
-        publish_path = tk_config.resolve_path(template_name, fields)
+        elif params.publish_path is not None:
+            # Mode 2: Explicit path provided by user
+            from pathlib import Path as _Path
+            publish_path = _Path(params.publish_path)
 
-        # Copy source file to publish path if provided
-        if params.local_path:
+        else:
+            return json.dumps({
+                "error": "No PipelineConfiguration found and no publish_path provided. "
+                         "Please provide an explicit publish_path where the file should be published."
+            })
+
+        # Copy source file if provided
+        if params.local_path and publish_path:
             import shutil
             publish_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(params.local_path, str(publish_path))
@@ -577,18 +596,21 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 
         result = await sg_create("PublishedFile", data)
 
-        return json.dumps({
+        response = {
             "id": result["id"],
             "code": data["code"],
             "path": str(publish_path),
             "version_number": version,
-            "template": template_name,
             "entity": {"type": params.entity_type, "id": params.entity_id, "code": entity_code},
             "publish_type": params.publish_type,
             "task": task["content"] if task else None,
             "file_copied": params.local_path is not None,
-            "project_root": str(tk_config.project_root),
-        }, default=str)
+        }
+        if template_name:
+            response["template"] = template_name
+            response["project_root"] = str(tk_config.project_root)
+
+        return json.dumps(response, default=str)
 
     except TkConfigError as e:
         return json.dumps({"error": str(e)})

@@ -1,15 +1,14 @@
 # fpt-mcp
 
 MCP server for **Autodesk Flow Production Tracking** (formerly ShotGrid).
-Part of a VFX pipeline ecosystem alongside maya-mcp and flame-mcp.
+
+Gives any MCP-compatible AI assistant (Claude Desktop, Claude Code, or any MCP client) full access to the ShotGrid API, Toolkit path resolution, and a RAG-powered knowledge engine that prevents common API hallucinations.
 
 ```
-Claude Desktop / Claude Code / Terminal
-├── maya-mcp    → 3D / Arnold render
-├── flame-mcp   → compositing
-└── fpt-mcp     → production tracking (this repo)
+Claude Desktop / Claude Code / any MCP client
+└── fpt-mcp
         ├── stdio         → Claude Desktop / Claude Code
-        ├── HTTP          → Maya, Flame, scripts, inter-service
+        ├── HTTP          → scripts, inter-service calls
         └── Qt console    → native chat app via fpt-mcp:// protocol handler
 ```
 
@@ -44,44 +43,21 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `learn_pattern` | Persist validated API patterns into the knowledge base. Model trust gates: Sonnet/Opus write directly, other models stage candidates for human review |
 | `session_stats` | Token usage statistics: calls, tokens in/out, RAG savings, cache hits, efficiency ratio |
 
-#### Supported publish types
-
-| Type | Asset template | Shot template |
-|------|---------------|---------------|
-| Maya Scene | `maya_asset_publish` | `maya_shot_publish` |
-| USD Scene | `usd_asset_publish` | `usd_shot_publish` |
-| FBX Model | `fbx_asset_publish` | `fbx_shot_publish` |
-| Texture | `texture_asset_publish` | — |
-| Alembic Cache | `asset_alembic_cache` | — |
-| Camera FBX | — | `camera_shot_fbx_publish` |
-| EXR Render | — | `exr_shot_render` |
-| Review MOV | `review_asset_mov` | `review_shot_mov` |
-
 ## Approach
 
 Full ShotGrid API access via `shotgun_api3` with no entity restrictions.
 
-### Toolkit path resolution — two modes
+### Toolkit path resolution
 
-**Mode 1 — Automatic discovery** (projects with Advanced Setup):
+**Projects with Advanced Setup** (PipelineConfiguration exists):
 
-The server queries the `PipelineConfiguration` entity from ShotGrid, reads the local `roots.yml` and `templates.yml`, and resolves publish paths using the project's real Toolkit config. This works with local configs and `dev` descriptor distributed configs. No hardcoded templates — paths come from the actual tk-config.
+The server queries the `PipelineConfiguration` entity from ShotGrid, reads the local `roots.yml` and `templates.yml`, and resolves publish paths using the project's real Toolkit config. This works with local configs, `dev` descriptors, and distributed configs. No hardcoded templates — paths come from the actual tk-config.
 
-**Mode 2 — Fallback** (projects without Advanced Setup):
+**Projects without Advanced Setup:**
 
-If no `PipelineConfiguration` is found, the server uses `tk-config-default2` standard templates with a configurable `PUBLISH_ROOT` (from `.env`). Paths follow the same conventions, so PublishedFiles are compatible with Toolkit loaders if the project later gets an Advanced Setup.
+If no `PipelineConfiguration` is found, `tk_publish` asks for an explicit publish path. The file is copied to the given location and registered as a PublishedFile in ShotGrid. If the project has a Local File Storage configured (ShotGrid → File Management → Local File Storage), the path will be resolvable from the ShotGrid web UI. Without Local Storage, the path is still stored in the PublishedFile `path` field and accessible to any script or loader that reads it.
 
-Both modes produce paths that `tk-multi-loader2` in Maya, Flame, and Nuke can resolve natively.
-
-### Custom pipeline config
-
-For a customized pipeline, the Advanced Project Setup wizard in ShotGrid Desktop supports three sources:
-
-- **Default configuration** — `tk-config-default2` from the App Store
-- **Git repository** — clone from a URL (e.g. `https://github.com/yourorg/tk-config-custom.git`)
-- **Existing project** — copy the config from another project
-
-The `tk_config.py` module reads whatever config is installed — default, custom, or forked. Templates specific to Vision3D pipeline types (USD, FBX, textures, etc.) are injected as derived templates that follow the same `@asset_root/publish/{tool}/{name}.v{version}.{ext}` convention. These can later be added to a custom tk-config repo for full Toolkit integration.
+The `tk_config.py` module reads whatever Toolkit config is installed — default, custom, or forked.
 
 ## RAG — Anti-hallucination Engine
 
@@ -161,15 +137,19 @@ The `safety.py` module scans tool parameters before execution and blocks or warn
 After installing dependencies, build the ChromaDB index from the documentation corpus:
 
 ```bash
+# From the project directory, with venv activated:
+source .venv/bin/activate
 python -m fpt_mcp.rag.build_index
 ```
 
-This creates the persistent ChromaDB database and BM25 corpus.json. The index only needs rebuilding when the documentation files in `docs/` change.
+This creates the persistent ChromaDB database and BM25 corpus.json. The first run downloads the BAAI/bge-large-en-v1.5 embedding model (~570 MB). The index only needs rebuilding when the documentation files in `docs/` change.
 
 ## Install
 
 ```bash
 cd fpt-mcp
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
@@ -332,24 +312,9 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
 
 The `permissions.allow` list auto-approves all fpt-mcp tools so Claude Code (and the Qt console, which uses Claude Code CLI internally) can call them without manual confirmation each time.
 
-## Cross-MCP pipeline (fpt-mcp + maya-mcp)
+## Cross-MCP orchestration (optional)
 
-When both fpt-mcp and maya-mcp are configured in Claude Code or Claude Desktop, Claude can orchestrate cross-tool workflows in a single conversation. For example:
-
-```
-User: "Download the reference image for Asset #1478 and generate a 3D model in Maya"
-
-Claude:
-  1. sg_find → get Asset #1478 details and linked Version with thumbnail
-  2. sg_download → download the reference image to local disk
-  3. shape_generate_remote(preset='high') → start Vision3D job, get job_id
-  4. vision3d_poll(job_id) → repeat until completed (shows real-time progress)
-  5. vision3d_download(job_id) → download textured.glb, mesh_uv.obj, texture_baked.png
-  6. maya_execute_python → import the textured mesh into the Maya scene
-  7. tk_publish → register a PublishedFile in ShotGrid with the new mesh path
-```
-
-To enable this, add both servers to `~/.claude.json` via `claude mcp add -s user` (see the maya-mcp README for its configuration), and include permissions for both in `~/.claude/settings.json` under `permissions.allow`. Make sure to include `vision3d_health`, `vision3d_poll` and `vision3d_download` in the maya-mcp permissions.
+fpt-mcp works standalone, but when combined with other MCP servers in the same Claude session, Claude can orchestrate multi-tool workflows automatically. For example, with a DCC MCP server configured alongside fpt-mcp, Claude can query ShotGrid for asset data, download references, and register publishes — all in a single conversation.
 
 ## Autostart with launchd (macOS)
 
