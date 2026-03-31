@@ -13,8 +13,7 @@ Features:
     - Token tracking with RAG savings measurement
     - Model trust gates for self-learning
 
-Designed to work alongside maya-mcp and flame-mcp as part of a
-VFX pipeline orchestrated by Claude.
+Works standalone or alongside other MCP servers for cross-tool orchestration.
 """
 
 from __future__ import annotations

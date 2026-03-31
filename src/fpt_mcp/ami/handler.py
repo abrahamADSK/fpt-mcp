@@ -39,7 +39,7 @@ CLOSE_HTML = """<!DOCTYPE html>
 <html><head><title>FPT-MCP</title>
 <style>body{background:#1a1a2e;color:#e0e0e0;display:flex;justify-content:center;
 align-items:center;height:100vh;font-family:sans-serif;}</style>
-</head><body><p>Consola abierta.</p>
+</head><body><p>Console opened.</p>
 <script>setTimeout(()=>window.close(),500);</script>
 </body></html>"""
 

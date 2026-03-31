@@ -1,12 +1,12 @@
-# Contexto del Proyecto fpt-mcp para Claude
+# fpt-mcp Project Context for Claude
 
-Documento de referencia que persiste entre sesiones. Actualizar cuando cambien arquitectura o workflows.
+Reference document that persists across sessions. Update when architecture or workflows change.
 
 ---
 
-## 1. Arquitectura General
+## 1. General Architecture
 
-El proyecto **fpt-mcp** es un servidor MCP integrado en un ecosistema VFX que orquesta workflows cross-MCP:
+**fpt-mcp** is an MCP server for Autodesk Flow Production Tracking (ShotGrid). Works standalone or alongside other MCP servers for cross-tool orchestration.
 
 ```
 Claude Desktop / Claude Code / Terminal
@@ -18,288 +18,225 @@ Claude Desktop / Claude Code / Terminal
         └── Qt console      → native chat app via fpt-mcp:// protocol handler
 ```
 
-### Servidor MCP: fpt-mcp
+### MCP Server: fpt-mcp
 
-**Herramientas ShotGrid API** (acceso sin restricciones a cualquier entidad):
-- `sg_find` — buscar entidades con filtros y campos
-- `sg_create` — crear entidades (project auto-enlazado)
-- `sg_update` — actualizar cualquier campo
-- `sg_delete` — soft-delete (retire) de entidades
-- `sg_schema` — inspeccionar campos disponibles
-- `sg_upload` — subir archivos (thumbnail, movie, attachment)
-- `sg_download` — descargar adjuntos
+**ShotGrid API tools** (unrestricted access to any entity):
+- `sg_find` — query entities with filters and fields
+- `sg_create` — create entities (project auto-linked)
+- `sg_update` — update any field
+- `sg_delete` — soft-delete (retire) entities
+- `sg_schema` — inspect available fields
+- `sg_upload` — upload files (thumbnail, movie, attachment)
+- `sg_download` — download attachments
+- `sg_batch` — transactional batch operations (all-or-nothing)
+- `sg_text_search` — full-text search across all text fields of multiple entity types
+- `sg_summarize` — server-side aggregation (count, sum, avg, min, max) with grouping
+- `sg_revive` — restore soft-deleted (retired) entities
+- `sg_note_thread` — read full Note reply threads with all linked entities
+- `sg_activity` — read the activity stream for any entity
 
-**Herramientas Toolkit**:
-- `tk_resolve_path` — resolver rutas de publicación desde la PipelineConfiguration real del proyecto (o fallback a defaults)
-- `tk_publish` — publicar fichero: resolver path, copiar archivo, find/create PublishedFileType, enlazar Task, registrar PublishedFile en ShotGrid
+**Toolkit tools**:
+- `tk_resolve_path` — resolve publish paths from the project's real PipelineConfiguration
+- `tk_publish` — publish file: resolve path, copy file, find/create PublishedFileType, link Task, register PublishedFile in ShotGrid
 
-**Herramientas RAG** (Retrieval-Augmented Generation):
-- `search_sg_docs` — búsqueda híbrida (ChromaDB semántica + BM25 léxica + HyDE + RRF fusion) en la documentación de las 3 APIs de ShotGrid. **OBLIGATORIO** antes de queries complejas o desconocidas.
-- `learn_pattern` — persistir patrones validados en la base de conocimiento. Model trust gates: solo Sonnet/Opus escriben directamente; otros modelos stagen candidatos.
-- `session_stats` — estadísticas de sesión: tokens usados, tokens ahorrados por RAG, patrones aprendidos, bloqueos de seguridad.
+**RAG tools** (Retrieval-Augmented Generation):
+- `search_sg_docs` — hybrid search (ChromaDB semantic + BM25 lexical + HyDE + RRF fusion) across all 3 ShotGrid API docs. **MANDATORY** before complex or unknown queries.
+- `learn_pattern` — persist validated patterns in the knowledge base. Model trust gates: only Sonnet/Opus write directly; other models stage candidates.
+- `session_stats` — session statistics: tokens used, tokens saved by RAG, learned patterns, safety blocks.
 
-**Módulo de seguridad** (`safety.py`):
-- 12+ regex patterns que detectan operaciones peligrosas antes de ejecutarlas
-- Integrado en sg_find y sg_delete (los tools con mayor riesgo)
-- Detecta: bulk delete, filtros vacíos sin límite, path traversal, schema modification, entity format errors, invalid filter operators
+**Safety module** (`safety.py`):
+- 12+ regex patterns detecting dangerous operations before execution
+- Integrated into sg_find and sg_delete (highest-risk tools)
+- Detects: bulk delete, empty filters without limit, path traversal, schema modification, entity format errors, invalid filter operators
 
-### Tecnologías RAG
+### RAG Technologies
 
-| Componente | Tecnología | Propósito |
+| Component | Technology | Purpose |
 |---|---|---|
-| Vector DB | ChromaDB (persistent) | Búsqueda semántica por similitud coseno |
-| Embeddings | BAAI/bge-large-en-v1.5 (~570 MB) | Codificación de documentos y queries |
-| Lexical search | rank_bm25 (BM25Okapi) | Match exacto de nombres de métodos y operadores |
-| Query expansion | HyDE adaptativo | Expande queries cortas con templates de código por API |
-| Rank fusion | RRF (k=60) | Combina rankings semántico + léxico sin calibración |
-| Token tracking | Integrado en _stats | Mide tokens usados/ahorrados en cada sesión |
-| Self-learning | learn_pattern + model gates | Acumula patrones validados entre sesiones |
-| Cache | In-session dict (A12) | Evita búsquedas ChromaDB repetidas |
+| Vector DB | ChromaDB (persistent) | Semantic similarity search (cosine) |
+| Embeddings | BAAI/bge-large-en-v1.5 (~570 MB) | Document and query encoding |
+| Lexical search | rank_bm25 (BM25Okapi) | Exact match for method names and operators |
+| Query expansion | Adaptive HyDE | Expands short queries with API-specific code templates |
+| Rank fusion | RRF (k=60) | Combines semantic + lexical rankings without calibration |
+| Token tracking | Built into _stats | Measures tokens used/saved per session |
+| Self-learning | learn_pattern + model gates | Accumulates validated patterns across sessions |
+| Cache | In-session dict (A12) | Avoids repeated ChromaDB lookups |
 
-### Corpus indexado (3 colecciones, ~340 chunks)
+### Indexed corpus (3 collections, ~311 chunks)
 
-- `docs/SG_API.md` — shotgun_api3 Python SDK: métodos, filtros, operadores, anti-patterns
-- `docs/TK_API.md` — Toolkit sgtk: templates, tokens, PipelineConfiguration, derived templates
-- `docs/REST_API.md` — REST API: referencia comparativa para evitar confusión con Python SDK
+- `docs/SG_API.md` — shotgun_api3 Python SDK: methods, filters, operators, anti-patterns
+- `docs/TK_API.md` — Toolkit sgtk: templates, tokens, PipelineConfiguration, environments
+- `docs/REST_API.md` — REST API: comparative reference to avoid confusion with the Python SDK
 
 ---
 
-## 2. Toolkit — Resolución Dinámica de Paths (tk_config.py)
+## 2. Toolkit — Dynamic Path Resolution (tk_config.py)
 
-**Archivo**: `src/fpt_mcp/tk_config.py` (reemplaza al anterior `paths.py`, que está deprecated)
+**File**: `src/fpt_mcp/tk_config.py`
 
-### Dos modos de operación
+### Two modes of operation
 
-**Modo 1 — Descubrimiento automático** (proyectos con Advanced Setup):
-- Consulta la entidad `PipelineConfiguration` de ShotGrid
-- Lee `roots.yml` → obtiene el `project_root` (path local del storage primario)
-- Lee `templates.yml` → carga todos los templates de path del proyecto
-- Compatible con configs locales y configs distribuidas tipo `dev`
+**Mode 1 — Auto-discovery** (projects with PipelineConfiguration):
+- Queries the `PipelineConfiguration` entity in ShotGrid
+- Reads `roots.yml` → gets the `project_root` (local path of the primary storage)
+- Reads `templates.yml` → loads all path templates from the project
+- Supports local configs and `dev` type distributed configs
 - Entry point: `discover_config(project_id, sg_find_func)`
 
-**Modo 2 — Fallback** (proyectos sin Advanced Setup):
-- Si no hay `PipelineConfiguration` o no es resoluble, usa templates estándar de `tk-config-default2`
-- El `project_root` viene de `PUBLISH_ROOT` en `.env`, o se deriva del `tank_name` del proyecto: `~/ShotGrid/{tank_name}/`
-- Los paths generados son compatibles con Toolkit loaders si el proyecto luego recibe Advanced Setup
-- Entry point: `_build_fallback_config(project_root)`
+**Mode 2 — Explicit path** (projects without PipelineConfiguration):
+- If no `PipelineConfiguration` exists or cannot be resolved, `discover_or_fallback()` returns `None`
+- `tk_publish` then requires the user to provide an explicit `publish_path`
+- The path is stored in the PublishedFile's `path` field
+- If Local File Storage is enabled in ShotGrid, the file becomes browsable from the web UI
 
-**Entry point recomendado**: `discover_or_fallback()` — intenta Modo 1, fallback a Modo 2.
+**Recommended entry point**: `discover_or_fallback()` — tries Mode 1, returns None for Mode 2.
 
-### Templates derivados (Vision3D pipeline)
+### Key classes and functions
 
-Para tipos de fichero que no existen en tk-config-default2, se inyectan templates derivados:
+- **`TkConfig`**: Main class. Stores project_root, parsed templates, resolved aliases.
+  - `resolve_path(template_name, fields)` → full filesystem path
+  - `next_version(template_name, fields)` → next version number by scanning filesystem
+  - `get_template(name)` → template string with aliases expanded
+  - `list_templates(pattern)` → list filtered templates
+- **`discover_or_fallback()`**: Main entry point, caches by project_id
 
-```python
-DERIVED_TEMPLATES = {
-    "usd_asset_publish":         "@asset_root/publish/usd/{name}.v{version}.usd",
-    "fbx_asset_publish":         "@asset_root/publish/fbx/{name}.v{version}.fbx",
-    "texture_asset_publish":     "@asset_root/publish/textures/{name}.v{version}.png",
-    "review_asset_mov":          "@asset_root/review/{Asset}_{name}_v{version}.mov",
-    "usd_shot_publish":          "@shot_root/publish/usd/{name}.v{version}.usd",
-    "fbx_shot_publish":          "@shot_root/publish/fbx/{name}.v{version}.fbx",
-    "camera_shot_fbx_publish":   "@shot_root/publish/camera/{name}.v{version}.fbx",
-    "exr_shot_render":           "@shot_root/publish/renders/{name}/v{version}/{name}.v{version}.{SEQ}.exr",
-    "review_shot_mov":           "@shot_root/review/{Shot}_{name}_v{version}.mov",
-}
-```
-
-Estos solo se añaden si no existen ya en la config real del proyecto.
-
-### PUBLISH_TYPE_MAP — mapping de tipo de publicación a template
-
-```python
-PUBLISH_TYPE_MAP = {
-    "Maya Scene":   {"asset": "maya_asset_publish",     "shot": "maya_shot_publish"},
-    "USD Scene":    {"asset": "usd_asset_publish",      "shot": "usd_shot_publish"},
-    "FBX Model":    {"asset": "fbx_asset_publish",      "shot": "fbx_shot_publish"},
-    "Texture":      {"asset": "texture_asset_publish",  "shot": None},
-    "Alembic Cache":{"asset": "asset_alembic_cache",    "shot": None},
-    "Camera FBX":   {"asset": None,                     "shot": "camera_shot_fbx_publish"},
-    "EXR Render":   {"asset": None,                     "shot": "exr_shot_render"},
-    "Review MOV":   {"asset": "review_asset_mov",       "shot": "review_shot_mov"},
-}
-```
-
-### Clases y funciones clave
-
-- **`TkConfig`**: Clase principal. Almacena project_root, templates parseados, aliases resueltos.
-  - `resolve_path(template_name, fields)` → Path completo en disco
-  - `next_version(template_name, fields)` → siguiente versión escaneando filesystem
-  - `get_template(name)` → template string con aliases expandidos
-  - `list_templates(pattern)` → listar templates filtrados
-- **`discover_or_fallback()`**: Entry point principal, usa caché por project_id
-- **`_build_template_fields()`** (en server.py): Construye el dict de fields consultando SG (código entidad, sg_asset_type, sg_sequence)
-- **`_resolve_template_name()`** (en server.py): Mapea publish_type + entity_type → template name
-
-### Pipeline de publicación (tk_publish)
+### Publish pipeline (tk_publish)
 
 ```
+Mode 1 (with PipelineConfiguration):
 1. discover_or_fallback → TkConfig
-2. _resolve_template_name → template correcto según publish_type + entity_type
-3. _build_template_fields → SG entity context (code, asset_type, sequence)
-4. tk_config.next_version → auto-incremento escaneando filesystem
-5. tk_config.resolve_path → path completo
-6. shutil.copy2 → copiar archivo fuente si se proporciona local_path
-7. sg_find_one("PublishedFileType") → find or create si no existe
-8. sg_find_one("Task") → enlazar con task del pipeline step
-9. sg_create("PublishedFile") → registrar en ShotGrid
+2. Match template by convention (entity type + step + file extension)
+3. Build template fields from SG entity context
+4. tk_config.next_version → auto-increment by scanning filesystem
+5. tk_config.resolve_path → full path
+6. shutil.copy2 → copy source file if local_path provided
+7. sg_find_one("PublishedFileType") → find or create if missing
+8. sg_find_one("Task") → link with pipeline step task
+9. sg_create("PublishedFile") → register in ShotGrid
+
+Mode 2 (explicit path, no PipelineConfiguration):
+1. User provides publish_path directly
+2. shutil.copy2 → copy source file if local_path provided
+3. sg_find_one("PublishedFileType") → find or create
+4. sg_create("PublishedFile") → register with explicit path
 ```
 
-### Configuración de pipeline personalizada (futuro)
+### Distributed configs (TODO phase 2)
 
-Para un pipeline customizado, el wizard de Advanced Project Setup en ShotGrid Desktop soporta tres fuentes:
-- **Default** — `tk-config-default2` desde App Store
-- **Git** — clonar desde URL (e.g. `https://github.com/yourorg/tk-config-custom.git`)
-- **Proyecto existente** — copiar config de otro proyecto
-
-Los templates específicos de Vision3D (USD, FBX, textures, etc.) se inyectan como derived templates. Pueden añadirse a un repo de tk-config custom para integración completa con Toolkit. El repo de config custom se creará aparte.
-
-### Distributed configs (TODO fase 2)
-
-Actualmente solo se soporta el tipo `dev` de descriptor. Pendiente:
-- `app_store` — resolver desde el bundle cache: `~/Library/Caches/Shotgun/<site>/bundle_cache/`
-- `git` — resolver desde el bundle cache con formato diferente
+Currently only `dev` descriptor type is supported. Pending:
+- `app_store` — resolve from bundle cache: `~/Library/Caches/Shotgun/<site>/bundle_cache/`
+- `git` — resolve from bundle cache with different format
 
 ---
 
-## 3. Consola Qt (chat_window.py + claude_worker.py)
+## 3. Qt Console (chat_window.py + claude_worker.py)
 
-Interfaz gráfica nativa que ejecuta Claude Code CLI como subproceso, con streaming de progreso en tiempo real.
+Native graphical interface that runs Claude Code CLI as a subprocess with real-time progress streaming.
 
-### Arquitectura del Worker
+### Worker Architecture
 
-**Archivo**: `src/fpt_mcp/qt/claude_worker.py`
+**File**: `src/fpt_mcp/qt/claude_worker.py`
 
-- **QThread worker**: ejecuta `claude -p "prompt" --output-format stream-json --append-system-prompt`
-- **SYSTEM_PROMPT**: define el workflow completo de creación 3D (obligatorio leerlo antes de modificar)
-- **_TOOL_LABELS**: diccionario que mapea nombres de tools MCP → etiquetas legibles en español
+- **QThread worker**: runs `claude -p "prompt" --output-format stream-json --append-system-prompt`
+- **SYSTEM_PROMPT**: defines the complete 3D creation workflow (must read before modifying)
+- **_TOOL_LABELS**: dictionary mapping MCP tool names → human-readable labels
 
-```python
-_TOOL_LABELS = {
-    "sg_find": "Buscando en ShotGrid",
-    "sg_create": "Creando entidad en ShotGrid",
-    "sg_update": "Actualizando en ShotGrid",
-    "sg_delete": "Eliminando en ShotGrid",
-    "sg_schema": "Consultando schema ShotGrid",
-    "sg_upload": "Subiendo archivo a ShotGrid",
-    "sg_download": "Descargando desde ShotGrid",
-    "tk_resolve_path": "Resolviendo ruta Toolkit",
-    "tk_publish": "Publicando en ShotGrid",
-    "vision3d_health": "Comprobando disponibilidad de Vision3D",
-    "shape_generate_remote": "Iniciando generación 3D desde imagen (Vision3D)",
-    "shape_generate_text": "Iniciando generación 3D desde texto (Vision3D)",
-    "texture_mesh_remote": "Iniciando texturizado (Vision3D)",
-    "vision3d_poll": "Consultando progreso de Vision3D",
-    "vision3d_download": "Descargando resultados de Vision3D",
-    "maya_ping": "Verificando conexión con Maya",
-    "maya_launch": "Abriendo Maya",
-    "maya_create_primitive": "Creando primitiva en Maya",
-    "maya_assign_material": "Asignando material en Maya",
-    "maya_transform": "Transformando objeto en Maya",
-    "maya_list_scene": "Consultando escena Maya",
-    "maya_delete": "Eliminando objeto en Maya",
-    "maya_execute_python": "Ejecutando Python en Maya",
-    "maya_new_scene": "Creando nueva escena Maya",
-    "maya_save_scene": "Guardando escena Maya",
-}
-```
+### Progress Streaming
 
-### Streaming de Progreso
+- **Text delta events**: parsed line by line from the JSON stream
+- **_text_buffer**: buffer that accumulates partial text until `\n` is found
+- **_progress_lines**: list accumulating progress lines in the current session (last 12 visible)
+- **"Thinking" bubble**: accumulates lines instead of replacing them, providing process visibility
 
-- **Text delta events**: se parsean línea a línea desde el stream JSON
-- **_text_buffer**: buffer que acumula texto parcial hasta encontrar `\n`
-- **_progress_lines**: lista que acumula líneas de progreso en la sesión actual (últimas 12 visibles)
-- **Burbuja "pensando"**: acumula líneas en lugar de reemplazarlas, dando visibilidad del proceso
-
-**Archivo**: `src/fpt_mcp/qt/chat_window.py`
+**File**: `src/fpt_mcp/qt/chat_window.py`
 
 ---
 
-## 4. SYSTEM_PROMPT (Obligatorio leerlo antes de modificar)
+## 4. SYSTEM_PROMPT (Must read before modifying)
 
-Ubicación: `src/fpt_mcp/qt/claude_worker.py` línea 40
+Location: `src/fpt_mcp/qt/claude_worker.py` line 40
 
-El system prompt define el workflow completo para creación 3D. Estructura:
+The system prompt defines the complete workflow for 3D creation. Structure:
 
-### Paso 1: Comprobar Vision3D
+### Step 1: Check Vision3D
 ```
-Llamar a vision3d_health() ANTES de ofrecer opciones
-- Si available=true → ofrecer ambas opciones
-- Si available=false → informar y ofrecer solo Maya
-```
-
-### Paso 2-4: Identificar entidad, buscar referencias, presentar opciones
-```
-- sg_find para buscar contexto ShotGrid
-- sg_find en paralelo en Versions (image, sg_uploaded_movie), PublishedFiles
-- PRESENTAR TODO EN UNA SOLA RESPUESTA con bloque de calidad obligatorio
+Call vision3d_health() BEFORE offering options
+- If available=true → offer both options
+- If available=false → inform and offer Maya only
 ```
 
-### Bloque de Calidad (OBLIGATORIO mostrar siempre)
+### Steps 2-4: Identify entity, search references, present options
 ```
-Calidad IA — servidor Vision3D (modelo, octree, steps y faces):
- • low    — modelo turbo, octree 256, 10 steps, 10k faces  (~1 min)
- • medium — modelo turbo, octree 384, 20 steps, 50k faces  (~2 min) ← default
- • high   — modelo full,  octree 384, 30 steps, 150k faces (~8 min)
- • ultra  — modelo full,  octree 512, 50 steps, sin límite  (~12 min)
+- sg_find to fetch ShotGrid context
+- sg_find in parallel on Versions (image, sg_uploaded_movie), PublishedFiles
+- PRESENT EVERYTHING IN A SINGLE RESPONSE with mandatory quality block
 ```
 
-**REGLAS**:
-- NO resumir ni simplificar el bloque de calidad
-- Usar siempre "Servidor Vision3D IA" o "Vision3D" (NO "IA generativa")
-- El usuario necesita ver los parámetros técnicos completos
+### Quality Block (MANDATORY — always show)
+```
+AI Quality — Vision3D server (model, octree, steps and faces):
+ • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
+ • medium — turbo model, octree 384, 20 steps, 50k faces  (~2 min) ← default
+ • high   — full model,  octree 384, 30 steps, 150k faces (~8 min)
+ • ultra  — full model,  octree 512, 50 steps, no limit    (~12 min)
+```
 
-### Paso 5: Ejecutar flujo granular Vision3D
+**RULES**:
+- Do NOT summarize or simplify the quality block
+- Always use "Vision3D AI Server" or "Vision3D" (NOT "generative AI")
+- The user needs to see the complete technical parameters
+
+### Step 5: Execute granular Vision3D flow
 
 **Image-to-3D**:
-1. `sg_download` → descargar imagen referencia
-2. `shape_generate_remote(image_path=..., preset='high')` → retorna job_id
-3. `vision3d_poll(job_id=...)` → REPETIR mientras status='running', mostrar new_log_lines
-4. `vision3d_download(job_id=..., output_subdir=...)` → descargar archivos
-5. `maya_execute_python` → importar en Maya
+1. `sg_download` → download reference image
+2. `shape_generate_remote(image_path=..., preset='high')` → returns job_id
+3. `vision3d_poll(job_id=...)` → REPEAT while status='running', show new_log_lines
+4. `vision3d_download(job_id=..., output_subdir=...)` → download files
+5. `maya_execute_python` → import into Maya
 
-**Text-to-3D** (pipeline completo con textura):
-1. `shape_generate_text(text_prompt=..., preset='medium')` → retorna job_id
-2. `vision3d_poll(job_id=...)` → repetir hasta completed (3 fases: text→image, shape, texture)
+**Text-to-3D** (full pipeline with texture):
+1. `shape_generate_text(text_prompt=..., preset='medium')` → returns job_id
+2. `vision3d_poll(job_id=...)` → repeat until completed (3 phases: text→image, shape, texture)
 3. `vision3d_download(job_id=..., output_subdir=..., files=['textured.glb', 'mesh.glb', 'mesh_uv.obj', 'texture_baked.png'])`
-4. `maya_execute_python` → importar en Maya
+4. `maya_execute_python` → import into Maya
 
-**Modelado directo Maya**: `maya_create_primitive` + `maya_transform` + `maya_assign_material`
+**Direct Maya modeling**: `maya_create_primitive` + `maya_transform` + `maya_assign_material`
 
-### Paso 6: Post-creación
+### Step 6: Post-creation
 ```
-Ofrecer maya_save_scene y tk_publish
+Offer maya_save_scene and tk_publish
 ```
 
-### Reglas generales
-- NUNCA repetir pregunta ya respondida en historial
-- Usar SIEMPRE herramientas MCP, NUNCA decir "hazlo manualmente"
-- Si Maya no responde → `maya_launch`
-- Si Vision3D no responde → `vision3d_health()` para diagnóstico
-- Text-to-3D: traducir prompt a inglés
-- Responder en español, ser conciso, ejecutar no explicar
+### General rules
+- NEVER repeat a question already answered in history
+- ALWAYS use MCP tools, NEVER tell the user "do it manually"
+- If Maya doesn't respond → `maya_launch`
+- If Vision3D doesn't respond → `vision3d_health()` for diagnostics
+- Text-to-3D: translate prompt to English
+- Be concise, execute don't explain
 
 ---
 
-## 5. Historial de Conversación
+## 5. Conversation History
 
-El system prompt requiere pasar el historial como contexto para multi-turn:
+The system prompt requires passing history as context for multi-turn:
 
 ```
-IMPORTANTE: Puede haber un HISTORIAL DE CONVERSACIÓN antes del mensaje actual.
-Léelo con atención — si el usuario ya eligió una referencia o un método,
-NO vuelvas a preguntar. Continúa desde donde se quedó la conversación.
+IMPORTANT: There may be a CONVERSATION HISTORY before the current message.
+Read it carefully — if the user already chose a reference or a method,
+DO NOT ask again. Continue from where the conversation left off.
 ```
 
-**Implementación**:
-- `ClaudeWorker.__init__` recibe `history: list | None = None`
-- El historial se pasa al prompt para que Claude pueda contextualizar
+**Implementation**:
+- `ClaudeWorker.__init__` receives `history: list | None = None`
+- History is passed to the prompt so Claude can contextualize
 
 ---
 
-## 6. Permisos Necesarios
+## 6. Required Permissions
 
-En `~/.claude/settings.json`, habilitar todos estos tools:
+In `~/.claude/settings.json`, enable all these tools:
 
 **maya-mcp**:
 - `mcp__maya-mcp__vision3d_health`
@@ -308,114 +245,110 @@ En `~/.claude/settings.json`, habilitar todos estos tools:
 - `mcp__maya-mcp__texture_mesh_remote`
 - `mcp__maya-mcp__vision3d_poll`
 - `mcp__maya-mcp__vision3d_download`
-- Todos los tools maya_* (maya_launch, maya_ping, maya_create_primitive, maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera)
+- All maya_* tools (maya_launch, maya_ping, maya_create_primitive, maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera)
 
 **fpt-mcp**:
-- Todos los tools sg_* (sg_find, sg_create, sg_update, sg_delete, sg_schema, sg_upload, sg_download)
-- Todos los tools tk_* (tk_resolve_path, tk_publish)
-- Todos los tools RAG (search_sg_docs, learn_pattern, session_stats)
+- All sg_* tools (sg_find, sg_create, sg_update, sg_delete, sg_schema, sg_upload, sg_download, sg_batch, sg_text_search, sg_summarize, sg_revive, sg_note_thread, sg_activity)
+- All tk_* tools (tk_resolve_path, tk_publish)
+- All RAG tools (search_sg_docs, learn_pattern, session_stats)
 
 ---
 
-## 7. Bugs Conocidos / Historial
+## 7. Known Issues / History
 
-### Resueltos
-- **"Pensando..." sin progreso real** → Corregido con streaming de text_delta + acumulación de líneas en _progress_lines
-- **System prompt simplificaba opciones de calidad** → Corregido con bloque "OBLIGATORIO" que muestra parámetros completos
-- **paths.py incompatible con tk-config-default2** → Reemplazado por `tk_config.py` con descubrimiento dinámico de PipelineConfiguration
-- **tk_resolve_path crash: `next_version_number() takes 1 positional argument but 4 were given`** → Causado por el antiguo paths.py. Resuelto con el nuevo tk_config.py
-- **PublishedFileType no se creaba para tipos nuevos** → tk_publish ahora hace find-or-create automático
-- **Task no se enlazaba al PublishedFile** → tk_publish ahora busca Task por entity + step automáticamente
-- **Archivo no se copiaba al publish path** → tk_publish ahora hace shutil.copy2 si se proporciona local_path
+### Resolved
+- **"Thinking..." without real progress** → Fixed with text_delta streaming + line accumulation in _progress_lines
+- **System prompt oversimplified quality options** → Fixed with "MANDATORY" block showing full parameters
+- **paths.py incompatible with tk-config-default2** → Replaced by `tk_config.py` with dynamic PipelineConfiguration discovery
+- **tk_resolve_path crash: `next_version_number() takes 1 positional argument but 4 were given`** → Caused by old paths.py. Resolved with new tk_config.py
+- **PublishedFileType not created for new types** → tk_publish now does automatic find-or-create
+- **Task not linked to PublishedFile** → tk_publish now searches Task by entity + step automatically
+- **File not copied to publish path** → tk_publish now does shutil.copy2 if local_path is provided
+- **Pipeline-specific templates in core code** → Removed DERIVED_TEMPLATES and PUBLISH_TYPE_MAP. tk_config.py is now generic.
+- **Mode 2 fabricated directory structure** → Replaced with explicit publish_path from user
 
-### Pendiente
-- **Maya Command Port a veces no responde desde la consola** → Considerar retry logic o timeout más largo
-- **Distributed config: app_store y git descriptors** → Solo dev type soportado actualmente
+### Pending
+- **Maya Command Port sometimes unresponsive from console** → Consider retry logic or longer timeout
+- **Distributed config: app_store and git descriptors** → Only dev type supported currently
 
 ---
 
-## 8. Relación con Otros Proyectos
+## 8. Relationship with Other Projects
 
-Los tres repos están en `~/Claude_projects/` en el Mac local:
+All three repos are in `~/Claude_projects/` on the local Mac:
 
-- **maya-mcp**: servidor MCP que la consola usa para Maya + Vision3D
+- **maya-mcp**: MCP server used by the console for Maya + Vision3D
   - Repo: `~/Claude_projects/maya-mcp-project/`
-  - Contiene tools para maya_launch, maya_create_primitive, maya_execute_python, etc.
-  - Internamente llama a vision3d (servidor GPU remoto) vía HTTP REST (puerto 8000)
-  - Incluye `vision3d_health` para verificar disponibilidad antes de ofrecer opciones
+  - Contains tools for maya_launch, maya_create_primitive, maya_execute_python, etc.
+  - Internally calls vision3d (remote GPU server) via HTTP REST (port 8000)
+  - Includes `vision3d_health` to check availability before offering options
 
-- **vision3d**: servidor GPU remoto accesible vía maya-mcp
+- **vision3d**: remote GPU server accessible via maya-mcp
   - Repo: `~/Claude_projects/vision3d/` (Mac) / `/home/flame/ai-studio/vision3d/` (glorfindel)
-  - Maneja shape_generate_remote, shape_generate_text, texture_mesh_remote
-  - Text-to-3D: pipeline de 3 fases (HunyuanDiT → rembg → shape → paint → textured.glb)
-  - Retorna job_id para polling
+  - Handles shape_generate_remote, shape_generate_text, texture_mesh_remote
+  - Text-to-3D: 3-phase pipeline (HunyuanDiT → rembg → shape → paint → textured.glb)
+  - Returns job_id for polling
 
-- **fpt-mcp**: este repo (ShotGrid + Toolkit + consola Qt)
-  - Tools ShotGrid API (sg_find, sg_create, sg_update, sg_delete, sg_schema, sg_upload, sg_download)
-  - Tools Toolkit (tk_resolve_path, tk_publish) con descubrimiento dinámico de config
-  - Consola Qt nativa que ejecuta Claude Code CLI
+- **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
+  - 13 ShotGrid API tools (CRUD, schema, media, batch, search, summarize, revive, notes, activity)
+  - 2 Toolkit tools (path resolution, publish pipeline) with dynamic config discovery
+  - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
+  - Native Qt console running Claude Code CLI
 
-### Flujo típico cross-MCP (pipeline completo)
+### Typical cross-MCP flow (full pipeline)
 ```
-1. Usuario → Consola Qt (fpt-mcp) → Claude Code CLI
-2. sg_find → buscar Asset/Shot y referencias en ShotGrid
-3. sg_download → descargar imagen de referencia
-4. shape_generate_remote (maya-mcp) → iniciar generación 3D en Vision3D
-5. vision3d_poll (maya-mcp) → monitorizar progreso
-6. vision3d_download (maya-mcp) → descargar resultados (GLB, OBJ, textura)
-7. maya_execute_python (maya-mcp) → importar mesh en Maya, normalizar
-8. maya_save_scene (maya-mcp) → guardar escena Maya
-9. tk_publish (fpt-mcp) → resolver path + copiar archivo + registrar PublishedFile
+1. User → Qt Console (fpt-mcp) → Claude Code CLI
+2. sg_find → search Asset/Shot and references in ShotGrid
+3. sg_download → download reference image
+4. shape_generate_remote (maya-mcp) → start 3D generation in Vision3D
+5. vision3d_poll (maya-mcp) → monitor progress
+6. vision3d_download (maya-mcp) → download results (GLB, OBJ, texture)
+7. maya_execute_python (maya-mcp) → import mesh into Maya, normalize
+8. maya_save_scene (maya-mcp) → save Maya scene
+9. tk_publish (fpt-mcp) → resolve path + copy file + register PublishedFile
 ```
 
 ---
 
-## 9. Notas para Desarrollo
+## 9. Development Notes
 
-### Reinstalación después de cambios
+### Reinstallation after changes
 
-Después de modificar `claude_worker.py` o `chat_window.py`:
+After modifying `claude_worker.py` or `chat_window.py`:
 ```bash
 cd /path/to/fpt-mcp
 pip install -e .
 ```
 
-### Ambiente del usuario (Abraham)
+### User environment (Abraham)
 
-- Usa ShotGrid para VFX pipeline
-- Trabaja en Mac local con glorfindel (servidor remoto para GPU/Vision3D)
-- **REGLA**: NUNCA mezclar comandos de Mac y glorfindel en el mismo bloque de código
-
-### Respuestas de Claude
-
-- SIEMPRE en español
-- Ejecutar, no explicar
-- Usar todas las herramientas MCP disponibles
-- Mantener el user experience fluidó sin repetir preguntas
+- Uses ShotGrid for VFX pipeline
+- Works on local Mac with glorfindel (remote server for GPU/Vision3D)
+- **RULE**: NEVER mix Mac and glorfindel commands in the same code block
 
 ---
 
-## 10. Timeout y Limits
+## 10. Timeout and Limits
 
-- **TIMEOUT_SECONDS**: 900 segundos (15 min) para shape generation que puede tomar ~15 minutos
-- **Max líneas de progreso visibles**: 12 líneas en la burbuja "pensando"
-
----
-
-## 11. Checklist para Cambios
-
-Antes de commitear cambios en este proyecto:
-
-- [ ] ¿Afecta al SYSTEM_PROMPT? → Actualizar este documento (sección 4)
-- [ ] ¿Cambio en _TOOL_LABELS? → Documentar aquí (sección 3)
-- [ ] ¿Cambio en streaming/progress logic? → Describir en sección 3
-- [ ] ¿Cambio en tk_config.py o templates? → Actualizar sección 2
-- [ ] ¿Nuevo tool o integración? → Mencionar en secciones 1 y 8
-- [ ] Reinstalar: `cd fpt-mcp && pip install -e .`
-- [ ] Probar con ConsoleKit si es cambio en Qt
+- **TIMEOUT_SECONDS**: 900 seconds (15 min) for shape generation which can take ~15 minutes
+- **Max visible progress lines**: 12 lines in the "thinking" bubble
 
 ---
 
-**Última actualización**: 2026-03-30
-**Autor**: Claude Agent
-**Proyecto**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)
+## 11. Change Checklist
+
+Before committing changes in this project:
+
+- [ ] Does it affect the SYSTEM_PROMPT? → Update this document (section 4)
+- [ ] Change in _TOOL_LABELS? → Document here (section 3)
+- [ ] Change in streaming/progress logic? → Describe in section 3
+- [ ] Change in tk_config.py or templates? → Update section 2
+- [ ] New tool or integration? → Mention in sections 1 and 8
+- [ ] Reinstall: `cd fpt-mcp && pip install -e .`
+- [ ] Test with ConsoleKit if Qt change
+
+---
+
+**Last updated**: 2026-03-31
+**Author**: Claude Agent
+**Project**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)

@@ -1,73 +1,73 @@
 ---
 name: asset-creation
 description: |
-  Workflow completo para crear modelos 3D de assets VFX desde ShotGrid. Usa este skill
-  SIEMPRE que el usuario pida crear, generar, o modelar un asset 3D, un prop, un personaje,
-  una escena, o cualquier objeto tridimensional. También se activa cuando el usuario dice
-  "crea el modelo", "genera la geometría", "haz el 3D de", "modela en Maya", o cualquier
-  variación de crear contenido 3D. Este skill orquesta la búsqueda de material de referencia
-  en ShotGrid, presenta las opciones al usuario, y ejecuta el pipeline elegido (IA generativa
-  o modelado directo en Maya). OBLIGATORIO antes de cualquier creación 3D.
+  Complete workflow for creating 3D models of VFX assets from ShotGrid. Use this skill
+  WHENEVER the user asks to create, generate, or model a 3D asset, a prop, a character,
+  a scene, or any three-dimensional object. Also triggered when the user says "create the
+  model", "generate the geometry", "make the 3D of", "model in Maya", or any variation of
+  creating 3D content. This skill orchestrates the search for reference material in ShotGrid,
+  presents the options to the user, and executes the chosen pipeline (AI generation or direct
+  Maya modeling). MANDATORY before any 3D creation.
 ---
 
 # Asset Creation Workflow
 
-Este skill define el flujo completo para crear modelos 3D a partir de assets registrados
-en ShotGrid. El objetivo es que el usuario nunca tenga que buscar manualmente las referencias
-ni decidir rutas técnicas — el asistente lo hace por él, presentando opciones claras.
+This skill defines the complete flow for creating 3D models from assets registered
+in ShotGrid. The goal is that the user never has to manually search for references
+or decide technical paths — the assistant does it for them, presenting clear options.
 
-## Contexto
+## Context
 
-El sistema tiene dos servidores MCP:
+The system has two MCP servers:
 - **fpt-mcp**: ShotGrid API (sg_find, sg_download, etc.)
-- **maya-mcp**: Maya + GPU remota (shape_generate_remote, shape_generate_text, maya_create_primitive, etc.)
+- **maya-mcp**: Maya + remote GPU (shape_generate_remote, shape_generate_text, maya_create_primitive, etc.)
 
-## Flujo principal
+## Main Flow
 
-### Paso 1: Identificar la entidad
+### Step 1: Identify the entity
 
-Comprueba si hay contexto de ShotGrid en el mensaje (viene como JSON al final del prompt
-cuando se lanza desde la consola Qt con AMI). Busca campos como `entity_type`, `entity_id`,
+Check if there is ShotGrid context in the message (it comes as JSON at the end of the prompt
+when launched from the Qt console via AMI). Look for fields like `entity_type`, `entity_id`,
 `project_id`.
 
-**Si hay contexto AMI** (entity_type + entity_id presentes):
-- Ya tienes la entidad. Salta al Paso 2.
+**If there is AMI context** (entity_type + entity_id present):
+- You already have the entity. Skip to Step 2.
 
-**Si NO hay contexto** (el usuario escribió algo como "crea el modelo del dragón"):
-- Extrae del texto del usuario qué asset buscar (nombre, tipo, descripción)
-- Usa `sg_find` para buscar Assets que coincidan:
+**If there is NO context** (the user wrote something like "create the dragon model"):
+- Extract from the user's text which asset to search for (name, type, description)
+- Use `sg_find` to search for matching Assets:
   ```
   sg_find(entity_type="Asset",
-          filters=[["code", "contains", "<término>"]],
+          filters=[["code", "contains", "<term>"]],
           fields=["id", "code", "sg_asset_type", "description", "image", "sg_status_list"])
   ```
-- Si hay varios resultados, presenta la lista al usuario y pide que elija:
+- If there are multiple results, present the list and ask the user to choose:
   ```
-  Encontré estos assets:
+  Found these assets:
   1. Dragon_Hero (Character) — ID #1478
   2. Dragon_BG (Environment) — ID #1502
   3. Dragon_Prop (Prop) — ID #1489
-  ¿Cuál es?
+  Which one?
   ```
-- Si hay exactamente uno, confirma: "Encontré Asset 'Dragon_Hero' (#1478). ¿Es este?"
-- Si no hay resultados, informa y pregunta si quiere buscarlo de otra forma o crearlo nuevo.
+- If there is exactly one, confirm: "Found Asset 'Dragon_Hero' (#1478). Is this the one?"
+- If there are no results, inform and ask if they want to search differently or create a new one.
 
-### Paso 2: Descubrir material gráfico de referencia
+### Step 2: Discover visual reference material
 
-Una vez identificada la entidad, busca TODO el material visual disponible. Esto es crucial
-porque la calidad del modelo 3D depende directamente de la referencia usada.
+Once the entity is identified, search ALL available visual material. This is crucial
+because the quality of the 3D model directly depends on the reference used.
 
-Ejecuta estas búsquedas en paralelo (o secuencialmente si no es posible):
+Execute these searches in parallel (or sequentially if not possible):
 
-**2a. Thumbnail del propio Asset:**
+**2a. Asset's own thumbnail:**
 ```
 sg_find(entity_type="Asset",
         filters=[["id", "is", <asset_id>]],
         fields=["image", "code", "description"])
 ```
-El campo `image` es el thumbnail principal del asset.
+The `image` field is the asset's main thumbnail.
 
-**2b. Versions vinculadas con ficheros subidos:**
+**2b. Linked Versions with uploaded files:**
 ```
 sg_find(entity_type="Version",
         filters=[["entity", "is", {"type": "Asset", "id": <asset_id>}]],
@@ -76,10 +76,10 @@ sg_find(entity_type="Version",
         order=[{"field_name": "created_at", "direction": "desc"}],
         limit=10)
 ```
-Las Versions pueden tener thumbnails (`image`), movies (`sg_uploaded_movie`),
-o frames estáticos que sirven como referencia.
+Versions may have thumbnails (`image`), movies (`sg_uploaded_movie`),
+or static frames that serve as reference.
 
-**2c. PublishedFiles de imagen vinculados:**
+**2c. Linked image PublishedFiles:**
 ```
 sg_find(entity_type="PublishedFile",
         filters=[["entity", "is", {"type": "Asset", "id": <asset_id>}],
@@ -91,7 +91,7 @@ sg_find(entity_type="PublishedFile",
         limit=10)
 ```
 
-**2d. Notes con adjuntos (concept art, feedback visual):**
+**2d. Notes with attachments (concept art, visual feedback):**
 ```
 sg_find(entity_type="Note",
         filters=[["note_links", "is", {"type": "Asset", "id": <asset_id>}],
@@ -101,97 +101,97 @@ sg_find(entity_type="Note",
         limit=5)
 ```
 
-### Paso 3: Presentar las opciones al usuario
+### Step 3: Present the options to the user
 
-Organiza todo el material encontrado en una lista clara y numerada. Agrupa por fuente
-para que el usuario entienda de dónde viene cada referencia:
+Organize all found material in a clear, numbered list. Group by source
+so the user understands where each reference comes from:
 
 ```
-📋 Material de referencia disponible para "Dragon_Hero" (#1478):
+Reference material available for "Dragon_Hero" (#1478):
 
-🖼️ Thumbnail del Asset:
-  1. Thumbnail principal del asset (imagen de perfil)
+Asset Thumbnail:
+  1. Asset's main thumbnail (profile image)
 
-🎬 Versions recientes:
-  2. v012 — "Concept final aprobado" (2026-03-15) — tiene thumbnail
-  3. v008 — "Boceto inicial" (2026-03-10) — tiene thumbnail
-  4. v005 — "Referencia de color" (2026-03-08) — tiene movie
+Recent Versions:
+  2. v012 — "Final approved concept" (2026-03-15) — has thumbnail
+  3. v008 — "Initial sketch" (2026-03-10) — has thumbnail
+  4. v005 — "Color reference" (2026-03-08) — has movie
 
-📁 Ficheros publicados:
+Published Files:
   5. Dragon_Hero_concept_v003.png (Concept, v3)
   6. Dragon_Hero_ref_color_v001.jpg (Reference, v1)
 
-💬 Adjuntos en Notas:
-  7. Nota "Aprobación diseño" — 2 adjuntos
+Note Attachments:
+  7. Note "Design approval" — 2 attachments
 
-¿Qué referencia quieres usar? (número o "ninguna" para text-to-3D / modelado directo)
+Which reference do you want to use? (number or "none" for text-to-3D / direct modeling)
 ```
 
-Si alguna referencia tiene thumbnail o imagen descargable, menciónalo. El usuario
-necesita ver las imágenes para decidir — si pide verlas, usa `sg_download` para
-descargar la imagen y muéstrala (la consola Qt renderiza imágenes en markdown).
+If a reference has a downloadable thumbnail or image, mention it. The user
+needs to see the images to decide — if they ask to see them, use `sg_download` to
+download the image and display it (the Qt console renders images in markdown).
 
-### Paso 4: Elegir método de creación
+### Step 4: Choose creation method
 
-Según lo que elija el usuario, presenta las opciones de creación:
+Based on the user's selection, present the creation options:
 
-**Si eligió una referencia visual (imagen):**
+**If they chose a visual reference (image):**
 ```
-Referencia seleccionada: "Concept final aprobado" (v012)
+Selected reference: "Final approved concept" (v012)
 
-¿Cómo quieres crear el modelo 3D?
-1. 🤖 IA Generativa (image-to-3D) — Envía la imagen al servidor GPU,
-   Hunyuan3D-2 genera un mesh detallado (~3-8 min)
-2. 🎨 Modelado directo en Maya — Construyo el objeto con primitivas
-   y operaciones de modelado (rápido, resultado geométrico)
-3. 🧠 Decide tú — Elige la mejor opción según el caso
-```
-
-**Si eligió "ninguna" (sin referencia visual):**
-```
-Sin referencia visual. ¿Cómo quieres crear el modelo?
-1. 🤖 IA Generativa (text-to-3D) — Describe el objeto y el servidor GPU
-   genera un mesh desde texto (~3-8 min)
-2. 🎨 Modelado directo en Maya — Construyo el objeto con primitivas
-   y operaciones de modelado (rápido, resultado geométrico)
+How do you want to create the 3D model?
+1. AI Generation (image-to-3D) — Sends the image to the GPU server,
+   Hunyuan3D-2 generates a detailed mesh (~3-8 min)
+2. Direct Maya Modeling — Build the object with primitives
+   and modeling operations (fast, geometric result)
+3. You decide — Choose the best option for this case
 ```
 
-### Paso 5: Ejecutar el pipeline elegido
+**If they chose "none" (no visual reference):**
+```
+No visual reference. How do you want to create the model?
+1. AI Generation (text-to-3D) — Describe the object and the GPU server
+   generates a mesh from text (~3-8 min)
+2. Direct Maya Modeling — Build the object with primitives
+   and modeling operations (fast, geometric result)
+```
+
+### Step 5: Execute the chosen pipeline
 
 **Image-to-3D:**
-1. `sg_download` → descargar la imagen de referencia seleccionada a disco local
-2. `shape_generate_remote` → enviar imagen al servidor GPU (mesh.glb ~3-8 min)
-3. `texture_mesh_remote` → pintar textura sobre el mesh (~3-5 min)
-4. `maya_execute_python` → importar el mesh texturizado en Maya
+1. `sg_download` → download the selected reference image to local disk
+2. `shape_generate_remote` → send image to GPU server (mesh.glb ~3-8 min)
+3. `texture_mesh_remote` → paint texture onto the mesh (~3-5 min)
+4. `maya_execute_python` → import the textured mesh into Maya
 
 **Text-to-3D:**
-1. Traduce la descripción del usuario a inglés (mejores resultados con prompts en inglés)
-2. `shape_generate_text` → enviar prompt al servidor GPU (mesh.glb ~3-8 min)
-3. Opcionalmente `texture_mesh_remote` si hay imagen de referencia disponible
-4. `maya_execute_python` → importar el mesh en Maya
+1. Translate the user's description to English (better results with English prompts)
+2. `shape_generate_text` → send prompt to GPU server (mesh.glb ~3-8 min)
+3. Optionally `texture_mesh_remote` if a reference image is available
+4. `maya_execute_python` → import the mesh into Maya
 
-**Modelado directo en Maya:**
-1. `maya_launch` si Maya no está abierta
-2. `maya_new_scene` o confirmar usar la escena actual
-3. Combinar `maya_create_primitive` + `maya_transform` + `maya_assign_material`
-   + `maya_execute_python` para construir el objeto
-4. Para formas complejas, usar cmds.polyExtrudeFacet, polyBevel, polyUnite, etc.
+**Direct Maya Modeling:**
+1. `maya_launch` if Maya is not open
+2. `maya_new_scene` or confirm using the current scene
+3. Combine `maya_create_primitive` + `maya_transform` + `maya_assign_material`
+   + `maya_execute_python` to build the object
+4. For complex shapes, use cmds.polyExtrudeFacet, polyBevel, polyUnite, etc.
 
-### Paso 6: Post-creación (opcional)
+### Step 6: Post-creation (optional)
 
-Después de crear el modelo, ofrece:
-- Guardar la escena: `maya_save_scene`
-- Publicar en ShotGrid: `tk_resolve_path` + `tk_publish`
-- Crear una Version con thumbnail del resultado
+After creating the model, offer:
+- Save the scene: `maya_save_scene`
+- Publish to ShotGrid: `tk_resolve_path` + `tk_publish`
+- Create a Version with a thumbnail of the result
 
-## Reglas importantes
+## Important Rules
 
-- **Siempre pregunta antes de actuar.** No lances un pipeline de 8 minutos sin que el
-  usuario haya confirmado qué referencia y qué método quiere.
-- **Responde en español.** El usuario es hispanohablante.
-- **Usa las herramientas MCP.** Nunca le digas al usuario que haga algo manualmente si
-  puedes hacerlo tú con sg_find, sg_download, shape_generate_remote, etc.
-- **Si Maya no responde**, usa `maya_launch` para abrirlo automáticamente.
-- **Traduce prompts de text-to-3D a inglés** internamente para mejores resultados.
-- **Sé conciso pero informativo.** Presenta las opciones de forma clara sin párrafos
-  extensos. Usa listas y numeración.
+- **Always ask before acting.** Do not launch an 8-minute pipeline without the
+  user confirming which reference and which method they want.
+- **Respond in the user's language.**
+- **Use MCP tools.** Never tell the user to do something manually if
+  you can do it with sg_find, sg_download, shape_generate_remote, etc.
+- **If Maya doesn't respond**, use `maya_launch` to open it automatically.
+- **Translate text-to-3D prompts to English** internally for better results.
+- **Be concise but informative.** Present options clearly without lengthy
+  paragraphs. Use lists and numbering.

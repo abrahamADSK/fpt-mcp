@@ -1,13 +1,13 @@
-"""Toolkit config discovery — descubrimiento dinámico de PipelineConfiguration.
+"""Toolkit config discovery — dynamic PipelineConfiguration resolution.
 
-Lee la configuración real del proyecto (roots.yml, templates.yml) directamente
-desde la PipelineConfiguration registrada en ShotGrid. Compatible con:
-  - Configs locales (mac_path / linux_path / windows_path)
-  - Distributed configs (descriptor → bundle cache) — TODO fase 2
+Reads the real project configuration (roots.yml, templates.yml) directly
+from the PipelineConfiguration registered in ShotGrid. Supports:
+  - Local configs (mac_path / linux_path / windows_path)
+  - Distributed configs (descriptor → bundle cache) — TODO phase 2
 
-No modifica la config del usuario. No requiere sgtk bootstrap.
-Si el proyecto no tiene PipelineConfiguration, discover_or_fallback() devuelve
-None y tk_publish solicita un path explícito al usuario.
+Does not modify the user's config. Does not require sgtk bootstrap.
+If the project has no PipelineConfiguration, discover_or_fallback() returns
+None and tk_publish requests an explicit path from the user.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ _config_cache: dict[int, "TkConfig"] = {}
 
 
 class TkConfigError(Exception):
-    """Error en la resolución de Toolkit config."""
+    """Error during Toolkit config resolution."""
 
 
 # ---------------------------------------------------------------------------

@@ -273,11 +273,11 @@ class ChatWindow(QMainWindow):
 
         self._input = QLineEdit()
         self._input.setObjectName("input")
-        self._input.setPlaceholderText("Escribe aquí...")
+        self._input.setPlaceholderText("Type here...")
         self._input.returnPressed.connect(self._send)
         input_layout.addWidget(self._input, 1)
 
-        self._send_btn = QPushButton("Enviar")
+        self._send_btn = QPushButton("Send")
         self._send_btn.setObjectName("sendBtn")
         self._send_btn.clicked.connect(self._send)
         input_layout.addWidget(self._send_btn)
@@ -357,7 +357,7 @@ class ChatWindow(QMainWindow):
         # Status bubble that will be updated with progress events
         self._status_id = self._chat.document().blockCount()
         self._progress_lines = []  # Accumulated progress lines
-        self._append_bubble("<i>Pensando...</i>", "thinking")
+        self._append_bubble("<i>Thinking...</i>", "thinking")
 
         self._worker = ClaudeWorker(
             text, self._context, history=self._history[:-1], parent=self
@@ -373,7 +373,7 @@ class ChatWindow(QMainWindow):
         visible = self._progress_lines[-12:]
         lines_html = "<br>".join(html.escape(l) for l in visible)
         if len(self._progress_lines) > 12:
-            lines_html = f"<i style='color:#4a5568;'>... ({len(self._progress_lines) - 12} líneas anteriores)</i><br>" + lines_html
+            lines_html = f"<i style='color:#4a5568;'>... ({len(self._progress_lines) - 12} previous lines)</i><br>" + lines_html
         self._update_last_bubble(
             f"<div style='font-family:monospace;font-size:12px;line-height:1.5;'>{lines_html}</div>",
             "thinking",
