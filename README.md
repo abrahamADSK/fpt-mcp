@@ -12,11 +12,11 @@ Claude Desktop / Claude Code / any MCP client
         └── Qt console    → native chat app via fpt-mcp:// protocol handler
 ```
 
-## Tools (12)
+## Tools (18)
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
 
-### ShotGrid API (7 tools)
+### ShotGrid API (13 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -24,9 +24,15 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `sg_create` | Create any entity with any fields (project auto-linked) |
 | `sg_update` | Update any field on any entity |
 | `sg_delete` | Soft-delete (retire) any entity |
+| `sg_revive` | Restore a soft-deleted entity from trash |
+| `sg_batch` | Transactional bulk operations — all succeed or all fail |
 | `sg_schema` | Inspect available fields for any entity type |
 | `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
 | `sg_download` | Download attachment from any entity field |
+| `sg_text_search` | Full-text search across multiple entity types simultaneously |
+| `sg_summarize` | Server-side aggregation: count, sum, avg, min, max with grouping |
+| `sg_note_thread` | Read the full reply thread of a Note with all nested replies |
+| `sg_activity` | Read the activity stream (updates, status changes, notes) for an entity |
 
 ### Toolkit (2 tools)
 
@@ -298,6 +304,12 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "mcp__fpt-mcp__sg_schema",
       "mcp__fpt-mcp__sg_upload",
       "mcp__fpt-mcp__sg_download",
+      "mcp__fpt-mcp__sg_batch",
+      "mcp__fpt-mcp__sg_revive",
+      "mcp__fpt-mcp__sg_text_search",
+      "mcp__fpt-mcp__sg_summarize",
+      "mcp__fpt-mcp__sg_note_thread",
+      "mcp__fpt-mcp__sg_activity",
       "mcp__fpt-mcp__tk_resolve_path",
       "mcp__fpt-mcp__tk_publish",
       "mcp__fpt-mcp__search_sg_docs",

@@ -5,7 +5,7 @@ General-purpose MCP server exposing the complete ShotGrid API, Toolkit
 path conventions, and RAG-powered documentation search.
 
 Features:
-    - 7 ShotGrid API tools (CRUD, schema, media)
+    - 13 ShotGrid API tools (CRUD, schema, media, batch, search, summarize, revive, notes, activity)
     - 2 Toolkit tools (path resolution, publish pipeline)
     - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
     - Dangerous pattern detection (safety.py)
@@ -41,6 +41,12 @@ from fpt_mcp.client import (
     sg_upload_thumbnail,
     sg_download_attachment,
     sg_schema_field_read,
+    sg_batch,
+    sg_revive,
+    sg_text_search,
+    sg_summarize,
+    sg_note_thread_read,
+    sg_activity_stream_read,
     PROJECT_ID,
 )
 from fpt_mcp.tk_config import discover_or_fallback, TkConfigError
@@ -614,6 +620,171 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 
     except TkConfigError as e:
         return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Additional SG API tools — batch, text_search, summarize, revive,
+# note_thread, activity_stream
+# ---------------------------------------------------------------------------
+
+class SgBatchInput(BaseModel):
+    requests: str = Field(
+        description=(
+            "JSON array of batch requests. Each request is an object with: "
+            "'request_type' ('create'|'update'|'delete'), 'entity_type', "
+            "and either 'data' (create/update) or 'entity_id' (update/delete). "
+            "Example: [{\"request_type\":\"create\",\"entity_type\":\"Shot\","
+            "\"data\":{\"code\":\"SH010\",\"project\":{\"type\":\"Project\",\"id\":123}}}]"
+        ),
+    )
+
+
+@mcp.tool(name="sg_batch")
+async def sg_batch_tool(params: SgBatchInput) -> str:
+    """Execute multiple ShotGrid operations in a single transactional call.
+
+    ALL operations succeed or ALL fail — no partial results.
+    Supports create, update, and delete in a single batch.
+    Much more efficient than individual calls for bulk operations.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(params.requests)
+    # Safety check
+    warning = check_dangerous(params.requests)
+    if warning:
+        return warning
+    batch_data = json.loads(params.requests)
+    results = await sg_batch(batch_data)
+    out = json.dumps(results, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+class SgTextSearchInput(BaseModel):
+    text: str = Field(description="Search text — searches across all text fields of the specified entity types.")
+    entity_types: str = Field(
+        description=(
+            "JSON object mapping entity type names to filter lists. "
+            "Example: {\"Asset\":[], \"Shot\":[[\"sg_status_list\",\"is\",\"ip\"]]}"
+        ),
+    )
+    limit: int = Field(default=10, description="Max results per entity type.")
+
+
+@mcp.tool(name="sg_text_search")
+async def sg_text_search_tool(params: SgTextSearchInput) -> str:
+    """Full-text search across multiple entity types simultaneously.
+
+    Unlike sg_find which searches field-by-field, text_search looks
+    across all text fields (code, description, notes, etc.) at once.
+    Useful for finding entities when you only have a keyword.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(params.text) + _tok(params.entity_types)
+    entity_types = json.loads(params.entity_types)
+    project_ids = [PROJECT_ID] if PROJECT_ID else None
+    results = await sg_text_search(params.text, entity_types, project_ids=project_ids, limit=params.limit)
+    out = json.dumps(results, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+class SgSummarizeInput(BaseModel):
+    entity_type: str = Field(description="Entity type to aggregate (e.g. 'Task', 'TimeLog', 'Version').")
+    filters: str = Field(description="JSON array of ShotGrid filters. Same syntax as sg_find.")
+    summary_fields: str = Field(
+        description=(
+            "JSON array of aggregation specs. Each: {\"field\":\"field_name\",\"type\":\"agg_type\"}. "
+            "Types: 'count', 'sum', 'avg', 'min', 'max', 'count_distinct'. "
+            "Example: [{\"field\":\"id\",\"type\":\"count\"},{\"field\":\"duration\",\"type\":\"sum\"}]"
+        ),
+    )
+    grouping: Optional[str] = Field(
+        default=None,
+        description=(
+            "JSON array of grouping specs. Each: {\"field\":\"field_name\",\"type\":\"exact\",\"direction\":\"asc\"}. "
+            "Example: [{\"field\":\"sg_status_list\",\"type\":\"exact\",\"direction\":\"asc\"}]"
+        ),
+    )
+
+
+@mcp.tool(name="sg_summarize")
+async def sg_summarize_tool(params: SgSummarizeInput) -> str:
+    """Server-side aggregation: count, sum, avg, min, max with optional grouping.
+
+    Much more efficient than fetching all records with sg_find and
+    calculating in Python. Runs entirely on the ShotGrid server.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(params.filters) + _tok(params.summary_fields)
+    filters = json.loads(params.filters)
+    summary_fields = json.loads(params.summary_fields)
+    grouping = json.loads(params.grouping) if params.grouping else None
+    results = await sg_summarize(params.entity_type, filters, summary_fields, grouping=grouping)
+    out = json.dumps(results, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+class SgReviveInput(BaseModel):
+    entity_type: str = Field(description="Entity type to restore (e.g. 'Asset', 'Shot', 'Task').")
+    entity_id: int = Field(description="ID of the soft-deleted entity to restore.")
+
+
+@mcp.tool(name="sg_revive")
+async def sg_revive_tool(params: SgReviveInput) -> str:
+    """Restore a soft-deleted (retired) entity.
+
+    Reverses sg_delete. The entity is moved out of the trash and
+    becomes active again with all its data intact.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id}")
+    result = await sg_revive(params.entity_type, params.entity_id)
+    out = json.dumps({"revived": result, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+class SgNoteThreadInput(BaseModel):
+    note_id: int = Field(description="ID of the Note entity to read the full reply thread for.")
+
+
+@mcp.tool(name="sg_note_thread")
+async def sg_note_thread_tool(params: SgNoteThreadInput) -> str:
+    """Read the full reply thread of a Note, including all nested replies.
+
+    Returns the complete conversation thread that sg_find cannot
+    reconstruct. Includes reply content, authors, and timestamps.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(str(params.note_id))
+    results = await sg_note_thread_read(params.note_id)
+    out = json.dumps(results, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+class SgActivityInput(BaseModel):
+    entity_type: str = Field(description="Entity type (e.g. 'Asset', 'Shot', 'Version', 'Task').")
+    entity_id: int = Field(description="Entity ID to read activity stream for.")
+    limit: int = Field(default=20, description="Max number of activity entries to return.")
+
+
+@mcp.tool(name="sg_activity")
+async def sg_activity_tool(params: SgActivityInput) -> str:
+    """Read the activity stream for an entity.
+
+    Returns recent updates, status changes, notes, and other events.
+    This uses a dedicated ShotGrid API method that cannot be replicated
+    with sg_find.
+    """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id}")
+    results = await sg_activity_stream_read(params.entity_type, params.entity_id, limit=params.limit)
+    out = json.dumps(results, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 # ---------------------------------------------------------------------------

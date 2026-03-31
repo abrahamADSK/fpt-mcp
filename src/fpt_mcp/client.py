@@ -172,3 +172,69 @@ async def sg_schema_field_read(
     """Async wrapper around sg.schema_field_read()."""
     sg = get_sg()
     return await asyncio.to_thread(sg.schema_field_read, entity_type, field_name)
+
+
+async def sg_batch(
+    requests: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Async wrapper around sg.batch(). Transactional — all or nothing."""
+    sg = get_sg()
+    return await asyncio.to_thread(sg.batch, requests)
+
+
+async def sg_revive(
+    entity_type: str,
+    entity_id: int,
+) -> bool:
+    """Async wrapper around sg.revive(). Restores a soft-deleted entity."""
+    sg = get_sg()
+    return await asyncio.to_thread(sg.revive, entity_type, entity_id)
+
+
+async def sg_text_search(
+    text: str,
+    entity_types: dict[str, list[list]],
+    project_ids: list[int] | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Async wrapper around sg.text_search(). Full-text search across entities."""
+    sg = get_sg()
+    return await asyncio.to_thread(
+        sg.text_search, text, entity_types, project_ids=project_ids, limit=limit
+    )
+
+
+async def sg_summarize(
+    entity_type: str,
+    filters: list,
+    summary_fields: list[dict[str, str]],
+    grouping: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Async wrapper around sg.summarize(). Server-side aggregation."""
+    sg = get_sg()
+    return await asyncio.to_thread(
+        sg.summarize, entity_type, filters, summary_fields, grouping=grouping
+    )
+
+
+async def sg_note_thread_read(
+    note_id: int,
+    entity_fields: dict[str, list[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Async wrapper around sg.note_thread_read(). Returns full reply thread."""
+    sg = get_sg()
+    return await asyncio.to_thread(
+        sg.note_thread_read, note_id, entity_fields=entity_fields
+    )
+
+
+async def sg_activity_stream_read(
+    entity_type: str,
+    entity_id: int,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Async wrapper around sg.activity_stream_read()."""
+    sg = get_sg()
+    return await asyncio.to_thread(
+        sg.activity_stream_read, entity_type, entity_id, limit=limit
+    )
