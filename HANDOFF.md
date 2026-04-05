@@ -192,4 +192,42 @@ Durante la implementación de test_sg_operations.py se detectó que los safety p
 
 ---
 
-## Última actualización: 2026-04-05 (sesión 2) — chromadb pinned a >=1.5.0,<2.0; asyncio.run() en test_tk_publish.py; tests/requirements-test.txt creado
+## Cambios sesión 2026-04-05 (sesión 3)
+
+### install.sh (nuevo)
+
+Creado `install.sh` en la raíz del repo. Automatiza la instalación completa desde un clone limpio.
+
+**Lo que hace:**
+1. Verifica Python 3.10+
+2. Crea `.venv/` en la raíz del repo (si no existe)
+3. Instala el paquete y todas las dependencias con `pip install -e .` (pyproject.toml)
+4. Construye el RAG index vía `python -m fpt_mcp.rag.build_index` si no está presente
+5. Registra el server en `~/.claude.json` con nombre `fpt-mcp`
+6. Muestra resumen final con próximos pasos (credenciales ShotGrid en `.env`)
+
+**Diferencias clave respecto a maya-mcp/install.sh:**
+- Usa `pip install -e .` en lugar de `pip install -r requirements.txt` (pyproject.toml)
+- No hay paso separado de RAG extras — ya están declarados en `pyproject.toml`
+- Lanza el server como `python -m fpt_mcp.server` (package editable, sin path a script)
+- Detecta index en `src/fpt_mcp/rag/index/` + `src/fpt_mcp/rag/corpus.json`
+- Copia `.env.example` → `.env` automáticamente si no existe
+- `cwd` en `~/.claude.json` apunta a repo root para que `load_dotenv()` encuentre `.env`
+
+**Propiedades:**
+- Idempotente: re-ejecutar es seguro (skip venv existente, skip index existente)
+- Compatible macOS y Linux
+- jq preferido para editar `~/.claude.json`, fallback a Python puro
+- Usa `set -euo pipefail` y escritura atómica (`.tmp` + rename) para `~/.claude.json`
+
+**Uso:**
+```bash
+git clone https://github.com/abrahamADSK/fpt-mcp.git
+cd fpt-mcp
+chmod +x install.sh
+./install.sh
+```
+
+---
+
+## Última actualización: 2026-04-05 (sesión 3) — install.sh creado
