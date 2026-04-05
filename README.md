@@ -390,6 +390,82 @@ ShotGrid AMI click
     → Markdown rendered in Qt chat window
 ```
 
+## Project Structure
+
+```
+fpt-mcp/
+├── pyproject.toml                        # Package metadata and dependencies
+├── install.sh                            # One-step installation script
+├── setup_venv.sh                         # Virtual environment setup
+├── com.abrahamadsk.fpt-mcp.plist         # launchd plist for MCP server daemon
+├── com.abrahamadsk.fpt-ami.plist         # launchd plist for AMI URL handler
+├── .env.example                          # Environment variables template
+├── src/
+│   └── fpt_mcp/
+│       ├── __init__.py
+│       ├── server.py                     # MCP server entry point (FastMCP)
+│       ├── client.py                     # ShotGrid API client wrapper
+│       ├── safety.py                     # Safety module — blocks dangerous write patterns
+│       ├── paths.py                      # Path resolution utilities
+│       ├── tk_config.py                  # Toolkit (ShotGrid Toolkit) config loader
+│       ├── ami/
+│       │   ├── __init__.py
+│       │   ├── handler.py                # AMI URL protocol handler (fpt-mcp://)
+│       │   └── console.html             # AMI console HTML template
+│       ├── qt/
+│       │   ├── __init__.py
+│       │   ├── app.py                    # Qt application entry point
+│       │   ├── chat_window.py            # Chat window widget
+│       │   ├── claude_worker.py          # Async Claude subprocess worker thread
+│       │   └── build_app_bundle.py       # macOS .app bundle builder script
+│       ├── rag/
+│       │   ├── __init__.py
+│       │   ├── build_index.py            # RAG index builder (run to rebuild)
+│       │   ├── config.py                 # RAG configuration (chunk size, model)
+│       │   ├── corpus.json               # Parsed documentation corpus
+│       │   ├── search.py                 # Semantic search over RAG index
+│       │   └── index/                    # auto-generated (ChromaDB vector store)
+│       ├── tools/
+│       │   ├── __init__.py
+│       │   ├── assets.py                 # Asset management MCP tools
+│       │   ├── publish.py                # Publish MCP tools (tk_publish)
+│       │   ├── sequences.py              # Sequence MCP tools
+│       │   ├── shots.py                  # Shot MCP tools
+│       │   └── versions.py               # Version MCP tools
+│       ├── docs/
+│       │   ├── REST_API.md               # ShotGrid REST API documentation corpus
+│       │   ├── SG_API.md                 # ShotGrid Python API documentation corpus
+│       │   └── TK_API.md                 # Toolkit API documentation corpus
+│       └── skills/
+│           └── asset-creation/
+│               └── SKILL.md              # Claude skill for asset creation workflows
+└── tests/
+    ├── conftest.py
+    ├── fixtures/
+    │   └── templates.yml                 # Mock Toolkit templates for tests
+    ├── test_rag_search.py
+    ├── test_safety.py
+    ├── test_sg_operations.py
+    ├── test_tk_publish.py
+    └── test_toolkit_paths.py
+```
+
+## Troubleshooting
+
+**Connection refused on ShotGrid API**
+- Verify `SHOTGRID_URL` and `SHOTGRID_SCRIPT_KEY` in `.env`
+- Check that the Script Application is active in ShotGrid Admin → Scripts
+- Test connectivity: `curl -s https://YOUR_SITE.shotgrid.autodesk.com/api/v1`
+
+**RAG index not found**
+- Run `python -m fpt_mcp.rag.build_index` to rebuild
+- Check that `docs/` directory contains the ShotGrid API documentation corpus
+
+**Toolkit path resolution fails**
+- Verify that a PipelineConfiguration entity exists for the project in ShotGrid
+- Check `roots.yml` and `templates.yml` paths in the PipelineConfiguration's `descriptor` field
+- For distributed configs, only `dev` descriptor type is currently supported
+
 ## Ecosystem
 
 `fpt-mcp` is part of a four-component VFX pipeline. Each component has a defined role:
