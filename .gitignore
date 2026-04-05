@@ -19,3 +19,4 @@ venv/
 .DS_Store
 src/fpt_mcp/rag/index/
 src/fpt_mcp/rag/corpus.json
+.DS_Store
