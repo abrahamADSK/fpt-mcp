@@ -3,7 +3,7 @@
 Reads the real project configuration (roots.yml, templates.yml) directly
 from the PipelineConfiguration registered in ShotGrid. Supports:
   - Local configs (mac_path / linux_path / windows_path)
-  - Distributed configs (descriptor → bundle cache) — TODO phase 2
+  - Distributed configs (descriptor → bundle cache: dev, app_store, git)
 
 Does not modify the user's config. Does not require sgtk bootstrap.
 If the project has no PipelineConfiguration, discover_or_fallback() returns
@@ -12,6 +12,7 @@ None and tk_publish requests an explicit path from the user.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -209,6 +210,26 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
 
 
+def _get_bundle_cache_root() -> Path:
+    """Return the Toolkit bundle cache root for the current platform.
+
+    Convention:
+      - macOS:   ~/Library/Caches/Shotgun/bundle_cache/
+      - Linux:   ~/.shotgun/bundle_cache/
+      - Windows: %APPDATA%/Shotgun/bundle_cache/
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Caches" / "Shotgun" / "bundle_cache"
+    elif system == "Linux":
+        return Path.home() / ".shotgun" / "bundle_cache"
+    elif system == "Windows":
+        appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+        return Path(appdata) / "Shotgun" / "bundle_cache"
+    else:
+        raise TkConfigError(f"Unsupported platform for bundle cache: {system}")
+
+
 def _get_platform_path(entity: dict) -> Optional[str]:
     """Extract the config path for the current OS from a PipelineConfiguration."""
     system = platform.system()
@@ -289,21 +310,71 @@ async def discover_config(
         # For dev descriptors, the path points directly to the config.
         # For app_store/git, we need to find the cached bundle.
         #
-        # TODO: Implement full descriptor resolution. For now, support 'dev' type
-        # and fall back to default templates for others.
-        if isinstance(descriptor, dict) and descriptor.get("type") == "dev":
+        if not isinstance(descriptor, dict):
+            raise TkConfigError(
+                f"Invalid descriptor format (expected dict, got "
+                f"{type(descriptor).__name__}): {descriptor}"
+            )
+
+        desc_type = descriptor.get("type", "unknown")
+
+        if desc_type == "dev":
             dev_path = descriptor.get("path")
             if dev_path:
                 config_path = Path(dev_path)
                 if config_path.exists():
                     return _build_from_config_path(config_path, project_id)
+            raise TkConfigError(
+                f"Dev descriptor path does not exist: {descriptor.get('path')}"
+            )
 
-        raise TkConfigError(
-            f"Distributed config (descriptor: {descriptor}) — "
-            f"automatic resolution for '{descriptor.get('type', 'unknown')}' type "
-            f"not yet implemented. Falling back to default templates.\n"
-            f"Tip: use discover_or_fallback() to handle this gracefully."
-        )
+        elif desc_type == "app_store":
+            name = descriptor.get("name")
+            version = descriptor.get("version")
+            if not name or not version:
+                raise TkConfigError(
+                    f"app_store descriptor missing 'name' or 'version': {descriptor}"
+                )
+            cache_root = _get_bundle_cache_root()
+            config_path = cache_root / "app_store" / name / version
+            if not config_path.exists():
+                raise TkConfigError(
+                    f"Cached app_store config not found at: {config_path}\n"
+                    f"Expected descriptor: {descriptor}\n"
+                    f"Tip: open ShotGrid Desktop and let it download/cache "
+                    f"the configuration, then retry."
+                )
+            return _build_from_config_path(config_path, project_id)
+
+        elif desc_type == "git":
+            repo_path = descriptor.get("path", "")
+            version = descriptor.get("version")
+            if not repo_path or not version:
+                raise TkConfigError(
+                    f"git descriptor missing 'path' or 'version': {descriptor}"
+                )
+            # ShotGrid convention: strip trailing .git, MD5-hash, truncate to 7 hex chars.
+            normalized = repo_path.rstrip("/")
+            if normalized.endswith(".git"):
+                normalized = normalized[:-4]
+            path_hash = hashlib.md5(normalized.encode("utf-8")).hexdigest()[:7]
+            cache_root = _get_bundle_cache_root()
+            config_path = cache_root / "git" / path_hash / version
+            if not config_path.exists():
+                raise TkConfigError(
+                    f"Cached git config not found at: {config_path}\n"
+                    f"Expected descriptor: {descriptor}\n"
+                    f"(repo hash '{path_hash}' derived from '{normalized}')\n"
+                    f"Tip: open ShotGrid Desktop and let it download/cache "
+                    f"the configuration, then retry."
+                )
+            return _build_from_config_path(config_path, project_id)
+
+        else:
+            raise TkConfigError(
+                f"Unsupported descriptor type '{desc_type}': {descriptor}\n"
+                f"Supported types: dev, app_store, git."
+            )
 
     config_path_str = _get_platform_path(pc)
     if not config_path_str:
