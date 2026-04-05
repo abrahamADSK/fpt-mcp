@@ -1,5 +1,7 @@
 # fpt-mcp
 
+> Connect Claude to Autodesk Flow Production Tracking (ShotGrid) for production management using the Model Context Protocol (MCP)
+
 > [!WARNING]
 > **Experimental project — use at your own risk.**
 > This is an independent, unofficial experiment created with [Claude Code](https://claude.com/claude-code). It is **not** affiliated with, endorsed by, or officially supported by Autodesk in any way. The ShotGrid / Flow Production Tracking name and trademarks belong to Autodesk, Inc.
@@ -155,6 +157,22 @@ python -m fpt_mcp.rag.build_index
 ```
 
 This creates the persistent ChromaDB database and BM25 corpus.json. The first run downloads the BAAI/bge-large-en-v1.5 embedding model (~570 MB). The index only needs rebuilding when the documentation files in `docs/` change.
+
+## Requirements
+
+- Python >= 3.10
+- macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
+- `shotgun_api3` (ShotGrid Python API)
+- `mcp[cli]` (MCP Python SDK with FastMCP)
+- `pydantic` >= 2.0
+- `PySide6` >= 6.6 (Qt for Python)
+- `python-dotenv`
+- `httpx`
+- `pyyaml` (Toolkit config parsing)
+- `chromadb` >= 0.5.0 (RAG vector database)
+- `sentence-transformers` >= 2.2.0 (RAG embeddings — BAAI/bge-large-en-v1.5)
+- `rank-bm25` >= 0.2.2 (RAG lexical search)
+- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 ## Install
 
@@ -372,24 +390,6 @@ ShotGrid AMI click
     → Markdown rendered in Qt chat window
 ```
 
-## Requirements
-
-- Python >= 3.10
-- macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
-- `shotgun_api3` (ShotGrid Python API)
-- `mcp[cli]` (MCP Python SDK with FastMCP)
-- `pydantic` >= 2.0
-- `PySide6` >= 6.6 (Qt for Python)
-- `python-dotenv`
-- `httpx`
-- `pyyaml` (Toolkit config parsing)
-- `chromadb` >= 0.5.0 (RAG vector database)
-- `sentence-transformers` >= 2.2.0 (RAG embeddings — BAAI/bge-large-en-v1.5)
-- `rank-bm25` >= 0.2.2 (RAG lexical search)
-- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
-
----
-
 ## Ecosystem
 
 `fpt-mcp` is part of a four-component VFX pipeline. Each component has a defined role:
@@ -402,4 +402,8 @@ ShotGrid AMI click
 | [vision3d](https://github.com/abrahamADSK/vision3d) | GPU inference server for AI-powered 3D generation — the remote backend for maya-mcp's image-to-3D and text-to-3D tools |
 
 `fpt-mcp` is the production backbone of the pipeline. It provides asset metadata, task assignments, path resolution, and publish registration for the other tools. `maya-mcp` and `flame-mcp` both consume `fpt-mcp` data — Maya for asset context and publish targets, Flame for shot and sequence lookup. `vision3d` has no direct connection to `fpt-mcp`.
+
+## License
+
+[MIT](LICENSE)
 
