@@ -278,7 +278,7 @@ In `~/.claude/settings.json`, enable all these tools:
 All three repos are in `~/Claude_projects/` on the local Mac:
 
 - **maya-mcp**: MCP server used by the console for Maya + Vision3D
-  - Repo: `~/Claude_projects/maya-mcp-project/`
+  - Repo: `~/Claude_projects/maya-mcp/`
   - Contains tools for maya_launch, maya_create_primitive, maya_execute_python, etc.
   - Internally calls vision3d (remote GPU server) via HTTP REST (port 8000)
   - Includes `vision3d_health` to check availability before offering options

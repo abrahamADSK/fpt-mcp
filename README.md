@@ -1,5 +1,11 @@
 # fpt-mcp
 
+> [!WARNING]
+> **Experimental project — use at your own risk.**
+> This is an independent, unofficial experiment created with [Claude Code](https://claude.com/claude-code). It is **not** affiliated with, endorsed by, or officially supported by Autodesk in any way. The ShotGrid / Flow Production Tracking name and trademarks belong to Autodesk, Inc.
+>
+> Allowing AI-generated operations against a live ShotGrid instance carries real risks: **unintended data modifications, accidental entity deletion, incorrect publishes, or metadata corruption.** Always test against a dedicated sandbox project first. Never run this against production data without understanding the operations being performed. The author(s) accept no responsibility for data loss, corruption, or any other damage resulting from its use.
+
 MCP server for **Autodesk Flow Production Tracking** (formerly ShotGrid).
 
 Gives any MCP-compatible AI assistant (Claude Desktop, Claude Code, or any MCP client) full access to the ShotGrid API, Toolkit path resolution, and a RAG-powered knowledge engine that prevents common API hallucinations.
