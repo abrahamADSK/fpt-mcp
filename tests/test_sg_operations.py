@@ -52,7 +52,7 @@ from fpt_mcp.safety import check_dangerous
 
 def run_async(coro):
     """Run an async coroutine synchronously for pytest."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def parse_result(result_str: str):
