@@ -16,3 +16,5 @@ venv/
 
 # Generated .app bundles
 *.app/
+.DS_Store
+src/fpt_mcp/rag/index/
