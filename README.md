@@ -20,6 +20,96 @@ Claude Desktop / Claude Code / any MCP client
         └── Qt console    → native chat app via fpt-mcp:// protocol handler
 ```
 
+## Features
+
+### Unrestricted ShotGrid API Access
+
+fpt-mcp exposes the full `shotgun_api3` Python SDK without locking down entity types or fields. Any entity — Asset, Shot, Sequence, Version, Task, PublishedFile, or custom entities — can be queried, created, updated, deleted, or batched through a single consistent set of tools. This matters because production pipelines vary widely: the server never assumes which entity types or field names a studio uses.
+
+### Toolkit Path Resolution
+
+When a project has an Advanced Setup in ShotGrid, the server queries the `PipelineConfiguration` entity, reads `roots.yml` and `templates.yml` directly from the installed Toolkit config, and resolves publish paths using the project's real template definitions. No paths are hardcoded — the resolution uses whatever tk-config is installed, whether default, custom, or forked. Projects without a PipelineConfiguration still get full publish support through explicit path fallback.
+
+### RAG Anti-Hallucination Engine
+
+LLMs hallucinate ShotGrid API details constantly — invalid filter operators, wrong entity reference formats, non-existent Toolkit template tokens. fpt-mcp counters this with a hybrid retrieval system: at query time, `search_sg_docs` performs semantic search (ChromaDB + BAAI/bge-large-en-v1.5) and lexical search (BM25) against three verified API reference documents, fuses the rankings with RRF, and injects the most relevant chunks into Claude's context. The result is correct filter syntax and valid entity formats on the first attempt instead of the third.
+
+### Safety Layer
+
+The `safety.py` module scans every tool call before execution against twelve regex patterns that cover the most destructive operations: bulk delete without specific IDs, unfiltered queries with no limit, path traversal in publish paths, PublishedFile deletion, invalid filter operators, large batch operations, and schema modifications. Blocked operations return a warning with a safe alternative — they never reach the ShotGrid API.
+
+### Qt Console and Protocol Handler
+
+fpt-mcp ships a native PySide6 chat window that routes messages through the Claude Code CLI and renders responses with full Markdown support. The console registers the `fpt-mcp://` custom URL scheme on macOS, which means a ShotGrid Action Menu Item can open a chat window with full entity context (entity type, ID, project) pre-populated in a single click — no browser tab, no copy-paste of IDs.
+
+## Requirements
+
+- Python >= 3.10
+- macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
+- `shotgun_api3` (ShotGrid Python API)
+- `mcp[cli]` (MCP Python SDK with FastMCP)
+- `pydantic` >= 2.0
+- `PySide6` >= 6.6 (Qt for Python)
+- `python-dotenv`
+- `httpx`
+- `pyyaml` (Toolkit config parsing)
+- `chromadb` >= 0.5.0 (RAG vector database)
+- `sentence-transformers` >= 2.2.0 (RAG embeddings — BAAI/bge-large-en-v1.5)
+- `rank-bm25` >= 0.2.2 (RAG lexical search)
+- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
+
+
+## Install
+
+```bash
+cd fpt-mcp
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Or use the automated setup (creates venv + launchd service + Qt console app on macOS):
+
+```bash
+chmod +x setup_venv.sh
+./setup_venv.sh
+```
+
+## Configure
+
+Copy `.env.example` → `.env` and fill in your credentials:
+
+```
+SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com
+SHOTGRID_SCRIPT_NAME=your_script_name
+SHOTGRID_SCRIPT_KEY=your_key
+SHOTGRID_PROJECT_ID=123
+```
+
+## Usage
+
+Once configured, fpt-mcp is available through Claude Code, Claude Desktop, or the Qt console. Connect to your ShotGrid instance and start a conversation:
+
+```text
+You: "Find all Character assets in the Sunrise project that are currently in Pending Review"
+Claude → search_sg_docs (filter syntax for Asset) → sg_find (entity=Asset, filters=[project, sg_asset_type, sg_status_list]) → Returns asset list with name, status, and assigned tasks
+```
+
+```text
+You: "Create a new Shot called sh0150 in sequence SQ010 for project Sunrise, cut in 1001 cut out 1024"
+Claude → search_sg_docs (Shot entity format) → sg_create (entity=Shot, fields={code, sg_sequence, project, sg_cut_in, sg_cut_out}) → Shot created and linked to sequence
+```
+
+```text
+You: "Publish /jobs/sunrise/assets/char_hero/maya/publish/char_hero_v003.ma to the Rigging task on asset Hero"
+Claude → search_sg_docs (publish pattern) → tk_resolve_path (PipelineConfiguration lookup) → tk_publish (copy file, find/create PublishedFileType, link Task, register PublishedFile) → Publish registered in ShotGrid
+```
+
+```text
+You: "How do I filter Versions by review status using the ShotGrid Python API?"
+Claude → search_sg_docs (status filter operators, Version entity) → Returns verified filter syntax, valid operator names, and a working code example from the RAG knowledge base
+```
+
 ## Tools (18)
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
@@ -158,48 +248,13 @@ python -m fpt_mcp.rag.build_index
 
 This creates the persistent ChromaDB database and BM25 corpus.json. The first run downloads the BAAI/bge-large-en-v1.5 embedding model (~570 MB). The index only needs rebuilding when the documentation files in `docs/` change.
 
-## Requirements
+## Self-Learning
 
-- Python >= 3.10
-- macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
-- `shotgun_api3` (ShotGrid Python API)
-- `mcp[cli]` (MCP Python SDK with FastMCP)
-- `pydantic` >= 2.0
-- `PySide6` >= 6.6 (Qt for Python)
-- `python-dotenv`
-- `httpx`
-- `pyyaml` (Toolkit config parsing)
-- `chromadb` >= 0.5.0 (RAG vector database)
-- `sentence-transformers` >= 2.2.0 (RAG embeddings — BAAI/bge-large-en-v1.5)
-- `rank-bm25` >= 0.2.2 (RAG lexical search)
-- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
+When `search_sg_docs` returns a low-relevance score (below 60%) but the operation succeeds, Claude can call `learn_pattern` to persist the working pattern into the knowledge base for future sessions. **Model trust gates** control who can write directly: Sonnet and Opus write immediately to the corpus; other models stage candidates in `rag/candidates.json` for human review before promotion. Failed operations with low RAG scores are logged to `rag/failed.json` as knowledge gaps, making it easy to identify which API areas need better documentation coverage.
 
-## Install
+## Token Tracking
 
-```bash
-cd fpt-mcp
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-Or use the automated setup (creates venv + launchd service + Qt console app on macOS):
-
-```bash
-chmod +x setup_venv.sh
-./setup_venv.sh
-```
-
-## Configure
-
-Copy `.env.example` → `.env` and fill in your credentials:
-
-```
-SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com
-SHOTGRID_SCRIPT_NAME=your_script_name
-SHOTGRID_SCRIPT_KEY=your_key
-SHOTGRID_PROJECT_ID=123
-```
+Every tool call tracks tokens consumed in and out. The `session_stats` tool reports the full session breakdown: total calls, tokens used, tokens saved by RAG (versus loading raw documentation), cache hits, patterns learned, and an efficiency ratio. This makes the RAG savings measurable and visible rather than implicit.
 
 ## Transports
 
