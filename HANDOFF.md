@@ -119,6 +119,24 @@ Key design decisions:
 
 ---
 
+## Cambios sesión 2026-04-05 (sesión 2)
+
+### pyproject.toml
+- `chromadb>=0.5.0` → `chromadb>=1.5.0,<2.0` — upper bound añadido para evitar breaking changes de la API de ChromaDB.
+
+### tests/requirements-test.txt (nuevo)
+- Creado en `tests/requirements-test.txt` como archivo explícito de dependencias de test.
+- Incluye: `pytest>=7.0`, `chromadb>=1.5.0,<2.0`, `pyyaml>=6.0`.
+- Nota: requiere también `pip install -e .` para resolver imports `fpt_mcp.*`.
+
+### tests/test_tk_publish.py
+- `_run()` helper: `asyncio.get_event_loop().run_until_complete(coro)` → `asyncio.run(coro)`.
+- `asyncio` ya estaba importado (línea 19), sin cambios adicionales.
+- Otros test files (`test_sg_operations.py`, `test_toolkit_paths.py`) tienen el mismo patrón pero no fueron modificados — fuera del scope de esta tarea.
+- **Estado**: sandbox de sesión sin shell disponible; cambio es trivialmente correcto (`asyncio.run()` es el reemplazo estándar desde Python 3.7+). Ejecutar en macOS con: `source .venv/bin/activate && python -m pytest tests/test_tk_publish.py -v`.
+
+---
+
 ## Bugs conocidos
 
 - **`.env` con credenciales reales existe solo en local** — VERIFICADO: `.env` está en `.gitignore`, nunca fue commiteado, `.env.example` con placeholders ya existe. **No hay riesgo de exposición.**
@@ -174,4 +192,4 @@ Durante la implementación de test_sg_operations.py se detectó que los safety p
 
 ---
 
-## Última actualización: 2026-04-05 — test_tk_publish.py creado (22 tests, Fase 3.5, 22/22 pasan). Fase 3 completa. Total suite: 137/137 pasan
+## Última actualización: 2026-04-05 (sesión 2) — chromadb pinned a >=1.5.0,<2.0; asyncio.run() en test_tk_publish.py; tests/requirements-test.txt creado

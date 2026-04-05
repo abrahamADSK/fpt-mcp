@@ -1,0 +1,14 @@
+# Test dependencies for fpt-mcp
+# Install with: pip install -r tests/requirements-test.txt
+
+# Testing framework
+pytest>=7.0
+
+# RAG / vector store (pinned to avoid breaking API changes)
+chromadb>=1.5.0,<2.0
+
+# YAML parsing (used in conftest.py and test_toolkit_paths.py)
+pyyaml>=6.0
+
+# Project itself (editable install required so fpt_mcp.* imports resolve)
+# Run: pip install -e . --break-system-packages
