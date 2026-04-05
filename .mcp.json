@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "fpt-mcp": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "fpt_mcp.server"],
+      "cwd": "."
+    }
+  }
+}
