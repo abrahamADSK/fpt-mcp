@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .claude_worker import ClaudeWorker
+from .claude_worker import AVAILABLE_MODELS, ClaudeWorker
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +212,8 @@ class ChatWindow(QMainWindow):
             self._context["user_login"] = user_login
 
         self._worker: Optional[ClaudeWorker] = None
+        # Multi-backend: default to first model (anthropic)
+        self._selected_model_idx = 0
         self._setup_ui()
         self.setStyleSheet(DARK_STYLE)
 
@@ -251,6 +254,18 @@ class ChatWindow(QMainWindow):
 
         header_layout.addStretch()
 
+        # Model selector combo
+        self._model_combo = QComboBox()
+        for label, _, _ in AVAILABLE_MODELS:
+            self._model_combo.addItem(label)
+        self._model_combo.setCurrentIndex(self._selected_model_idx)
+        self._model_combo.currentIndexChanged.connect(self._on_model_changed)
+        self._model_combo.setStyleSheet(
+            "QComboBox { background: #1e293b; color: #e0e0e0; border: 1px solid #334155; "
+            "border-radius: 6px; padding: 3px 8px; font-size: 12px; }"
+        )
+        header_layout.addWidget(self._model_combo)
+
         status = QLabel()
         status.setObjectName("statusDot")
         header_layout.addWidget(status)
@@ -285,6 +300,17 @@ class ChatWindow(QMainWindow):
         layout.addWidget(input_bar)
 
         self._input.setFocus()
+
+    # ---- Model selection ----
+
+    def _on_model_changed(self, index: int):
+        """Called when the user picks a different model in the combo."""
+        self._selected_model_idx = index
+
+    def _get_selected_model(self) -> tuple[str, str]:
+        """Return (model_id, backend) for the currently selected model."""
+        _, model_id, backend = AVAILABLE_MODELS[self._selected_model_idx]
+        return model_id, backend
 
     # ---- Context update (for protocol handler late-arriving URLs) ----
 
@@ -359,8 +385,10 @@ class ChatWindow(QMainWindow):
         self._progress_lines = []  # Accumulated progress lines
         self._append_bubble("<i>Thinking...</i>", "thinking")
 
+        model_id, backend = self._get_selected_model()
         self._worker = ClaudeWorker(
-            text, self._context, history=self._history[:-1], parent=self
+            text, self._context, history=self._history[:-1],
+            model_id=model_id, backend=backend, parent=self,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_response)

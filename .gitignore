@@ -11,6 +11,10 @@ venv/
 .mypy_cache/
 .pytest_cache/
 
+# Claude Code local settings (user-specific paths)
+.claude/
+.mcp.json
+
 # Generated plist files (setup_venv.sh creates them dynamically)
 *.plist
 

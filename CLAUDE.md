@@ -349,6 +349,58 @@ Before committing changes in this project:
 
 ---
 
-**Last updated**: 2026-03-31
+## 12. LLM Backend & Model Selection
+
+fpt-mcp supports multiple LLM backends via the model selector in the Qt Console header.
+
+### Recommended local model: Qwen3.5 9B (`qwen3.5-mcp`)
+- **Tool calling**: 97.5% accuracy (1st of 13 models, eval J.D. Hodges)
+- **Context window**: 262K tokens
+- **Memory**: 6.6 GB (Q4_K_M)
+- **Modelfile**: `qwen3.5-mcp` is a custom Modelfile derived from `qwen3.5:9b` with
+  `num_ctx 8192`, `temperature 0.7`, `top_p 0.8`, `top_k 20`.
+  Available on glorfindel and Mac M5 Pro.
+- **Mac 24GB fallback**: `qwen3.5:4b` (direct, no custom Modelfile)
+- **Ollama API note**: requires `"think": false` in each request to disable thinking mode.
+
+### Available backends
+| Backend | Label in combo | URL source | Notes |
+|---|---|---|---|
+| `anthropic` | Claude Sonnet/Opus | Anthropic API | Default, needs internet + API key |
+| `ollama` | 🖥 models | `config.json → ollama_url` | glorfindel RTX 3090, LAN |
+| `ollama_mac` | 🍎 models | `config.json → ollama_mac_url` | Mac-local, offline |
+
+### Backend switching
+The Qt Console passes `--model` and env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY`) to the Claude Code CLI subprocess. For Ollama backends, the Anthropic
+SDK is redirected to the Ollama Messages-compatible endpoint (Ollama v0.14+).
+
+### Write-allowed models (RAG trust gates)
+Only Claude models can write patterns via `learn_pattern`. Local models (Ollama) are
+read-only — they can search docs but cannot persist new patterns. Configured via
+`write_allowed_models` in `config.json` (default: `["claude-opus", "claude-sonnet"]`).
+
+### Prerequisites for local models
+```bash
+# Install Ollama (macOS)
+brew install ollama
+brew services start ollama
+
+# Pull the model
+ollama pull qwen3.5:9b
+# On Mac 24GB (fallback):
+ollama pull qwen3.5:4b
+```
+
+### Configuration
+Copy `src/fpt_mcp/config.example.json` to `src/fpt_mcp/config.json` and adjust URLs.
+
+### Full LLM strategy
+See `MODEL_STRATEGY.md` in the ecosystem root for hardware configs, VRAM management,
+update procedures, and architecture decisions.
+
+---
+
+**Last updated**: 2026-04-07
 **Author**: Claude Agent
 **Project**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)

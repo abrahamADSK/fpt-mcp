@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
@@ -35,6 +36,63 @@ CLAUDE_BIN = _find_claude()
 
 # Max time for a single invocation (shape gen can take ~15 min)
 TIMEOUT_SECONDS = 900
+
+# ---------------------------------------------------------------------------
+# Multi-backend model configuration
+# ---------------------------------------------------------------------------
+
+# Each entry: (display_label, model_id, backend)
+AVAILABLE_MODELS = [
+    # ── Anthropic cloud (default — needs internet + API key) ─────────
+    ("Claude Sonnet 4.6",     "claude-sonnet-4-6",         "anthropic"),
+    ("Claude Opus 4.6",       "claude-opus-4-6",           "anthropic"),
+    # ── Self-hosted Ollama (glorfindel RTX 3090, LAN) ────────────────
+    ("Qwen3.5 9B 🖥",         "qwen3.5-mcp",               "ollama"),
+    ("GLM-4.7 Flash 🖥",      "glm-4.7-flash",             "ollama"),
+    # ── Mac-local Ollama (offline, no LAN) ───────────────────────────
+    ("Qwen3.5 9B 🍎",         "qwen3.5-mcp",               "ollama_mac"),
+    ("Qwen3.5 4B 🍎",         "qwen3.5:4b",                "ollama_mac"),
+]
+
+# Models allowed to write RAG patterns (learn_pattern). Local models are read-only.
+WRITE_ALLOWED_MODELS = ["claude-opus", "claude-sonnet"]
+
+# Default Ollama URLs — can be overridden by config.json
+DEFAULT_OLLAMA_URL = "http://glorfindel:11434"
+DEFAULT_OLLAMA_MAC_URL = "http://localhost:11434"
+
+
+def _load_config() -> dict:
+    """Load config.json from the fpt_mcp package directory."""
+    cfg_path = Path(__file__).resolve().parent.parent / "config.json"
+    try:
+        return json.loads(cfg_path.read_text())
+    except Exception:
+        return {}
+
+
+def build_backend_env(model_id: str, backend: str) -> dict:
+    """Return env-var overrides for the selected backend.
+
+    For Ollama backends, redirects the Anthropic SDK to the Ollama
+    Messages-compatible endpoint (Ollama v0.14+).
+    """
+    cfg = _load_config()
+    env = {}
+
+    if backend == "ollama":
+        base_url = cfg.get("ollama_url", DEFAULT_OLLAMA_URL)
+        env["ANTHROPIC_BASE_URL"] = base_url
+        env["ANTHROPIC_AUTH_TOKEN"] = "ollama"
+        env["ANTHROPIC_API_KEY"] = ""
+    elif backend == "ollama_mac":
+        base_url = cfg.get("ollama_mac_url", DEFAULT_OLLAMA_MAC_URL)
+        env["ANTHROPIC_BASE_URL"] = base_url
+        env["ANTHROPIC_AUTH_TOKEN"] = "ollama"
+        env["ANTHROPIC_API_KEY"] = ""
+    # anthropic backend: no overrides needed, uses default env
+
+    return env
 
 # System prompt that tells Claude Code about the cross-MCP pipeline
 SYSTEM_PROMPT = """\
@@ -165,12 +223,16 @@ class ClaudeWorker(QThread):
         message: str,
         context: dict | None = None,
         history: list | None = None,
+        model_id: str | None = None,
+        backend: str | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self._message = message
         self._context = context or {}
         self._history = history or []
+        self._model_id = model_id
+        self._backend = backend
 
     # ---- nice names for MCP tools ----
 
@@ -255,15 +317,25 @@ class ClaudeWorker(QThread):
         prompt = "\n".join(parts)
 
         try:
+            # Build environment with backend-specific overrides
+            run_env = os.environ.copy()
+            run_env["CLAUDE_NO_TELEMETRY"] = "1"
+            if self._model_id and self._backend:
+                run_env.update(build_backend_env(self._model_id, self._backend))
+
+            cmd = [CLAUDE_BIN, "-p", prompt,
+                   "--output-format", "stream-json", "--verbose",
+                   "--append-system-prompt", SYSTEM_PROMPT]
+            if self._model_id:
+                cmd.extend(["--model", self._model_id])
+
             proc = subprocess.Popen(
-                [CLAUDE_BIN, "-p", prompt,
-                 "--output-format", "stream-json", "--verbose",
-                 "--append-system-prompt", SYSTEM_PROMPT],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=1,  # line-buffered
                 text=True,
-                env={**os.environ, "CLAUDE_NO_TELEMETRY": "1"},
+                env=run_env,
             )
 
             text_parts: list[str] = []
