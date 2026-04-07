@@ -404,3 +404,16 @@ update procedures, and architecture decisions.
 **Last updated**: 2026-04-07
 **Author**: Claude Agent
 **Project**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)
+
+---
+
+## 13. MANDATORY: Update install.sh on tool changes
+
+**RULE — NON-NEGOTIABLE:**
+Whenever a tool is added, removed, or renamed in `src/fpt_mcp/server.py`:
+1. Update the tools list in `install.sh` (Step 6 — Pre-approve MCP tools)
+2. The tool name format is `mcp__fpt-mcp__<function_name>`
+3. Run `bash -n install.sh` to verify syntax
+4. Commit install.sh together with the server.py change — never separately
+
+Forgetting this step means users get permission prompts on first use of the new tool.
