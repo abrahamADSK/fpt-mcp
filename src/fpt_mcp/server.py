@@ -5,8 +5,9 @@ General-purpose MCP server exposing the complete ShotGrid API, Toolkit
 path conventions, and RAG-powered documentation search.
 
 Features:
-    - 13 ShotGrid API tools (CRUD, schema, media, batch, search, summarize, revive, notes, activity)
-    - 2 Toolkit tools (path resolution, publish pipeline)
+    - 8 Tier-1 ShotGrid/Toolkit tools (always visible)
+    - 3 bulk tools (behind fpt_bulk dispatch: delete, revive, batch)
+    - 4 reporting tools (behind fpt_reporting dispatch: text_search, summarize, note_thread, activity)
     - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
     - Dangerous pattern detection (safety.py)
     - Hybrid search: ChromaDB + BM25 + HyDE + RRF fusion
@@ -24,9 +25,10 @@ import json
 import os
 import sys
 from pathlib import Path
+from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from mcp.server.fastmcp import FastMCP
 
 from fpt_mcp.client import (
@@ -232,6 +234,41 @@ class TkPublishInput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Dispatch Models
+# ---------------------------------------------------------------------------
+
+class BulkAction(str, Enum):
+    """Actions available in the fpt_bulk dispatch tool."""
+    DELETE = "delete"
+    REVIVE = "revive"
+    BATCH = "batch"
+
+
+class BulkDispatchInput(BaseModel):
+    """Input for the fpt_bulk dispatch tool."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    action: BulkAction = Field(..., description="Which bulk action to run")
+    params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
+
+
+class ReportingAction(str, Enum):
+    """Actions available in the fpt_reporting dispatch tool."""
+    TEXT_SEARCH = "text_search"
+    SUMMARIZE = "summarize"
+    NOTE_THREAD = "note_thread"
+    ACTIVITY = "activity"
+
+
+class ReportingDispatchInput(BaseModel):
+    """Input for the fpt_reporting dispatch tool."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    action: ReportingAction = Field(..., description="Which reporting action to run")
+    params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
+
+
+# ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
@@ -293,17 +330,18 @@ async def sg_update_tool(params: SgUpdateInput) -> str:
     return json.dumps(result, default=str)
 
 
-@mcp.tool(name="sg_delete")
-async def sg_delete_tool(params: SgDeleteInput) -> str:
-    """Delete (retire) an entity in ShotGrid.
+async def _do_sg_delete(params: dict) -> str:
+    """Delete (retire) an entity in ShotGrid. Soft-delete — can be restored from trash."""
+    from pydantic import ValidationError
+    try:
+        validated = SgDeleteInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for delete: {e}"})
 
-    This performs a soft-delete (retire). The entity can be restored
-    from ShotGrid's trash.
-    """
     _stats["exec_calls"] += 1
 
     # Safety check
-    params_str = json.dumps({"entity_type": params.entity_type, "entity_id": params.entity_id})
+    params_str = json.dumps({"entity_type": validated.entity_type, "entity_id": validated.entity_id})
     warning = check_dangerous(params_str)
     if warning:
         _stats["safety_blocks"] += 1
@@ -311,8 +349,8 @@ async def sg_delete_tool(params: SgDeleteInput) -> str:
 
     sg = get_sg()
     import asyncio
-    result = await asyncio.to_thread(sg.delete, params.entity_type, params.entity_id)
-    return json.dumps({"deleted": result, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    result = await asyncio.to_thread(sg.delete, validated.entity_type, validated.entity_id)
+    return json.dumps({"deleted": result, "entity_type": validated.entity_type, "entity_id": validated.entity_id})
 
 
 @mcp.tool(name="sg_schema")
@@ -638,21 +676,26 @@ class SgBatchInput(BaseModel):
     )
 
 
-@mcp.tool(name="sg_batch")
-async def sg_batch_tool(params: SgBatchInput) -> str:
+async def _do_sg_batch(params: dict) -> str:
     """Execute multiple ShotGrid operations in a single transactional call.
 
     ALL operations succeed or ALL fail — no partial results.
     Supports create, update, and delete in a single batch.
     Much more efficient than individual calls for bulk operations.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgBatchInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for batch: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(params.requests)
+    _stats["tokens_in"] += _tok(validated.requests)
     # Safety check
-    warning = check_dangerous(params.requests)
+    warning = check_dangerous(validated.requests)
     if warning:
         return warning
-    batch_data = json.loads(params.requests)
+    batch_data = json.loads(validated.requests)
     results = await sg_batch(batch_data)
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
@@ -670,19 +713,24 @@ class SgTextSearchInput(BaseModel):
     limit: int = Field(default=10, description="Max results per entity type.")
 
 
-@mcp.tool(name="sg_text_search")
-async def sg_text_search_tool(params: SgTextSearchInput) -> str:
+async def _do_sg_text_search(params: dict) -> str:
     """Full-text search across multiple entity types simultaneously.
 
     Unlike sg_find which searches field-by-field, text_search looks
     across all text fields (code, description, notes, etc.) at once.
     Useful for finding entities when you only have a keyword.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgTextSearchInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for text_search: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(params.text) + _tok(params.entity_types)
-    entity_types = json.loads(params.entity_types)
+    _stats["tokens_in"] += _tok(validated.text) + _tok(validated.entity_types)
+    entity_types = json.loads(validated.entity_types)
     project_ids = [PROJECT_ID] if PROJECT_ID else None
-    results = await sg_text_search(params.text, entity_types, project_ids=project_ids, limit=params.limit)
+    results = await sg_text_search(validated.text, entity_types, project_ids=project_ids, limit=validated.limit)
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
@@ -707,19 +755,24 @@ class SgSummarizeInput(BaseModel):
     )
 
 
-@mcp.tool(name="sg_summarize")
-async def sg_summarize_tool(params: SgSummarizeInput) -> str:
+async def _do_sg_summarize(params: dict) -> str:
     """Server-side aggregation: count, sum, avg, min, max with optional grouping.
 
     Much more efficient than fetching all records with sg_find and
     calculating in Python. Runs entirely on the ShotGrid server.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgSummarizeInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for summarize: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(params.filters) + _tok(params.summary_fields)
-    filters = json.loads(params.filters)
-    summary_fields = json.loads(params.summary_fields)
-    grouping = json.loads(params.grouping) if params.grouping else None
-    results = await sg_summarize(params.entity_type, filters, summary_fields, grouping=grouping)
+    _stats["tokens_in"] += _tok(validated.filters) + _tok(validated.summary_fields)
+    filters = json.loads(validated.filters)
+    summary_fields = json.loads(validated.summary_fields)
+    grouping = json.loads(validated.grouping) if validated.grouping else None
+    results = await sg_summarize(validated.entity_type, filters, summary_fields, grouping=grouping)
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
@@ -730,17 +783,22 @@ class SgReviveInput(BaseModel):
     entity_id: int = Field(description="ID of the soft-deleted entity to restore.")
 
 
-@mcp.tool(name="sg_revive")
-async def sg_revive_tool(params: SgReviveInput) -> str:
+async def _do_sg_revive(params: dict) -> str:
     """Restore a soft-deleted (retired) entity.
 
     Reverses sg_delete. The entity is moved out of the trash and
     becomes active again with all its data intact.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgReviveInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for revive: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id}")
-    result = await sg_revive(params.entity_type, params.entity_id)
-    out = json.dumps({"revived": result, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    _stats["tokens_in"] += _tok(f"{validated.entity_type} {validated.entity_id}")
+    result = await sg_revive(validated.entity_type, validated.entity_id)
+    out = json.dumps({"revived": result, "entity_type": validated.entity_type, "entity_id": validated.entity_id})
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -749,16 +807,21 @@ class SgNoteThreadInput(BaseModel):
     note_id: int = Field(description="ID of the Note entity to read the full reply thread for.")
 
 
-@mcp.tool(name="sg_note_thread")
-async def sg_note_thread_tool(params: SgNoteThreadInput) -> str:
+async def _do_sg_note_thread(params: dict) -> str:
     """Read the full reply thread of a Note, including all nested replies.
 
     Returns the complete conversation thread that sg_find cannot
     reconstruct. Includes reply content, authors, and timestamps.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgNoteThreadInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for note_thread: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(str(params.note_id))
-    results = await sg_note_thread_read(params.note_id)
+    _stats["tokens_in"] += _tok(str(validated.note_id))
+    results = await sg_note_thread_read(validated.note_id)
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
@@ -770,20 +833,73 @@ class SgActivityInput(BaseModel):
     limit: int = Field(default=20, description="Max number of activity entries to return.")
 
 
-@mcp.tool(name="sg_activity")
-async def sg_activity_tool(params: SgActivityInput) -> str:
+async def _do_sg_activity(params: dict) -> str:
     """Read the activity stream for an entity.
 
     Returns recent updates, status changes, notes, and other events.
     This uses a dedicated ShotGrid API method that cannot be replicated
     with sg_find.
     """
+    from pydantic import ValidationError
+    try:
+        validated = SgActivityInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for activity: {e}"})
+
     _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id}")
-    results = await sg_activity_stream_read(params.entity_type, params.entity_id, limit=params.limit)
+    _stats["tokens_in"] += _tok(f"{validated.entity_type} {validated.entity_id}")
+    results = await sg_activity_stream_read(validated.entity_type, validated.entity_id, limit=validated.limit)
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Bulk Dispatch Tool
+# ---------------------------------------------------------------------------
+
+@mcp.tool(name="fpt_bulk")
+async def fpt_bulk(params: BulkDispatchInput) -> str:
+    """Execute bulk/destructive ShotGrid operations.
+
+    Available actions:
+
+    • delete — Retire (soft-delete) an entity. Can be restored from trash. Required params: {"entity_type": "Shot", "entity_id": 123}
+    • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
+    • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
+    """
+    dispatch = {
+        BulkAction.DELETE: _do_sg_delete,
+        BulkAction.REVIVE: _do_sg_revive,
+        BulkAction.BATCH: _do_sg_batch,
+    }
+    handler = dispatch[params.action]
+    return await handler(params.params or {})
+
+
+# ---------------------------------------------------------------------------
+# Reporting Dispatch Tool
+# ---------------------------------------------------------------------------
+
+@mcp.tool(name="fpt_reporting")
+async def fpt_reporting(params: ReportingDispatchInput) -> str:
+    """Search, aggregate, and inspect ShotGrid data for reporting and analysis.
+
+    Available actions:
+
+    • text_search — Full-text search across multiple entity types at once. Required params: {"text": "search terms", "entity_types": "{\"Asset\":[], \"Shot\":[[\"sg_status_list\",\"is\",\"ip\"]]}"} Optional: {"limit": 10}
+    • summarize — Server-side aggregation (count, sum, avg, min, max) with optional grouping. Required params: {"entity_type": "Task", "filters": "[[\"sg_status_list\",\"is\",\"ip\"]]", "summary_fields": "[{\"field\": \"duration\", \"type\": \"sum\"}]"} Optional: {"grouping": "[{\"field\": \"sg_status_list\", \"type\": \"exact\"}]"}
+    • note_thread — Read the full reply thread of a Note. Required params: {"note_id": 123}
+    • activity — Read the activity stream for an entity. Required params: {"entity_type": "Shot", "entity_id": 456} Optional: {"limit": 20}
+    """
+    dispatch = {
+        ReportingAction.TEXT_SEARCH: _do_sg_text_search,
+        ReportingAction.SUMMARIZE: _do_sg_summarize,
+        ReportingAction.NOTE_THREAD: _do_sg_note_thread,
+        ReportingAction.ACTIVITY: _do_sg_activity,
+    }
+    handler = dispatch[params.action]
+    return await handler(params.params or {})
 
 
 # ---------------------------------------------------------------------------

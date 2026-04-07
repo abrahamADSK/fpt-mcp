@@ -13,14 +13,70 @@ Adds src/ to sys.path and provides reusable mock infrastructure for:
 import hashlib
 import json
 import sys
+import types as _types
 import pathlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
 # fpt-mcp/src  →  lets `import fpt_mcp` resolve correctly from tests/
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "src"))
+
+
+# ---------------------------------------------------------------------------
+# MCP SDK stub — installed before any test module is collected
+# ---------------------------------------------------------------------------
+# fpt_mcp.server imports `from mcp.server.fastmcp import FastMCP` at module
+# level. We install a minimal stub here so `from fpt_mcp.server import ...`
+# works in tests without the full MCP SDK being installed in the sandbox.
+
+# Stub for shotgun_api3 and python-dotenv — not installed in sandbox CI.
+# The real packages are installed in the project venv on Mac for live runs.
+try:
+    import shotgun_api3  # noqa: F401
+except ImportError:
+    _sg_mod = _types.ModuleType("shotgun_api3")
+
+    class _StubShotgun:
+        def __init__(self, *a, **kw):
+            pass
+
+    _sg_mod.Shotgun = _StubShotgun
+    sys.modules["shotgun_api3"] = _sg_mod
+
+try:
+    import dotenv  # noqa: F401
+except ImportError:
+    _dotenv_mod = _types.ModuleType("dotenv")
+    _dotenv_mod.load_dotenv = lambda *a, **kw: None
+    sys.modules["dotenv"] = _dotenv_mod
+
+
+try:
+    import mcp  # noqa: F401
+except ImportError:
+    _mcp_pkg = _types.ModuleType("mcp")
+    _mcp_server_mod = _types.ModuleType("mcp.server")
+    _mcp_fastmcp = _types.ModuleType("mcp.server.fastmcp")
+
+    class _StubFastMCP:
+        """Minimal FastMCP stand-in: captures @mcp.tool() decorators."""
+        def __init__(self, *a, **kw):
+            pass
+
+        def tool(self, **kw):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    _mcp_fastmcp.FastMCP = _StubFastMCP
+    _mcp_pkg.server = _mcp_server_mod
+    _mcp_server_mod.fastmcp = _mcp_fastmcp
+
+    sys.modules["mcp"] = _mcp_pkg
+    sys.modules["mcp.server"] = _mcp_server_mod
+    sys.modules["mcp.server.fastmcp"] = _mcp_fastmcp
 
 
 # ---------------------------------------------------------------------------

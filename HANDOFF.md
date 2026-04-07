@@ -7,7 +7,9 @@
 ## Estado actual
 
 **Funciona**:
-- 18 MCP tools: 13 ShotGrid API, 2 Toolkit (tk_resolve_path, tk_publish), 3 RAG
+- **13 visible MCP tools** (dispatch pattern O1c): 8 Tier-1 + 3 Meta/RAG + 2 dispatch (`fpt_bulk`, `fpt_reporting`)
+- Internamente: 3 bulk handlers (`_do_sg_delete`, `_do_sg_revive`, `_do_sg_batch`) + 4 reporting handlers (`_do_sg_text_search`, `_do_sg_summarize`, `_do_sg_note_thread`, `_do_sg_activity`) — sin `@mcp.tool`
+- 13 ShotGrid API, 2 Toolkit (tk_resolve_path, tk_publish), 3 RAG (funcionalidad completa preservada)
 - RAG completo con 311 chunks en 3 docs: SG_API.md (131 chunks), TK_API.md (87 chunks), REST_API.md (93 chunks)
 - HyDE adaptativo por dominio (Toolkit, REST, SG Python SDK)
 - Toolkit path resolution con PipelineConfiguration auto-discovery (Mode 1) o explicit path (Mode 2)
@@ -230,4 +232,51 @@ chmod +x install.sh
 
 ---
 
-## Última actualización: 2026-04-05 (sesión 3) — install.sh creado
+## Última actualización: 2026-04-07 (sesión 4) — Dispatch pattern O1c implementado.
+
+---
+
+## Sesión 4 — 2026-04-07 — Dispatch pattern O1c
+
+### Objetivo
+Implementar el dispatch pattern definido en `COWORK_O1_DISPATCH.md` para reducir los tools visibles de 18 a 13, compatibilidad con Qwen 3.5 9B (8K context).
+
+### Cambios en `src/fpt_mcp/server.py`
+
+**Nuevos imports:** `from enum import Enum`, `ConfigDict` añadido a pydantic imports.
+
+**Nuevos Enums y modelos Pydantic:**
+```python
+class BulkAction(str, Enum):
+    DELETE = "delete"; REVIVE = "revive"; BATCH = "batch"
+
+class ReportingAction(str, Enum):
+    TEXT_SEARCH = "text_search"; SUMMARIZE = "summarize"
+    NOTE_THREAD = "note_thread"; ACTIVITY = "activity"
+```
+
+**Herramientas convertidas a `_do_*` (sin `@mcp.tool`):**
+- 3 bulk: `_do_sg_delete`, `_do_sg_revive`, `_do_sg_batch`
+- 4 reporting: `_do_sg_text_search`, `_do_sg_summarize`, `_do_sg_note_thread`, `_do_sg_activity`
+
+**Nuevas dispatch tools (con `@mcp.tool`):**
+- `fpt_bulk(params: BulkDispatchInput)` — enruta a 3 bulk handlers
+- `fpt_reporting(params: ReportingDispatchInput)` — enruta a 4 reporting handlers
+
+**Resultado:**
+- `grep -c '@mcp.tool' src/fpt_mcp/server.py` → **13** (era 18)
+
+### Cambios en tests
+
+**`tests/conftest.py`:**
+- Añadido `import types as _types`, `from unittest.mock import AsyncMock`
+- Añadido stub `shotgun_api3` y `dotenv`
+- Añadido stub del MCP SDK (mismo patrón que maya-mcp conftest.py)
+
+**`tests/test_sg_operations.py`:**
+- Import: `sg_batch_tool` → `_do_sg_batch`, `sg_delete_tool` → `_do_sg_delete`
+- Todos los call sites actualizados: `sg_batch_tool(params)` → `_do_sg_batch(params.model_dump())`, `sg_delete_tool(params)` → `_do_sg_delete(params.model_dump())`
+
+**Resultado pytest:**
+- `tests/test_safety.py tests/test_sg_operations.py tests/test_toolkit_paths.py tests/test_tk_publish.py` → **110/110 passed**
+- `tests/test_rag_search.py` → skipped (chromadb no instalable en sandbox, ✅ en Mac)

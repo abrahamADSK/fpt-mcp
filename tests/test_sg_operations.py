@@ -29,8 +29,8 @@ from fpt_mcp.server import (
     sg_find_tool,
     sg_create_tool,
     sg_update_tool,
-    sg_batch_tool,
-    sg_delete_tool,
+    _do_sg_batch,
+    _do_sg_delete,
 )
 
 # Import Pydantic input models to construct tool parameters
@@ -349,7 +349,7 @@ class TestSgBatchAllOrNothing:
 
         # The tool should propagate the exception (all-or-nothing)
         with pytest.raises(Exception, match="Batch failed"):
-            run_async(sg_batch_tool(params))
+            run_async(_do_sg_batch(params.model_dump()))
 
         # Verify batch was attempted with all requests
         mock_sg.batch.assert_called_once()
@@ -371,7 +371,7 @@ class TestSgBatchAllOrNothing:
         ]
 
         params = SgBatchInput(requests=json.dumps(batch_requests))
-        result = parse_result(run_async(sg_batch_tool(params)))
+        result = parse_result(run_async(_do_sg_batch(params.model_dump())))
 
         assert len(result) == 2
         assert result[0]["type"] == "Shot"
@@ -406,7 +406,7 @@ class TestSgBatchMixedOps:
         ]
 
         params = SgBatchInput(requests=json.dumps(batch_requests))
-        result = parse_result(run_async(sg_batch_tool(params)))
+        result = parse_result(run_async(_do_sg_batch(params.model_dump())))
 
         assert len(result) == 3
 
@@ -467,7 +467,7 @@ class TestSgDeleteSafety:
             entity_id=4099,
         )
 
-        result = parse_result(run_async(sg_delete_tool(params)))
+        result = parse_result(run_async(_do_sg_delete(params.model_dump())))
 
         assert result["deleted"] is True
         assert result["entity_type"] == "Task"
