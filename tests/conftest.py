@@ -18,6 +18,17 @@ import pathlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# ── ulimit check ──────────────────────────────────────────────────────────────
+import resource
+_soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+if _soft < 4096:
+    import warnings
+    warnings.warn(
+        f"Low file descriptor limit ({_soft}). ChromaDB may crash. "
+        f"Run: ulimit -n 4096",
+        stacklevel=1,
+    )
 import yaml
 
 # fpt-mcp/src  →  lets `import fpt_mcp` resolve correctly from tests/
