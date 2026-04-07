@@ -11,7 +11,8 @@
 #   3. Installs the package and all dependencies via pip install -e .
 #   4. Builds the RAG index via src/fpt_mcp/rag/build_index.py
 #   5. Registers (or updates) the MCP server entry in ~/.claude.json
-#   6. Prints an installation summary
+#   6. Pre-approves MCP tools in ~/.claude/settings.json
+#   7. Prints an installation summary
 #
 # Usage:
 #   chmod +x install.sh
@@ -64,7 +65,7 @@ echo ""
 # =============================================================================
 # STEP 1 — Verify Python 3.10+
 # =============================================================================
-info "Step 1/5 — Checking Python version..."
+info "Step 1/6 — Checking Python version..."
 
 # Try python3 first, fall back to python
 PYTHON_BIN=""
@@ -107,7 +108,7 @@ fi
 # =============================================================================
 # STEP 2 — Create virtual environment in .venv/ (if not already present)
 # =============================================================================
-info "Step 2/5 — Setting up virtual environment..."
+info "Step 2/6 — Setting up virtual environment..."
 
 if [[ -d "${VENV_DIR}" && -f "${VENV_DIR}/bin/python" ]]; then
     success "Virtual environment already exists at .venv/ — skipping creation"
@@ -126,7 +127,7 @@ VENV_PIP="${VENV_DIR}/bin/pip"
 # =============================================================================
 # STEP 3 — Install package via pip install -e .
 # =============================================================================
-info "Step 3/5 — Installing fpt-mcp package and dependencies..."
+info "Step 3/6 — Installing fpt-mcp package and dependencies..."
 
 if [[ ! -f "${PYPROJECT}" ]]; then
     error "pyproject.toml not found at ${PYPROJECT}"
@@ -151,7 +152,7 @@ fi
 # =============================================================================
 # STEP 4 — Build the RAG index (if not already present)
 # =============================================================================
-info "Step 4/5 — Building RAG index..."
+info "Step 4/6 — Building RAG index..."
 
 # Check if index already exists and appears complete:
 #   - RAG_INDEX_DIR must exist and contain at least one file (ChromaDB data)
@@ -178,7 +179,7 @@ fi
 # =============================================================================
 # STEP 5 — Register MCP server in ~/.claude.json
 # =============================================================================
-info "Step 5/5 — Registering MCP server in ~/.claude.json..."
+info "Step 5/6 — Registering MCP server in ~/.claude.json..."
 
 # Full absolute paths for the server entry.
 # The package is launched via `python -m fpt_mcp.server` (editable install).
@@ -271,6 +272,57 @@ else
         error "Failed to register MCP server in ~/.claude.json"
         STEPS_ERR+=("MCP server registration failed — add entry manually")
     fi
+fi
+
+# =============================================================================
+# STEP 6 — Pre-approve MCP tools in ~/.claude/settings.json
+# =============================================================================
+info "Step 6/6 — Pre-approving fpt-mcp tools in ~/.claude/settings.json..."
+
+"${VENV_PYTHON}" - <<'PYEOF'
+import json, os
+from pathlib import Path
+
+TOOLS = [
+    "sg_find", "sg_create", "sg_update", "sg_delete", "sg_schema",
+    "sg_upload", "sg_download", "sg_batch", "sg_text_search", "sg_summarize",
+    "sg_revive", "sg_note_thread", "sg_activity",
+    "tk_resolve_path", "tk_publish",
+    "search_sg_docs", "learn_pattern", "session_stats",
+]
+PREFIX = "mcp__fpt-mcp__"
+new_tools = {PREFIX + t for t in TOOLS}
+
+settings_path = Path.home() / ".claude" / "settings.json"
+settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+settings = {}
+if settings_path.exists():
+    try:
+        settings = json.loads(settings_path.read_text())
+    except Exception:
+        pass
+
+settings.setdefault("permissions", {}).setdefault("allow", [])
+existing = set(settings["permissions"]["allow"])
+merged = sorted(existing | new_tools)
+new_count = len(new_tools - existing)
+settings["permissions"]["allow"] = merged
+
+tmp = str(settings_path) + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+os.replace(tmp, str(settings_path))
+print(f"[fpt-mcp] {new_count} new tools pre-approved ({len(merged)} total in ~/.claude/settings.json)")
+PYEOF
+
+if [[ $? -eq 0 ]]; then
+    success "18 fpt-mcp tools pre-approved in ~/.claude/settings.json"
+    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (18 tools)")
+else
+    warn "Tool pre-approval failed — you may see permission prompts on first use"
+    STEPS_WARN+=("MCP tool pre-approval failed — run manually or approve at first prompt")
 fi
 
 # =============================================================================
