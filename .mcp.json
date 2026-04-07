@@ -7,12 +7,12 @@
     },
     "flame": {
       "command": "/Users/abraham/Claude_projects/flame-mcp/.venv/bin/python",
-      "args": ["/Users/abraham/Claude_projects/flame-mcp/flame_mcp_server.py"],
+      "args": ["-m", "flame_mcp.server"],
       "cwd": "/Users/abraham/Claude_projects/flame-mcp"
     },
     "maya-mcp": {
       "command": "/Users/abraham/Claude_projects/maya-mcp/.venv/bin/python",
-      "args": ["/Users/abraham/Claude_projects/maya-mcp/core/server.py"],
+      "args": ["-m", "maya_mcp.server"],
       "cwd": "/Users/abraham/Claude_projects/maya-mcp"
     }
   }

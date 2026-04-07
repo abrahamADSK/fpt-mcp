@@ -15,6 +15,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
+# Project root (repo root where .mcp.json lives).
+# claude_worker.py is at src/fpt_mcp/qt/claude_worker.py → go up 4 levels.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 def _find_claude() -> str:
     """Locate the claude CLI binary."""
@@ -331,6 +334,7 @@ class ClaudeWorker(QThread):
 
             proc = subprocess.Popen(
                 cmd,
+                cwd=str(_PROJECT_ROOT),  # must run from repo root so Claude finds .mcp.json
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=1,  # line-buffered
