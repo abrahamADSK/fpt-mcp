@@ -55,6 +55,20 @@ _bm25_docs: list[dict] = []  # parallel corpus list for BM25 id lookup
 # A12 — In-session cache: identical queries return same chunks without re-search.
 _search_cache: dict[int, tuple[str, int]] = {}
 
+# Per-process counters exposed to server.py session_stats. Reset together
+# with _search_cache when reset_search_cache() is called.
+_search_cache_hits: int = 0
+_search_cache_misses: int = 0
+
+
+def get_cache_stats() -> dict[str, int]:
+    """Return current cache hit/miss counters for session_stats reporting."""
+    return {
+        "cache_hits": _search_cache_hits,
+        "cache_misses": _search_cache_misses,
+        "cache_size": len(_search_cache),
+    }
+
 
 def _get_embedding_fn() -> Any:
     """Returns the BGE embedding function — MUST match build_index.py."""
@@ -131,6 +145,25 @@ _REST_KEYWORDS = re.compile(
 )
 
 
+def _sanitize_query_for_hyde(query: str) -> str:
+    """Strip newlines and limit length before embedding the query into a
+    HyDE code template.
+
+    The query is interpolated into Python-flavoured code strings that go
+    straight to ChromaDB's embedding function. ChromaDB does NOT execute
+    the strings, so this is not an injection vector today — but newlines
+    in the query would visibly break the template's structure (and thus
+    the embedding's quality), and an unbounded query could blow up the
+    embedding context. Defense in depth.
+    """
+    # Replace newlines/CRs with spaces, collapse repeats, hard-cap length.
+    cleaned = re.sub(r"[\r\n\t]+", " ", query)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    # Cap at 500 chars — RAG queries longer than this are almost always
+    # accidental dumps, not real questions.
+    return cleaned[:500]
+
+
 def _hyde_expand(query: str) -> str:
     """
     C4 — Hypothetical Document Embedding (HyDE) with adaptive templates.
@@ -139,6 +172,7 @@ def _hyde_expand(query: str) -> str:
     in a domain-specific code template. This bridges the semantic gap
     between short natural-language queries and code-heavy documentation.
     """
+    query = _sanitize_query_for_hyde(query)
     if _TK_KEYWORDS.search(query):
         # Toolkit / sgtk domain
         return (
@@ -208,10 +242,13 @@ def search(query: str, n_results: int = 5) -> tuple[str, int]:
     from fpt_mcp.rag.config import BM25_CANDIDATES, RRF_K
 
     # A12 — cache lookup
+    global _search_cache_hits, _search_cache_misses
     cache_key = hash((query, n_results))
     if cache_key in _search_cache:
-        _log(f"CACHE HIT: '{query}'")
+        _search_cache_hits += 1
+        _log(f"CACHE HIT: '{query}' (hits={_search_cache_hits})")
         return _search_cache[cache_key]
+    _search_cache_misses += 1
 
     collection = _get_collection()
     if collection is None:
@@ -316,5 +353,8 @@ def search(query: str, n_results: int = 5) -> tuple[str, int]:
 
 
 def clear_cache() -> None:
-    """Clear the in-session search cache."""
+    """Clear the in-session search cache and reset the hit/miss counters."""
+    global _search_cache_hits, _search_cache_misses
     _search_cache.clear()
+    _search_cache_hits = 0
+    _search_cache_misses = 0
