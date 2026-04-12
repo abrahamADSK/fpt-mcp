@@ -1,7 +1,7 @@
 # MODEL_STRATEGY.md — MCP Ecosystem
 
 **Created**: 2026-04-06 (Chat 13)
-**Last updated**: 2026-04-07 (Chat 15 — Qwen3.5 9B as primary, GLM-4.7 Flash retired as default)
+**Last updated**: 2026-04-13 (Bucket D — Qwen context fix: num_ctx bump + SYSTEM_PROMPT_QWEN variant)
 
 ---
 
@@ -95,7 +95,7 @@ The ecosystem uses a custom Ollama model called `qwen3.5-mcp` based on `qwen3.5:
 
 ```
 FROM qwen3.5:9b
-PARAMETER num_ctx 8192
+PARAMETER num_ctx 16384
 PARAMETER temperature 0.7
 PARAMETER top_p 0.8
 PARAMETER top_k 20
@@ -107,6 +107,72 @@ PARAMETER top_k 20
 ollama pull qwen3.5:9b
 ollama create qwen3.5-mcp -f Modelfile.qwen35mcp
 ```
+
+### num_ctx 16384 (bumped from 8192 in Bucket D)
+
+The previous Modelfile used `num_ctx 8192`. Combined with the fpt-mcp
+SYSTEM_PROMPT (~2,300 tokens) plus Claude Code CLI tool descriptions
+(~1,500-1,700 tokens for the ~30 tools across fpt-mcp + maya-mcp), the
+static overhead is ~3,800-4,000 tokens — leaving roughly 4,000 tokens
+of headroom for the user message, conversation history, and tool
+outputs. On a multi-turn 3D-creation flow that polls Vision3D
+repeatedly and downloads files, that headroom would run out and Qwen
+would silently truncate or mis-order tool calls.
+
+Bumping `num_ctx` to 16384 doubles the headroom. On glorfindel
+(RTX 3090 24GB) the cost is ~1-2 GB additional VRAM per inference,
+which is still well within budget given Ollama's `OLLAMA_KEEP_ALIVE=30s`
+unloads the model between calls. On Mac M5 Pro 24GB it's also fine
+because Qwen3.5 9B Q4_K_M only uses 6.6 GB baseline.
+
+This bump complements the SYSTEM_PROMPT_QWEN variant in
+`src/fpt_mcp/qt/claude_worker.py`, which strips the system prompt to
+~1,372 tokens for the Ollama backends (40% reduction), giving Qwen
+even more conversation headroom on top of the bigger context window.
+
+**Apply the bump on every machine that runs Qwen for MCP**:
+
+```bash
+# On glorfindel (SSH first):
+ssh glorfindel
+cat > /tmp/Modelfile.qwen35mcp <<'EOF'
+FROM qwen3.5:9b
+PARAMETER num_ctx 16384
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+EOF
+ollama create qwen3.5-mcp -f /tmp/Modelfile.qwen35mcp
+exit
+
+# On Mac M5 Pro (24GB) and Mac M4 Pro (48GB):
+cat > /tmp/Modelfile.qwen35mcp <<'EOF'
+FROM qwen3.5:9b
+PARAMETER num_ctx 16384
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+EOF
+ollama create qwen3.5-mcp -f /tmp/Modelfile.qwen35mcp
+```
+
+### Qwen output is non-deterministic by design
+
+The Modelfile sets `temperature 0.7`, `top_p 0.8`, `top_k 20`, and
+does NOT set a seed. Repeated identical prompts to the Qwen backend
+will produce different (but semantically similar) tool calls.
+
+This is acceptable for the interactive workflows the Qt console runs
+(the user sees the result and can re-prompt), but it means the Ollama
+backend is NOT suitable for batch automation that requires
+reproducible outputs. For reproducible workflows, use the Anthropic
+cloud backend with explicit `temperature=0` (configured in the
+Anthropic SDK at request time, not in the Modelfile).
+
+If you need to reduce Qwen variance for testing, append
+`PARAMETER seed 42` to the Modelfile and rebuild. Note that GPU
+non-determinism (cuBLAS, MPS) means even seeded inference is not
+bit-exact across runs — only "much more consistent".
 
 ### Thinking mode: `think: false` is mandatory
 

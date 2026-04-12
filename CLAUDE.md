@@ -371,13 +371,39 @@ fpt-mcp supports multiple LLM backends via the model selector in the Qt Console 
 
 ### Recommended local model: Qwen3.5 9B (`qwen3.5-mcp`)
 - **Tool calling**: 97.5% accuracy (1st of 13 models, eval J.D. Hodges)
-- **Context window**: 262K tokens
-- **Memory**: 6.6 GB (Q4_K_M)
+- **Context window**: 262K tokens (theoretical) — capped at 16K via Modelfile
+- **Memory**: 6.6 GB (Q4_K_M) at num_ctx 16384
 - **Modelfile**: `qwen3.5-mcp` is a custom Modelfile derived from `qwen3.5:9b` with
-  `num_ctx 8192`, `temperature 0.7`, `top_p 0.8`, `top_k 20`.
-  Available on glorfindel and Mac M5 Pro.
+  `num_ctx 16384` (bumped from 8192 in Bucket D for headroom on multi-turn 3D
+  workflows), `temperature 0.7`, `top_p 0.8`, `top_k 20`.
+  Available on glorfindel and Mac M5 Pro. See `MODEL_STRATEGY.md` for the
+  full ollama create command and rationale for the bump.
 - **Mac 24GB fallback**: `qwen3.5:4b` (direct, no custom Modelfile)
 - **Ollama API note**: requires `"think": false` in each request to disable thinking mode.
+- **Determinism**: Qwen output is non-deterministic by design (temperature 0.7,
+  no seed). Repeated identical prompts produce semantically similar but
+  textually different tool calls. Acceptable for interactive Qt console
+  use; NOT suitable for batch automation requiring reproducible output.
+  For reproducibility, use the Anthropic backend.
+
+### Backend-specific SYSTEM_PROMPT (Bucket D)
+The Qt console worker (`qt/claude_worker.py`) uses two SYSTEM_PROMPT
+variants and selects between them at runtime via `_select_system_prompt(backend)`:
+
+- **`SYSTEM_PROMPT`** (~6,900 chars / ~2,300 tokens) — full prompt with
+  narrative explanations, used by the `anthropic` backend where context
+  is effectively unlimited.
+- **`SYSTEM_PROMPT_QWEN`** (~4,100 chars / ~1,370 tokens, 40% smaller) —
+  compressed variant used by the `ollama` and `ollama_mac` backends.
+  Same tool inventory, same step skeleton, identical MANDATORY quality
+  block (verbatim), identical TEXT PROMPT RESOLUTION priority chain.
+  Strips narrative, redundant rules, and negation-heavy phrasings that
+  Qwen handles less reliably than imperative bullets.
+
+When modifying the 3D-creation workflow, BOTH variants must be updated
+in lockstep. The structural test in `tests/` (Bucket E, deferred) will
+enforce that the quality block is byte-identical and that both variants
+mention every step.
 
 ### Available backends
 | Backend | Label in combo | URL source | Notes |
