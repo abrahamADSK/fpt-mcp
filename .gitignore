@@ -13,7 +13,6 @@ venv/
 
 # Claude Code local settings (user-specific paths)
 .claude/
-.mcp.json
 
 # Generated plist files (setup_venv.sh creates them dynamically)
 *.plist
@@ -21,6 +20,7 @@ venv/
 # Generated .app bundles
 *.app/
 .DS_Store
+
+# RAG build artifacts (regenerate with: python -m fpt_mcp.rag.build_index)
 src/fpt_mcp/rag/index/
 src/fpt_mcp/rag/corpus.json
-.DS_Store
