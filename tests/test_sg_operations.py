@@ -196,6 +196,99 @@ class TestSgFindSafetyBlock:
 
 
 # ---------------------------------------------------------------------------
+# 4b. test_sg_find_filter_validator (Bucket C QA regression guard)
+#     The Pydantic validator on SgFindInput.filters rejects hallucinated
+#     operators and bare-integer entity refs. These tests guard against
+#     two specific regressions caught by the QA review:
+#       - The operator set was missing 'not_in_last' / 'not_in_next' which
+#         are valid date operators per SG_API.md → false-positive reject.
+#       - Entity-link fields with bare integer values must be rejected.
+# ---------------------------------------------------------------------------
+
+from pydantic import ValidationError
+
+
+class TestSgFindFilterValidator:
+
+    def test_validator_accepts_not_in_last(self):
+        """C.4 regression: 'not_in_last' is a valid SG date operator."""
+        # If this raises, _VALID_FILTER_OPERATORS is missing the operator.
+        params = SgFindInput(
+            entity_type="Version",
+            filters=[["created_at", "not_in_last", [30, "DAY"]]],
+            fields=["id"],
+        )
+        assert params.filters == [["created_at", "not_in_last", [30, "DAY"]]]
+
+    def test_validator_accepts_not_in_next(self):
+        """C.4 regression: 'not_in_next' is also a valid SG date operator."""
+        params = SgFindInput(
+            entity_type="Task",
+            filters=[["due_date", "not_in_next", [7, "DAY"]]],
+            fields=["id"],
+        )
+        assert params.filters == [["due_date", "not_in_next", [7, "DAY"]]]
+
+    def test_validator_rejects_hallucinated_operator(self):
+        """C.4: 'is_exactly' is the canonical LLM hallucination."""
+        with pytest.raises(ValidationError) as exc:
+            SgFindInput(
+                entity_type="Asset",
+                filters=[["code", "is_exactly", "hero_robot"]],
+                fields=["id"],
+            )
+        assert "is_exactly" in str(exc.value)
+
+    def test_validator_rejects_bare_int_entity_ref(self):
+        """C.3: entity-link field with bare integer must be rejected.
+        This is the case the safety regex misses (it only catches the
+        JSON-key-value form, not the array form used in filter lists).
+        """
+        with pytest.raises(ValidationError) as exc:
+            SgFindInput(
+                entity_type="Version",
+                filters=[["entity", "is", 123]],
+                fields=["id"],
+            )
+        assert "entity" in str(exc.value).lower()
+
+    def test_validator_accepts_proper_entity_dict(self):
+        """C.3: the canonical {'type':..., 'id':...} form passes."""
+        params = SgFindInput(
+            entity_type="Version",
+            filters=[["entity", "is", {"type": "Asset", "id": 123}]],
+            fields=["id"],
+        )
+        assert params.filters[0][2] == {"type": "Asset", "id": 123}
+
+    def test_validator_recurses_into_logical_grouping(self):
+        """C.3: {'filter_operator': 'any', 'filters': [...]} groupings are walked."""
+        params = SgFindInput(
+            entity_type="Asset",
+            filters=[
+                {
+                    "filter_operator": "any",
+                    "filters": [
+                        ["code", "is", "hero"],
+                        ["code", "is", "villain"],
+                    ],
+                }
+            ],
+            fields=["id"],
+        )
+        assert isinstance(params.filters, list)
+
+    def test_validator_rejects_malformed_logical_grouping(self):
+        """C.3: a dict without filter_operator + filters keys is rejected."""
+        with pytest.raises(ValidationError):
+            SgFindInput(
+                entity_type="Asset",
+                filters=[{"random_key": "garbage"}],
+                fields=["id"],
+            )
+
+
+# ---------------------------------------------------------------------------
 # 5. test_sg_create_basic
 #    Verifies sg_create creates entity with correct fields.
 # ---------------------------------------------------------------------------

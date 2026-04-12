@@ -234,7 +234,8 @@ _VALID_FILTER_OPERATORS: frozenset[str] = frozenset({
     "starts_with", "ends_with",
     # Numeric / date comparison
     "less_than", "greater_than", "between", "not_between",
-    "in_last", "in_next", "in_calendar_day", "in_calendar_week",
+    "in_last", "not_in_last", "in_next", "not_in_next",
+    "in_calendar_day", "in_calendar_week",
     "in_calendar_month", "in_calendar_year",
     # Type-aware
     "type_is", "type_is_not",
@@ -590,10 +591,11 @@ async def _do_sg_delete(params: dict) -> str:
 
     # Safety check
     params_str = json.dumps({"entity_type": validated.entity_type, "entity_id": validated.entity_id})
-    warning = check_dangerous(params_str)
-    if warning:
+    _stats["tokens_in"] += _tok(params_str)
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
         _stats["safety_blocks"] += 1
-        return json.dumps({"safety_warning": warning})
+        return json.dumps({"safety_warning": safety_warning})
 
     sg = get_sg()
     import asyncio
@@ -603,11 +605,10 @@ async def _do_sg_delete(params: dict) -> str:
         "entity_type": validated.entity_type,
         "entity_id": validated.entity_id,
     }
-    warning = _rag_skipped_warning()
-    if warning:
-        payload.update(warning)
+    rag_warning = _rag_skipped_warning()
+    if rag_warning:
+        payload.update(rag_warning)
     response = json.dumps(payload)
-    _stats["tokens_in"] += _tok(params_str)
     _stats["tokens_out"] += _tok(response)
     return response
 

@@ -144,6 +144,38 @@ class TestSetStatusOmt:
         """Pattern 7: check is case-insensitive for the surrounding keys."""
         assert_blocked('SG_UPDATE "sg_status_list": "omt"')
 
+    # --- C.5 hallucinated status codes (Bucket C QA regression guard) ----
+    # The original sg_status_list pattern only caught the specific 'omt'
+    # value. The C.5 pattern catches ANY value outside the canonical short
+    # codes. Without the closing-quote anchor in the negative lookahead,
+    # words that START with a valid code (e.g. "review" starts with "rev")
+    # would escape detection — these tests guard against that regression.
+    def test_safety_hallucinated_status_review(self):
+        """C.5: 'review' is the LLM hallucination of the 'rev' short code."""
+        assert_blocked('sg_update {"sg_status_list": "review"}')
+
+    def test_safety_hallucinated_status_in_progress(self):
+        """C.5: 'in_progress' is the hallucination of 'ip'."""
+        assert_blocked('sg_update {"sg_status_list": "in_progress"}')
+
+    def test_safety_hallucinated_status_complete(self):
+        """C.5: 'complete' is the hallucination of 'cmpt'."""
+        assert_blocked('sg_update {"sg_status_list": "complete"}')
+
+    def test_safety_hallucinated_status_ready(self):
+        """C.5: 'ready' is the hallucination of 'rdy'."""
+        assert_blocked('sg_update {"sg_status_list": "ready"}')
+
+    def test_safety_legal_status_short_codes_pass(self):
+        """C.5: every canonical short code passes the safety check."""
+        for code in ("ip", "wtg", "cmpt", "hld", "fin", "omt", "rev",
+                     "kik", "apr", "na", "rdy"):
+            # Wrap in a non-omt context so pattern 7 (the omt-specific one)
+            # doesn't fire on the omt case.
+            assert check_dangerous(
+                f'sg_create {{"sg_status_list": "{code}"}}'
+            ) is None or code == "omt"
+
 
 # ---------------------------------------------------------------------------
 # Pattern 8 — Deleting a PublishedFile

@@ -114,7 +114,11 @@ _DANGEROUS_PATTERNS = [
     # The negative lookahead lists every legal code; anything else trips.
     # Common LLM hallucinations: "review", "ready", "in_progress", "complete".
     (
-        r'"sg_status_list"\s*:\s*"(?!ip|wtg|cmpt|hld|fin|omt|rev|kik|apr|na|rdy)[a-z_]+"',
+        # The negative lookahead is anchored with the closing quote so the
+        # whole status value (not just a prefix) must match a valid code.
+        # Without the anchor, "review" would escape detection because "rev"
+        # is a valid code that happens to be a prefix of "review".
+        r'"sg_status_list"\s*:\s*"(?!(?:ip|wtg|cmpt|hld|fin|omt|rev|kik|apr|na|rdy)")[a-z_]+"',
         "Invalid sg_status_list value — ShotGrid uses short codes, not full words. "
         "Common hallucinations: 'review' (use 'rev'), 'ready' (use 'rdy'), "
         "'in_progress' (use 'ip'), 'complete' (use 'cmpt').",
