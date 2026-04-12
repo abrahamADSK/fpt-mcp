@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtCore import QThread, Signal
 
@@ -247,6 +248,139 @@ interpret it from the history context and execute.
 """
 
 
+# ---------------------------------------------------------------------------
+# Qwen-specific system prompt variant (D.1)
+# ---------------------------------------------------------------------------
+#
+# The full SYSTEM_PROMPT above measures 6,882 chars (~2,294 tokens at the
+# project's _tok ≈ chars/3 estimate). Add the Claude Code CLI's MCP tool
+# descriptions (~1,500-1,700 tokens for the ~30 tools across fpt-mcp +
+# maya-mcp) and the static overhead is ~3,800-4,000 tokens.
+#
+# Qwen's Modelfile `num_ctx 8192` leaves ~4,200 tokens of headroom for
+# conversation (user message + tool outputs + history). On a multi-turn
+# 3D-creation flow that fetches an image from ShotGrid, polls Vision3D
+# repeatedly, downloads files, and imports into Maya, that headroom is
+# tight: a single sg_find with several Versions or a long vision3d_poll
+# log block can blow it. The user reports observing partial truncation
+# and tool-call mis-ordering on Qwen long conversations.
+#
+# This variant strips the prompt to the essentials Qwen needs:
+#  • Same tool inventory (compressed to one line per server)
+#  • Same 3D-creation step skeleton (no narrative, no negations — Qwen
+#    handles imperative bullets better than "do not / never" phrasings)
+#  • Same MANDATORY quality block (verbatim — user's strict requirement)
+#  • Same TEXT PROMPT RESOLUTION priority chain (verbatim — regression
+#    guard for the asset-description fix earlier in this session)
+#
+# Measured length: 4,116 chars (~1,372 tokens) — a 40% reduction vs the
+# full prompt, freeing ~920 tokens for conversation on a num_ctx=8192
+# Qwen. Combined with the recommended num_ctx bump to 16384 documented
+# in MODEL_STRATEGY.md, headroom for multi-turn workflows roughly doubles.
+#
+# IMPORTANT: this MUST stay in sync with SYSTEM_PROMPT for the workflow
+# semantics. When the main prompt's 3D workflow changes, this variant
+# needs the same change. The structural test in tests/ (when added in
+# Bucket E) should validate that both variants share the same step
+# skeleton and identical quality block.
+
+SYSTEM_PROMPT_QWEN = """\
+You are a VFX assistant. You have two MCP servers:
+- fpt-mcp (ShotGrid): sg_find, sg_create, sg_update, sg_delete, sg_schema, sg_upload, sg_download, sg_batch, sg_text_search, sg_summarize, sg_revive, sg_note_thread, sg_activity, tk_resolve_path, tk_publish, search_sg_docs, learn_pattern, session_stats
+- maya-mcp (Maya + Vision3D): maya_launch, maya_ping, maya_create_primitive, maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera, vision3d_health, shape_generate_remote, shape_generate_text, texture_mesh_remote, vision3d_poll, vision3d_download
+
+Read the CONVERSATION HISTORY first. Skip steps the user already answered.
+
+═══ 3D CREATION WORKFLOW ═══
+
+1. Call vision3d_health() FIRST. If unavailable, only offer Maya modeling.
+
+2. Identify entity (use ShotGrid context if present, else sg_find).
+
+3. In parallel:
+   - sg_find Versions for image / sg_uploaded_movie
+   - sg_find PublishedFiles (Image / Texture / Concept)
+   - sg_find Notes with attachments
+   - sg_find Asset with the description field
+
+4. Present in ONE response. Group references:
+   - IMAGE references (Versions, PublishedFiles, Notes) → for image-to-3D or Maya modeling
+   - TEXT references (Asset.description) → ONLY for text-to-3D, label as "Asset description (text)"
+
+   Then output EXACTLY this block:
+
+   "Which reference and method would you like to use?
+
+   Method:
+    • [number] + Vision3D AI Server (image-to-3D with AI generation)
+    • [number] + Maya Modeling (primitives and transforms, geometric)
+    • [text-ref number] + Vision3D AI Server (text-to-3D — text references only)
+    • 'none' + Vision3D AI Server (text-to-3D with AI generation)
+    • 'none' + Maya Modeling (primitives and transforms)
+
+   AI Quality — Vision3D server (model, octree, steps and faces):
+    • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
+    • medium — turbo model, octree 384, 20 steps, 50k faces  (~2 min) ← default
+    • high   — full model,  octree 384, 30 steps, 150k faces (~8 min)
+    • ultra  — full model,  octree 512, 50 steps, no limit    (~12 min)
+   Customize: '1, Vision3D, low with full model' or '2, Vision3D, octree 512, 30 steps, 100k faces'
+
+   Example: '2, Vision3D, high'"
+
+   Always show the full quality block. Always say "Vision3D" (not "generative AI").
+
+5. Execute:
+
+   Image-to-3D:
+     a) sg_download → image
+     b) shape_generate_remote(image_path=..., preset=<chosen>)
+     c) vision3d_poll(job_id=...) → repeat until status != 'running', show new_log_lines each call
+     d) vision3d_download(job_id=..., output_subdir=...)
+     e) maya_execute_python → import
+
+   Text-to-3D:
+     TEXT PROMPT RESOLUTION (priority order):
+       1. User typed an explicit prompt → use it as-is.
+       2. User chose Asset description text reference → use Asset.description as-is (translate to English only if needed; do not paraphrase).
+       3. No image + user said 'none' + Asset.description non-empty → use Asset.description (same rules). Tell the user "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling shape_generate_text.
+     a) shape_generate_text(text_prompt=<resolved>, preset=<chosen>)
+     b) vision3d_poll(job_id=...) → repeat
+     c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
+     d) maya_execute_python → import
+
+   Maya only: maya_create_primitive + maya_transform + maya_assign_material
+
+6. After: offer maya_save_scene and tk_publish.
+
+═══ OTHER WORKFLOWS ═══
+- ShotGrid query/update → sg_find / sg_update
+- Publish → tk_resolve_path then tk_publish
+- ALWAYS call search_sg_docs FIRST when unsure about filter syntax, operators, entity refs, or template tokens
+- Entity refs in filters MUST be {"type": "Asset", "id": 123} dicts, never bare integers
+- Toolkit tokens are PascalCase: {Shot}, {Asset}, {Step}
+
+Rules:
+- Don't repeat questions already answered in history.
+- Always use MCP tools, never ask the user to do it manually.
+- If Maya is unresponsive → maya_launch.
+- Respond in the user's language. Execute, don't narrate.
+"""
+
+
+def _select_system_prompt(backend: Optional[str]) -> str:
+    """Return the system prompt variant appropriate for the backend.
+
+    Anthropic Claude has effectively unlimited context for our purposes
+    (200K+ tokens), so it gets the full prompt with all the narrative
+    explanations. Ollama Qwen has a 8K-32K context window depending on
+    Modelfile config and is much more sensitive to prompt length and
+    instruction phrasing — it gets the tighter variant.
+    """
+    if backend in ("ollama", "ollama_mac"):
+        return SYSTEM_PROMPT_QWEN
+    return SYSTEM_PROMPT
+
+
 class ClaudeWorker(QThread):
     """Runs ``claude -p "prompt" --output-format stream-json --verbose``
     and emits progress events plus the final result.
@@ -338,15 +472,21 @@ class ClaudeWorker(QThread):
         parts = []
 
         # Include conversation history (last N exchanges) so Claude
-        # knows what was already discussed and doesn't re-ask questions
+        # knows what was already discussed and doesn't re-ask questions.
+        # Truncate long assistant messages to keep prompt bloat under
+        # control. Bumped from 500 → 1500 in Bucket D: 500 was a
+        # band-aid for the Qwen context overflow problem (tool output
+        # context Qwen needs to follow multi-turn workflows was being
+        # eaten by the truncation). With SYSTEM_PROMPT_QWEN now ~5x
+        # smaller and a recommended num_ctx bump in MODEL_STRATEGY.md,
+        # we have headroom to keep more of each turn's context.
         if self._history:
             parts.append("=== CONVERSATION HISTORY ===")
             for msg in self._history:
                 prefix = "USER" if msg["role"] == "user" else "ASSISTANT"
-                # Truncate long assistant messages to save tokens
                 text = msg["text"]
-                if msg["role"] == "assistant" and len(text) > 500:
-                    text = text[:500] + "..."
+                if msg["role"] == "assistant" and len(text) > 1500:
+                    text = text[:1500] + "..."
                 parts.append(f"[{prefix}]: {text}")
             parts.append("=== END OF HISTORY ===\n")
 
@@ -371,9 +511,14 @@ class ClaudeWorker(QThread):
                     if run_env.get(_key, None) == "":
                         run_env.pop(_key, None)
 
+            # Pick the backend-appropriate system prompt variant.
+            # Anthropic gets the full prompt; Ollama/Qwen gets the
+            # compact SYSTEM_PROMPT_QWEN (D.1).
+            system_prompt = _select_system_prompt(self._backend)
+
             cmd = [CLAUDE_BIN, "-p", prompt,
                    "--output-format", "stream-json", "--verbose",
-                   "--append-system-prompt", SYSTEM_PROMPT]
+                   "--append-system-prompt", system_prompt]
             if self._model_id:
                 cmd.extend(["--model", self._model_id])
 
