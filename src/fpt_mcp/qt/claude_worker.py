@@ -191,7 +191,10 @@ to make it clear that the remote generation server is being used.
 Asset.description as-is (do NOT summarize or paraphrase; translate to English \
 only if the description is not already in English).
        3. Else if no image reference exists and the user said 'none' AND the \
-Asset.description is non-empty → use Asset.description (same rules as above).
+Asset.description is non-empty → use Asset.description (same rules as above). \
+In case (3), briefly inform the user 'Using Asset.description as text prompt: \
+<first 80 chars>...' before calling shape_generate_text, so the user knows \
+what is being generated.
      a) shape_generate_text(text_prompt=<resolved prompt>, preset='medium') → returns job_id
      b) vision3d_poll(job_id=...) → repeat until completed
      c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
