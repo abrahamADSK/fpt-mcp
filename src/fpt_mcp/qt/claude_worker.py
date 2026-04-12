@@ -74,14 +74,20 @@ def _load_config() -> dict:
         return {}
 
 
+# Env keys that the Anthropic SDK reads. We always set ALL THREE on every
+# backend switch so a stale value from a previous run cannot leak across.
+_BACKEND_ENV_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")
+
+
 def build_backend_env(model_id: str, backend: str) -> dict:
     """Return env-var overrides for the selected backend.
 
-    For Ollama backends, redirects the Anthropic SDK to the Ollama
-    Messages-compatible endpoint (Ollama v0.14+).
+    Always returns explicit values for all three Anthropic SDK env vars,
+    even when switching back to the anthropic backend, so a stale
+    ANTHROPIC_BASE_URL from a previous Ollama run cannot misroute the SDK.
     """
     cfg = _load_config()
-    env = {}
+    env: dict[str, str] = {}
 
     if backend == "ollama":
         base_url = cfg.get("ollama_url", DEFAULT_OLLAMA_URL)
@@ -93,7 +99,18 @@ def build_backend_env(model_id: str, backend: str) -> dict:
         env["ANTHROPIC_BASE_URL"] = base_url
         env["ANTHROPIC_AUTH_TOKEN"] = "ollama"
         env["ANTHROPIC_API_KEY"] = ""
-    # anthropic backend: no overrides needed, uses default env
+    else:
+        # Anthropic cloud: scrub any inherited Ollama overrides by setting
+        # them to empty strings. The Anthropic SDK falls back to its
+        # built-in default endpoint when ANTHROPIC_BASE_URL is empty.
+        env["ANTHROPIC_BASE_URL"] = ""
+        env["ANTHROPIC_AUTH_TOKEN"] = ""
+        env["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # Pass the runtime model id to the MCP server so its trust gates
+    # (learn_pattern write check) see the actual model, not stale config.json.
+    if model_id:
+        env["FPT_MCP_RUNTIME_MODEL"] = model_id
 
     return env
 
