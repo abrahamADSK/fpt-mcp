@@ -28,7 +28,7 @@ from pathlib import Path
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from mcp.server.fastmcp import FastMCP
 
 from fpt_mcp.client import (
@@ -66,11 +66,13 @@ _stats = {
     "tokens_in": 0,        # tokens in parameters
     "tokens_out": 0,       # tokens in responses
     "rag_calls": 0,        # search_sg_docs calls
+    "rag_skipped": 0,      # tools called without prior search_sg_docs (soft warning)
     "tokens_saved": 0,     # tokens saved by RAG vs loading full doc
     "patterns_learned": 0, # patterns added to docs
     "patterns_staged": 0,  # candidates staged by non-trusted models
     "safety_blocks": 0,    # dangerous pattern detections
-    "cache_hits": 0,       # RAG cache hits
+    # Note: cache_hits is now tracked inside rag.search and surfaced via
+    # session_stats_tool by importing get_cache_stats(). See C.1 fix.
 }
 _stats_reset_at = datetime.datetime.now()
 
@@ -90,6 +92,39 @@ def _rating(tokens: int) -> str:
     elif tokens < 2000:
         return "🟡 medium"
     return "🔴 high"
+
+
+# ---------------------------------------------------------------------------
+# Soft-warning RAG enforcement (C.2)
+# ---------------------------------------------------------------------------
+
+def _rag_skipped_warning() -> Optional[dict]:
+    """Return a soft-warning dict if search_sg_docs has not been called yet
+    in this session, else None.
+
+    The warning is merged into the response payload of any tool that touches
+    ShotGrid mutation/query semantics where filter syntax, entity reference
+    format, field names, or operator names matter. The intent is NOT to block
+    execution — experienced workflows that already know the schema should
+    proceed — but to nudge the LLM to verify with documentation when it has
+    skipped the mandatory check.
+
+    Increments _stats["rag_skipped"] each time it fires (visible in
+    session_stats), which lets the user see retroactively how often the
+    LLM bypassed the schema docs.
+    """
+    if _rag_called_this_session:
+        return None
+    _stats["rag_skipped"] += 1
+    return {
+        "rag_warning": (
+            "search_sg_docs has not been called yet in this session. "
+            "Per the MCP server instructions, call search_sg_docs FIRST "
+            "for any query you are unsure about (filter syntax, operator "
+            "names, entity reference format, field names, template tokens). "
+            "Proceeding with this call anyway."
+        )
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +210,159 @@ mcp = FastMCP(
 _STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+# ---------------------------------------------------------------------------
+# Filter operator enum (C.4)
+# ---------------------------------------------------------------------------
+#
+# Canonical list of valid ShotGrid filter operators. Sourced from the
+# shotgun_api3 documentation (docs/SG_API.md). Used by the SgFindInput
+# filter validator (C.3) to reject hallucinated operators at the MCP layer
+# instead of letting them fail at the ShotGrid API layer with a confusing
+# error.
+#
+# We use a frozenset of strings rather than an Enum so the validator can
+# accept the operator either as a literal string in the filter triple
+# (the natural shape from JSON) without forcing the LLM to use enum
+# member syntax.
+
+_VALID_FILTER_OPERATORS: frozenset[str] = frozenset({
+    # Equality / containment
+    "is", "is_not",
+    "in", "not_in",
+    # String matching
+    "contains", "not_contains",
+    "starts_with", "ends_with",
+    # Numeric / date comparison
+    "less_than", "greater_than", "between", "not_between",
+    "in_last", "in_next", "in_calendar_day", "in_calendar_week",
+    "in_calendar_month", "in_calendar_year",
+    # Type-aware
+    "type_is", "type_is_not",
+    # Name matching (multi-entity fields)
+    "name_contains", "name_not_contains", "name_starts_with", "name_ends_with",
+    "name_is",
+})
+
+
+def _validate_filter_triples(filters: list) -> list:
+    """C.3 — structural validation for ShotGrid filter lists.
+
+    Walks every filter and rejects:
+      - Filters that are not a 3-element list/tuple [field, operator, value]
+      - Operators that are not in _VALID_FILTER_OPERATORS (catches the
+        hallucinated 'is_exactly', 'matches', 'like', etc. that the LLM
+        invents when it skips search_sg_docs)
+      - Entity references passed as bare integers/strings instead of the
+        canonical {"type": "...", "id": N} dict (the single most common
+        ShotGrid hallucination, per the audit)
+
+    Allows logical groupings of the form
+      {"filter_operator": "any"|"all", "filters": [...]}
+    by recursing into the nested filters list. This is the canonical
+    ShotGrid syntax for OR/AND blocks.
+
+    Note: this complements safety.py's regex check, which only catches
+    JSON-key-value entity refs ("entity": 123) and misses the array form
+    ([["entity", "is", 123]]) that filter lists actually use.
+    """
+    # Field names that are typed as entity links and therefore require
+    # a {"type": ..., "id": ...} dict on the value side. This is a
+    # conservative subset — there are more entity-link fields in custom
+    # schemas, but these are the universal ones.
+    _entity_link_fields = {
+        "entity", "project", "task", "user", "asset", "shot",
+        "sequence", "version", "playlist", "step", "published_file",
+        "parent", "children", "linked_versions",
+    }
+
+    def _is_entity_dict(value: Any) -> bool:
+        return (
+            isinstance(value, dict)
+            and "type" in value
+            and "id" in value
+            and isinstance(value["id"], int)
+            and isinstance(value["type"], str)
+        )
+
+    for idx, f in enumerate(filters):
+        # Logical grouping: {"filter_operator": "all"|"any", "filters": [...]}
+        if isinstance(f, dict):
+            if "filter_operator" in f and "filters" in f:
+                op = f.get("filter_operator")
+                if op not in ("all", "any"):
+                    raise ValueError(
+                        f"filter[{idx}]: invalid filter_operator '{op}' "
+                        "(must be 'all' or 'any')"
+                    )
+                if not isinstance(f["filters"], list):
+                    raise ValueError(
+                        f"filter[{idx}]: 'filters' inside a logical group must be a list"
+                    )
+                _validate_filter_triples(f["filters"])
+                continue
+            raise ValueError(
+                f"filter[{idx}]: dict filters must have 'filter_operator' "
+                "and 'filters' keys (logical grouping)"
+            )
+
+        # Triple: [field, operator, value]
+        if not isinstance(f, (list, tuple)) or len(f) != 3:
+            raise ValueError(
+                f"filter[{idx}]: each filter must be a 3-element list "
+                f"[field, operator, value], got {type(f).__name__} of length "
+                f"{len(f) if hasattr(f, '__len__') else 'n/a'}"
+            )
+        field, op, value = f[0], f[1], f[2]
+
+        if not isinstance(field, str):
+            raise ValueError(
+                f"filter[{idx}]: field name must be a string, got {type(field).__name__}"
+            )
+        if not isinstance(op, str):
+            raise ValueError(
+                f"filter[{idx}]: operator must be a string, got {type(op).__name__}"
+            )
+        if op not in _VALID_FILTER_OPERATORS:
+            raise ValueError(
+                f"filter[{idx}]: invalid operator '{op}'. "
+                f"Valid operators: {sorted(_VALID_FILTER_OPERATORS)}. "
+                "Common hallucinations: 'is_exactly', 'matches', 'like', "
+                "'before_date' — none of these exist in the ShotGrid API."
+            )
+
+        # Entity-link field validation: if the field looks like an entity
+        # link, the value must be a dict (or a list of dicts for 'in').
+        if field in _entity_link_fields and op in ("is", "is_not"):
+            if not _is_entity_dict(value):
+                raise ValueError(
+                    f"filter[{idx}]: field '{field}' is an entity link, "
+                    f"value must be {{'type': '...', 'id': N}}, got {value!r}. "
+                    "Bare integers and strings are not accepted by ShotGrid."
+                )
+        if field in _entity_link_fields and op in ("in", "not_in"):
+            if not isinstance(value, list) or not all(_is_entity_dict(v) for v in value):
+                raise ValueError(
+                    f"filter[{idx}]: field '{field}' with operator '{op}' "
+                    "requires a list of entity dicts, got "
+                    f"{value!r}."
+                )
+
+    return filters
+
+
 class SgFindInput(BaseModel):
     model_config = _STRICT_CONFIG
     entity_type: str = Field(description="ShotGrid entity type: Asset, Shot, Sequence, Version, Task, Note, PublishedFile, HumanUser, Project, etc.")
-    filters: list = Field(default_factory=list, description="ShotGrid filter list. Examples: [['sg_status_list','is','ip']], [['id','is',1234]], [['code','contains','hero']]. Use [] for no filter.")
+    filters: list = Field(default_factory=list, description="ShotGrid filter list. Examples: [['sg_status_list','is','ip']], [['id','is',1234]], [['code','contains','hero']], [['entity','is',{'type':'Asset','id':123}]]. Use [] for no filter.")
     fields: list[str] = Field(default_factory=lambda: ["id", "code", "sg_status_list"], description="Fields to return. Use sg_schema to discover available fields.")
     order: list[dict] = Field(default_factory=list, description="Sort order. Example: [{'field_name':'created_at','direction':'desc'}]")
     limit: int = Field(default=50, description="Max results to return. 0 = unlimited.")
     add_project_filter: bool = Field(default=True, description="Auto-add project filter from SHOTGRID_PROJECT_ID env var.")
+
+    @field_validator("filters")
+    @classmethod
+    def _validate_filters(cls, v: list) -> list:
+        return _validate_filter_triples(v)
 
 class SgCreateInput(BaseModel):
     model_config = _STRICT_CONFIG
@@ -332,7 +512,11 @@ async def sg_find_tool(params: SgFindInput) -> str:
         params.entity_type, filters, params.fields,
         order=params.order, limit=params.limit,
     )
-    response = json.dumps({"total": len(results), "entities": results}, default=str)
+    payload: dict[str, Any] = {"total": len(results), "entities": results}
+    warning = _rag_skipped_warning()
+    if warning:
+        payload.update(warning)
+    response = json.dumps(payload, default=str)
     _stats["tokens_out"] += _tok(response)
     return response
 
@@ -344,19 +528,54 @@ async def sg_create_tool(params: SgCreateInput) -> str:
     Works with ALL entity types. Project is auto-linked if SHOTGRID_PROJECT_ID
     is set and 'project' is not in the data dict.
     """
+    _stats["exec_calls"] += 1
+
     data = dict(params.data)
     if "project" not in data and PROJECT_ID:
         data["project"] = {"type": "Project", "id": PROJECT_ID}
 
+    # Safety check (catches integer entity refs in nested data, etc.)
+    params_str = json.dumps({"entity_type": params.entity_type, "data": data}, default=str)
+    _stats["tokens_in"] += _tok(params_str)
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
     result = await sg_create(params.entity_type, data)
-    return json.dumps(result, default=str)
+    payload: dict[str, Any] = {"created": result} if not isinstance(result, dict) else dict(result)
+    warning = _rag_skipped_warning()
+    if warning:
+        payload.update(warning)
+    response = json.dumps(payload, default=str)
+    _stats["tokens_out"] += _tok(response)
+    return response
 
 
 @mcp.tool(name="sg_update")
 async def sg_update_tool(params: SgUpdateInput) -> str:
     """Update any entity's fields in ShotGrid."""
+    _stats["exec_calls"] += 1
+
+    # Safety check (catches dangerous status codes, integer entity refs, etc.)
+    params_str = json.dumps(
+        {"entity_type": params.entity_type, "entity_id": params.entity_id, "data": params.data},
+        default=str,
+    )
+    _stats["tokens_in"] += _tok(params_str)
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
     result = await sg_update(params.entity_type, params.entity_id, params.data)
-    return json.dumps(result, default=str)
+    payload: dict[str, Any] = {"updated": result} if not isinstance(result, dict) else dict(result)
+    warning = _rag_skipped_warning()
+    if warning:
+        payload.update(warning)
+    response = json.dumps(payload, default=str)
+    _stats["tokens_out"] += _tok(response)
+    return response
 
 
 async def _do_sg_delete(params: dict) -> str:
@@ -379,7 +598,18 @@ async def _do_sg_delete(params: dict) -> str:
     sg = get_sg()
     import asyncio
     result = await asyncio.to_thread(sg.delete, validated.entity_type, validated.entity_id)
-    return json.dumps({"deleted": result, "entity_type": validated.entity_type, "entity_id": validated.entity_id})
+    payload: dict[str, Any] = {
+        "deleted": result,
+        "entity_type": validated.entity_type,
+        "entity_id": validated.entity_id,
+    }
+    warning = _rag_skipped_warning()
+    if warning:
+        payload.update(warning)
+    response = json.dumps(payload)
+    _stats["tokens_in"] += _tok(params_str)
+    _stats["tokens_out"] += _tok(response)
+    return response
 
 
 @mcp.tool(name="sg_schema")
@@ -753,11 +983,17 @@ async def _do_sg_batch(params: dict) -> str:
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(validated.requests)
     # Safety check
-    warning = check_dangerous(validated.requests)
-    if warning:
-        return warning
+    safety_warning = check_dangerous(validated.requests)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return safety_warning
     batch_data = json.loads(validated.requests)
     results = await sg_batch(batch_data)
+    # Note: sg_batch returns a raw list to preserve the existing tool
+    # contract (callers expect a JSON array). The RAG soft-warning
+    # is intentionally NOT applied here — sg_batch is already gated by
+    # the dangerous-pattern check above and is used by workflows that
+    # already know the schema.
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
@@ -1135,17 +1371,30 @@ async def session_stats_tool() -> str:
     ratio = f"{saved / total * 100:.0f}%" if total > 0 else "—"
     uptime = str(datetime.datetime.now() - _stats_reset_at).split(".")[0]
 
+    # Pull RAG cache counters from the rag.search module so the report
+    # reflects what actually happened (cache_hits in _stats was historically
+    # never incremented — the rag.search module owns the cache).
+    cache_stats: dict[str, int] = {}
+    try:
+        from fpt_mcp.rag.search import get_cache_stats
+        cache_stats = get_cache_stats()
+    except ImportError:
+        pass
+
     return json.dumps({
         "session_duration": uptime,
         "tool_calls": _stats["exec_calls"],
         "rag_calls": _stats["rag_calls"],
+        "rag_skipped": _stats.get("rag_skipped", 0),
         "tokens_used": used,
         "tokens_saved_by_rag": saved,
         "token_efficiency": ratio,
         "patterns_learned": _stats["patterns_learned"],
         "patterns_staged": _stats["patterns_staged"],
         "safety_blocks": _stats["safety_blocks"],
-        "cache_hits": _stats["cache_hits"],
+        "cache_hits": cache_stats.get("cache_hits", 0),
+        "cache_misses": cache_stats.get("cache_misses", 0),
+        "cache_size": cache_stats.get("cache_size", 0),
         "full_doc_baseline": _FULL_DOC_TOKENS,
     }, indent=2)
 
