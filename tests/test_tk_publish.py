@@ -384,7 +384,13 @@ class TestPublishFindOrCreateType:
         """When PublishedFileType already exists, it is reused (no create call)."""
         sg_find_one_mock, sg_create_mock = patch_publish_no_config
 
-        explicit_path = str(tmp_path / "pub" / "test.ma")
+        # Pre-create the publish_path file (Mode 2 with no local_path).
+        # Without this the new guard short-circuits before reaching the
+        # PublishedFileType lookup, making the assertion vacuously true.
+        publish_file = tmp_path / "pub" / "test.ma"
+        publish_file.parent.mkdir(parents=True, exist_ok=True)
+        publish_file.write_text("// already-published Maya scene")
+        explicit_path = str(publish_file)
         params = _make_input(publish_type="Maya Scene", publish_path=explicit_path)
         _run(tk_publish_tool(params))
 

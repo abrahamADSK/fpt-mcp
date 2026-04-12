@@ -363,6 +363,13 @@ class ClaudeWorker(QThread):
             run_env["CLAUDE_NO_TELEMETRY"] = "1"
             if self._model_id and self._backend:
                 run_env.update(build_backend_env(self._model_id, self._backend))
+                # Treat empty strings on the Anthropic SDK keys as "unset"
+                # so the downstream Claude Code CLI (Node.js) sees the var
+                # truly missing rather than as the literal "" — which some
+                # env-parsing patterns (?? vs ||) would mis-handle.
+                for _key in _BACKEND_ENV_KEYS:
+                    if run_env.get(_key, None) == "":
+                        run_env.pop(_key, None)
 
             cmd = [CLAUDE_BIN, "-p", prompt,
                    "--output-format", "stream-json", "--verbose",

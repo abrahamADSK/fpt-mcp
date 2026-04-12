@@ -607,9 +607,12 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
             publish_path = tk_config.resolve_path(template_name, fields)
 
         elif params.publish_path is not None:
-            # Mode 2: Explicit path provided by user
+            # Mode 2: Explicit path provided by user. Resolve to absolute
+            # so the existence check below and the error messages are not
+            # ambiguous when the LLM passes a relative path (which would
+            # otherwise be evaluated against the MCP server's cwd).
             from pathlib import Path as _Path
-            publish_path = _Path(params.publish_path)
+            publish_path = _Path(params.publish_path).resolve()
 
         else:
             return json.dumps({
