@@ -375,8 +375,13 @@ def _select_system_prompt(backend: Optional[str]) -> str:
     explanations. Ollama Qwen has a 8K-32K context window depending on
     Modelfile config and is much more sensitive to prompt length and
     instruction phrasing — it gets the tighter variant.
+
+    Defensive .lower() so future string refactors that capitalize the
+    backend id (e.g. "Ollama") don't silently fall through to the
+    default and ship the wrong prompt to Qwen.
     """
-    if backend in ("ollama", "ollama_mac"):
+    backend_norm = (backend or "").strip().lower()
+    if backend_norm in ("ollama", "ollama_mac"):
         return SYSTEM_PROMPT_QWEN
     return SYSTEM_PROMPT
 

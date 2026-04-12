@@ -119,11 +119,22 @@ outputs. On a multi-turn 3D-creation flow that polls Vision3D
 repeatedly and downloads files, that headroom would run out and Qwen
 would silently truncate or mis-order tool calls.
 
-Bumping `num_ctx` to 16384 doubles the headroom. On glorfindel
-(RTX 3090 24GB) the cost is ~1-2 GB additional VRAM per inference,
-which is still well within budget given Ollama's `OLLAMA_KEEP_ALIVE=30s`
-unloads the model between calls. On Mac M5 Pro 24GB it's also fine
-because Qwen3.5 9B Q4_K_M only uses 6.6 GB baseline.
+Bumping `num_ctx` to 16384 doubles the headroom. The VRAM cost depends
+on the KV-cache dtype:
+
+- **With `OLLAMA_KV_CACHE_TYPE=q8_0`** (the recommended Mac setting in
+  section 2b below) the bump adds ~1-2 GB of VRAM for the doubled KV
+  cache.
+- **With the FP16 default** (no `OLLAMA_KV_CACHE_TYPE` set, e.g. on a
+  default glorfindel setup) the bump adds closer to ~3-3.5 GB. Math:
+  KV cache ≈ 2 × layers × seq_len × hidden × bytes_per_elem; for
+  Qwen3.5 9B (28 layers, hidden 3584) at FP16, doubling seq_len from
+  8192 to 16384 adds ~3.3 GB.
+
+On glorfindel (RTX 3090 24GB) either dtype is fine — `OLLAMA_KEEP_ALIVE=30s`
+unloads the model between calls so other GPU services (vision3d, ComfyUI)
+recover the VRAM. On Mac M5 Pro 24GB, run with `OLLAMA_KV_CACHE_TYPE=q8_0`
+to keep the bump cheap. Qwen3.5 9B Q4_K_M is 6.6 GB baseline regardless.
 
 This bump complements the SYSTEM_PROMPT_QWEN variant in
 `src/fpt_mcp/qt/claude_worker.py`, which strips the system prompt to
