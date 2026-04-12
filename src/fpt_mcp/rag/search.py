@@ -189,7 +189,11 @@ def _rrf_fuse(
         scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
     for rank, doc_id in enumerate(bm25_ids):
         scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
-    return sorted(scores, key=lambda d: scores[d], reverse=True)
+    # Stable secondary sort on doc_id breaks ties deterministically across
+    # machines and across library versions. Without this, two docs with the
+    # same fused score fall back to dict insertion order, which depends on
+    # which retriever yielded each doc first.
+    return sorted(scores, key=lambda d: (-scores[d], d))
 
 
 # ── Main search entry point ──────────────────────────────────────────────────
