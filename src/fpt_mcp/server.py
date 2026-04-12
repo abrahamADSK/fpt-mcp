@@ -110,6 +110,19 @@ def _get_config() -> dict:
 
 
 def _get_current_model() -> str:
+    """Resolve the active model id.
+
+    Priority: FPT_MCP_RUNTIME_MODEL env var (set by qt/claude_worker.py per
+    invocation, reflects the actual --model passed to the CLI) → config.json
+    on disk → "unknown".
+
+    The env-var path is what makes the trust gate work when the user toggles
+    backends in the Qt console — config.json is static and would otherwise
+    let any model bypass the write gate.
+    """
+    env_model = os.environ.get("FPT_MCP_RUNTIME_MODEL", "").strip()
+    if env_model:
+        return env_model
     return _get_config().get("model", "unknown")
 
 
@@ -155,7 +168,15 @@ mcp = FastMCP(
 # Input models
 # ---------------------------------------------------------------------------
 
+# Shared strict config for every input model. extra="forbid" makes the
+# schema reject hallucinated keys at validation time (rather than silently
+# accepting them and forwarding garbage to ShotGrid). str_strip_whitespace
+# normalises accidental leading/trailing whitespace from LLM output.
+_STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
 class SgFindInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="ShotGrid entity type: Asset, Shot, Sequence, Version, Task, Note, PublishedFile, HumanUser, Project, etc.")
     filters: list = Field(default_factory=list, description="ShotGrid filter list. Examples: [['sg_status_list','is','ip']], [['id','is',1234]], [['code','contains','hero']]. Use [] for no filter.")
     fields: list[str] = Field(default_factory=lambda: ["id", "code", "sg_status_list"], description="Fields to return. Use sg_schema to discover available fields.")
@@ -164,23 +185,28 @@ class SgFindInput(BaseModel):
     add_project_filter: bool = Field(default=True, description="Auto-add project filter from SHOTGRID_PROJECT_ID env var.")
 
 class SgCreateInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to create: Asset, Shot, Sequence, Task, Version, Note, PublishedFile, etc.")
     data: dict[str, Any] = Field(description="Field values. Example: {'code':'HERO','sg_asset_type':'Character','description':'Main character'}. Project is auto-added if not specified.")
 
 class SgUpdateInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type: Asset, Shot, Version, Task, etc.")
     entity_id: int = Field(description="ID of the entity to update.")
     data: dict[str, Any] = Field(description="Fields to update. Example: {'sg_status_list':'cmpt','description':'Final version'}.")
 
 class SgDeleteInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to delete.")
     entity_id: int = Field(description="ID of the entity to delete.")
 
 class SgSchemaInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to inspect: Asset, Shot, Task, Version, PublishedFile, etc.")
     field_name: Optional[str] = Field(default=None, description="Specific field to inspect. Omit to get all fields.")
 
 class SgUploadInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to upload to.")
     entity_id: int = Field(description="Entity ID.")
     file_path: str = Field(description="Local path to the file to upload.")
@@ -188,12 +214,14 @@ class SgUploadInput(BaseModel):
     display_name: Optional[str] = Field(default=None, description="Display name for the attachment.")
 
 class SgDownloadInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type.")
     entity_id: int = Field(description="Entity ID.")
     field_name: str = Field(default="image", description="Field containing the attachment: 'image', 'sg_uploaded_movie', etc.")
     download_path: str = Field(description="Local path where to save the file.")
 
 class TkResolvePathInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="'Asset' or 'Shot'.")
     entity_id: int = Field(description="Entity ID in ShotGrid. Used to auto-fetch entity context (code, asset_type, sequence).")
     template_name: str = Field(
@@ -209,6 +237,7 @@ class TkResolvePathInput(BaseModel):
     extension: Optional[str] = Field(default=None, description="File extension override (e.g. 'ma', 'mb'). Only needed for templates with extension tokens.")
 
 class TkPublishInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="'Asset' or 'Shot'.")
     entity_id: int = Field(description="Entity ID in ShotGrid.")
     publish_type: str = Field(
@@ -246,7 +275,7 @@ class BulkAction(str, Enum):
 
 class BulkDispatchInput(BaseModel):
     """Input for the fpt_bulk dispatch tool."""
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = _STRICT_CONFIG
 
     action: BulkAction = Field(..., description="Which bulk action to run")
     params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
@@ -262,7 +291,7 @@ class ReportingAction(str, Enum):
 
 class ReportingDispatchInput(BaseModel):
     """Input for the fpt_reporting dispatch tool."""
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = _STRICT_CONFIG
 
     action: ReportingAction = Field(..., description="Which reporting action to run")
     params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
@@ -588,6 +617,34 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
                          "Please provide an explicit publish_path where the file should be published."
             })
 
+        # Pre-flight: if local_path is provided, it must actually exist on
+        # disk before we resolve PublishedFileType / Task / etc. Catching
+        # this early avoids a partial publish where the SG record is created
+        # but the file copy fails halfway through.
+        if params.local_path and not os.path.isfile(params.local_path):
+            return json.dumps({
+                "error": f"local_path does not exist: {params.local_path}. "
+                         "Provide a valid path to the source file, or omit "
+                         "local_path to register an already-published file."
+            })
+
+        # Pre-flight: in Mode 2 (explicit publish_path), if no local_path
+        # was given the publish_path itself must already exist on disk.
+        # Otherwise we'd be creating a PublishedFile record pointing at
+        # nothing — a silent failure that surfaces far from the cause.
+        if (
+            params.publish_path is not None
+            and not params.local_path
+            and publish_path
+            and not publish_path.exists()
+        ):
+            return json.dumps({
+                "error": f"publish_path does not exist on disk and no local_path "
+                         f"was provided to copy from: {publish_path}. "
+                         "Either pass local_path to copy the file, or ensure "
+                         "the file already exists at publish_path."
+            })
+
         # Copy source file if provided
         if params.local_path and publish_path:
             import shutil
@@ -665,6 +722,7 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 # ---------------------------------------------------------------------------
 
 class SgBatchInput(BaseModel):
+    model_config = _STRICT_CONFIG
     requests: str = Field(
         description=(
             "JSON array of batch requests. Each request is an object with: "
@@ -703,6 +761,7 @@ async def _do_sg_batch(params: dict) -> str:
 
 
 class SgTextSearchInput(BaseModel):
+    model_config = _STRICT_CONFIG
     text: str = Field(description="Search text — searches across all text fields of the specified entity types.")
     entity_types: str = Field(
         description=(
@@ -737,6 +796,7 @@ async def _do_sg_text_search(params: dict) -> str:
 
 
 class SgSummarizeInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to aggregate (e.g. 'Task', 'TimeLog', 'Version').")
     filters: str = Field(description="JSON array of ShotGrid filters. Same syntax as sg_find.")
     summary_fields: str = Field(
@@ -779,6 +839,7 @@ async def _do_sg_summarize(params: dict) -> str:
 
 
 class SgReviveInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to restore (e.g. 'Asset', 'Shot', 'Task').")
     entity_id: int = Field(description="ID of the soft-deleted entity to restore.")
 
@@ -804,6 +865,7 @@ async def _do_sg_revive(params: dict) -> str:
 
 
 class SgNoteThreadInput(BaseModel):
+    model_config = _STRICT_CONFIG
     note_id: int = Field(description="ID of the Note entity to read the full reply thread for.")
 
 
@@ -828,6 +890,7 @@ async def _do_sg_note_thread(params: dict) -> str:
 
 
 class SgActivityInput(BaseModel):
+    model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type (e.g. 'Asset', 'Shot', 'Version', 'Task').")
     entity_id: int = Field(description="Entity ID to read activity stream for.")
     limit: int = Field(default=20, description="Max number of activity entries to return.")
@@ -907,6 +970,7 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
 # ---------------------------------------------------------------------------
 
 class SearchSgDocsInput(BaseModel):
+    model_config = _STRICT_CONFIG
     query: str = Field(
         description=(
             "Natural language query about ShotGrid API, Toolkit, or REST API. "
@@ -966,6 +1030,7 @@ async def search_sg_docs_tool(params: SearchSgDocsInput) -> str:
 
 
 class LearnPatternInput(BaseModel):
+    model_config = _STRICT_CONFIG
     description: str = Field(
         description="Short description of what the pattern does (e.g. 'filter PublishedFiles by Shot and type').",
     )

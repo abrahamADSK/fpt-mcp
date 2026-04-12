@@ -261,7 +261,14 @@ class TestPublishMode2Explicit:
         """Mode 2 publish stores the explicit publish_path."""
         sg_find_one_mock, sg_create_mock = patch_publish_no_config
 
-        explicit_path = str(tmp_path / "publishes" / "hero_robot_model_v001.ma")
+        # Pre-create the publish_path file: in Mode 2 with no local_path,
+        # tk_publish requires the file to already exist on disk (otherwise
+        # we'd be registering a PublishedFile pointing at nothing).
+        publish_file = tmp_path / "publishes" / "hero_robot_model_v001.ma"
+        publish_file.parent.mkdir(parents=True, exist_ok=True)
+        publish_file.write_text("// already-published Maya scene")
+        explicit_path = str(publish_file)
+
         params = _make_input(publish_type="Maya Scene", publish_path=explicit_path)
         result = json.loads(_run(tk_publish_tool(params)))
 
@@ -282,7 +289,12 @@ class TestPublishMode2Explicit:
         """Mode 2 response should NOT include template or project_root."""
         sg_find_one_mock, sg_create_mock = patch_publish_no_config
 
-        explicit_path = str(tmp_path / "publishes" / "test_v001.ma")
+        # Pre-create the publish_path file (see test_mode2_uses_explicit_path).
+        publish_file = tmp_path / "publishes" / "test_v001.ma"
+        publish_file.parent.mkdir(parents=True, exist_ok=True)
+        publish_file.write_text("// already-published Maya scene")
+        explicit_path = str(publish_file)
+
         params = _make_input(publish_type="Maya Scene", publish_path=explicit_path)
         result = json.loads(_run(tk_publish_tool(params)))
 
@@ -396,7 +408,12 @@ class TestPublishFindOrCreateType:
 
         sg_find_one_mock.side_effect = _find_one_no_pft
 
-        explicit_path = str(tmp_path / "pub" / "hero.abc")
+        # Pre-create the publish_path file (Mode 2 with no local_path
+        # requires the file to already exist on disk).
+        publish_file = tmp_path / "pub" / "hero.abc"
+        publish_file.parent.mkdir(parents=True, exist_ok=True)
+        publish_file.write_text("// already-published Alembic")
+        explicit_path = str(publish_file)
         params = _make_input(publish_type="Alembic Cache", publish_path=explicit_path)
         _run(tk_publish_tool(params))
 
@@ -419,7 +436,11 @@ class TestPublishFindOrCreateType:
 
         sg_find_one_mock.side_effect = _find_one_no_pft
 
-        explicit_path = str(tmp_path / "pub" / "hero.abc")
+        # Pre-create the publish_path file (Mode 2 with no local_path).
+        publish_file = tmp_path / "pub" / "hero.abc"
+        publish_file.parent.mkdir(parents=True, exist_ok=True)
+        publish_file.write_text("// already-published Alembic")
+        explicit_path = str(publish_file)
         params = _make_input(publish_type="Alembic Cache", publish_path=explicit_path)
         _run(tk_publish_tool(params))
 
