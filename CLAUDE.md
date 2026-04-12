@@ -165,10 +165,18 @@ Call vision3d_health() BEFORE offering options
 - If available=false → inform and offer Maya only
 ```
 
-### Steps 2-4: Identify entity, search references, present options
+### Step 2-3: Identify entity and search references
 ```
 - sg_find to fetch ShotGrid context
-- sg_find in parallel on Versions (image, sg_uploaded_movie), PublishedFiles
+- sg_find in parallel on Versions (image, sg_uploaded_movie), PublishedFiles, AND
+  fetch Asset.description field (for text-to-3D fallback)
+```
+
+### Step 4: Present everything in a single response
+```
+- Separate IMAGE references (Versions, PublishedFiles) from TEXT references (Asset.description)
+- Asset.description is a TEXT reference only (pairs with text-to-3D, NOT image-to-3D)
+- New Method bullet: [text-ref number] + Vision3D AI Server (text-to-3D — text references only)
 - PRESENT EVERYTHING IN A SINGLE RESPONSE with mandatory quality block
 ```
 
@@ -196,7 +204,14 @@ AI Quality — Vision3D server (model, octree, steps and faces):
 5. `maya_execute_python` → import into Maya
 
 **Text-to-3D** (full pipeline with texture):
-1. `shape_generate_text(text_prompt=..., preset='medium')` → returns job_id
+
+TEXT PROMPT RESOLUTION (priority order):
+1. User typed an explicit prompt → use it as-is (user prompt wins).
+2. User chose Asset description text reference → use `Asset.description` as-is (translate to English only if needed; do NOT summarize or paraphrase).
+3. No image found + user said 'none' + `Asset.description` is non-empty → use `Asset.description` (same rules as above). **MUST inform user** with "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling `shape_generate_text` (avoids surprising users who expected to type their own prompt).
+
+Then execute:
+1. `shape_generate_text(text_prompt=<resolved prompt>, preset='medium')` → returns job_id
 2. `vision3d_poll(job_id=...)` → repeat until completed (3 phases: text→image, shape, texture)
 3. `vision3d_download(job_id=..., output_subdir=..., files=['textured.glb', 'mesh.glb', 'mesh_uv.obj', 'texture_baked.png'])`
 4. `maya_execute_python` → import into Maya
@@ -266,6 +281,7 @@ In `~/.claude/settings.json`, enable all these tools:
 - **File not copied to publish path** → tk_publish now does shutil.copy2 if local_path is provided
 - **Pipeline-specific templates in core code** → Removed DERIVED_TEMPLATES and PUBLISH_TYPE_MAP. tk_config.py is now generic.
 - **Mode 2 fabricated directory structure** → Replaced with explicit publish_path from user
+- **Asset.description fetched but never routed to Vision3D text-to-3D** → Fixed by TEXT PROMPT RESOLUTION priority chain in SYSTEM_PROMPT (commits 267fbc7 + 0b10609). Asset.description now feeds text-to-3D with proper user-awareness rules.
 
 ### Pending
 - **Maya Command Port sometimes unresponsive from console** → Consider retry logic or longer timeout
@@ -401,7 +417,7 @@ update procedures, and architecture decisions.
 
 ---
 
-**Last updated**: 2026-04-07
+**Last updated**: 2026-04-12
 **Author**: Claude Agent
 **Project**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)
 
