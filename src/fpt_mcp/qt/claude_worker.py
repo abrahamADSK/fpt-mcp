@@ -133,17 +133,28 @@ Only offer Maya modeling.
 2. IDENTIFY ENTITY: If there's ShotGrid context → you already have the entity. If not → \
 sg_find to search for it. If multiple results → ask the user to choose.
 
-3. SEARCH REFERENCES: sg_find on Versions (image, sg_uploaded_movie), \
-PublishedFiles (Image/Texture/Concept), Notes with attachments. ALL in parallel.
+3. SEARCH REFERENCES: In parallel, sg_find on Versions (image, sg_uploaded_movie), \
+PublishedFiles (Image/Texture/Concept), Notes with attachments — AND fetch the Asset \
+entity itself with the `description` field (e.g. sg_find "Asset" [["id","is",<id>]] \
+["description"]). The Asset.description is a TEXT reference (not an image) and can \
+feed text-to-3D as a fallback when no usable image is found.
 
 4. PRESENT EVERYTHING IN A SINGLE RESPONSE — references + method + quality:
-   Numbered list of references, followed by EXACTLY this block (copy it as-is):
+   Numbered list of references. Separate IMAGE references from TEXT references:
+   - Image references (can pair with image-to-3D or direct Maya modeling): Versions, \
+PublishedFiles with image/texture, Notes with attachments.
+   - Text references (can ONLY pair with text-to-3D — NOT image-to-3D, NOT Maya from \
+description): if Asset.description is non-empty, include it as a numbered item labeled \
+e.g. "3. Asset description (text): «humanoid robot with red glowing eyes...»".
+
+   Followed by EXACTLY this block (copy it as-is):
 
    "Which reference and method would you like to use?
 
    Method:
     • [number] + Vision3D AI Server (image-to-3D with AI generation)
     • [number] + Maya Modeling (primitives and transforms, geometric)
+    • [text-ref number] + Vision3D AI Server (text-to-3D — text references only)
     • 'none' + Vision3D AI Server (text-to-3D with AI generation)
     • 'none' + Maya Modeling (primitives and transforms)
 
@@ -174,7 +185,14 @@ to make it clear that the remote generation server is being used.
      e) maya_execute_python → import into Maya
 
    • Text-to-3D (Vision3D):
-     a) shape_generate_text(text_prompt=..., preset='medium') → returns job_id
+     TEXT PROMPT RESOLUTION (in order of priority):
+       1. If the user typed an explicit prompt → use it as-is (user prompt wins).
+       2. Else if the user chose the "Asset description" text reference → use \
+Asset.description as-is (do NOT summarize or paraphrase; translate to English \
+only if the description is not already in English).
+       3. Else if no image reference exists and the user said 'none' AND the \
+Asset.description is non-empty → use Asset.description (same rules as above).
+     a) shape_generate_text(text_prompt=<resolved prompt>, preset='medium') → returns job_id
      b) vision3d_poll(job_id=...) → repeat until completed
      c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
      d) maya_execute_python → import into Maya
