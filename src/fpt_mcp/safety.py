@@ -109,6 +109,35 @@ _DANGEROUS_PATTERNS = [
         "Use the correct tokens: {Shot}, {Asset}, {Sequence}, {Step}, "
         "{sg_asset_type}, {name}, {version}, {maya_extension}.",
     ),
+    # ── Status code hallucinations (C.5) ──────────────────────────────────────
+    # Catches any sg_status_list value outside the canonical short codes.
+    # The negative lookahead lists every legal code; anything else trips.
+    # Common LLM hallucinations: "review", "ready", "in_progress", "complete".
+    (
+        r'"sg_status_list"\s*:\s*"(?!ip|wtg|cmpt|hld|fin|omt|rev|kik|apr|na|rdy)[a-z_]+"',
+        "Invalid sg_status_list value — ShotGrid uses short codes, not full words. "
+        "Common hallucinations: 'review' (use 'rev'), 'ready' (use 'rdy'), "
+        "'in_progress' (use 'ip'), 'complete' (use 'cmpt').",
+        "Use one of the canonical short codes: 'wtg' (waiting to start), "
+        "'ip' (in progress), 'rev' (pending review), 'rdy' (ready to start), "
+        "'cmpt' (complete), 'fin' (final), 'hld' (on hold), 'omt' (omitted), "
+        "'apr' (approved), 'kik' (kickback), 'na' (n/a). "
+        "Run sg_schema on the entity to confirm legal status codes for "
+        "your project — custom pipelines may add or remove codes.",
+    ),
+    # ── Bare integer IDs in update.entity_id position (C.5) ───────────────────
+    # Catches sg_update calls where the value of an entity-link field is a
+    # raw int instead of a {"type":..., "id":...} dict. The pattern looks for
+    # any of the common entity link field names followed by a bare integer.
+    (
+        r'"(?:entity|task|user|asset|shot|sequence|version|playlist|step|published_file|parent)"\s*:\s*\d+',
+        "Entity-link field assigned a bare integer — ShotGrid requires the "
+        "full {\"type\":..., \"id\":N} dict for any field that links to "
+        "another entity, even on update payloads.",
+        "Wrap the id in a dict: {\"type\": \"Asset\", \"id\": 123}. "
+        "Run sg_schema to discover which fields are entity links if you "
+        "are unsure.",
+    ),
 ]
 
 
