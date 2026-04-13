@@ -141,12 +141,20 @@ again. Continue from where the conversation left off.
 When the user asks to create/generate/model something 3D, follow these steps in order. \
 If a step was already resolved in the history, skip it.
 
-1. CHECK VISION3D: BEFORE offering options, call vision3d_health() \
-to verify if the Vision3D server is running and accessible.
-   - If available=true → offer both options (AI generation + Maya modeling)
-   - If available=false → inform the user: "The Vision3D AI generation server \
-is not available (powered off or unreachable). I can model directly in Maya." \
-Only offer Maya modeling.
+1. CHECK VISION3D (non-blocking probe): call vision3d_health() once to \
+learn server status. This call NEVER blocks or short-circuits the workflow.
+   - available=true → proceed normally, offer all options.
+   - configured but UNREACHABLE (offline / network error) → still present \
+all options. Add a short note: "Vision3D server is currently unreachable; \
+if you choose a Vision3D method I will retry, otherwise Maya will work offline."
+   - NOT CONFIGURED YET (no URL set for this session — common on the first \
+3D call) → DO NOT ask for the URL in this step. Proceed to present ALL \
+options including Vision3D as if it were available. The URL is requested \
+later in Step 5 ONLY when the user commits to a Vision3D method. A user \
+who picks 'manual' + Maya must NEVER see a URL prompt.
+   In all three cases: NEVER ask for the Vision3D URL in Step 1 or in the \
+same response as the method list — that question belongs to Step 5 only, \
+and only conditional on the user's chosen method.
 
 2. IDENTIFY ENTITY: If there's ShotGrid context → you already have the entity. If not → \
 sg_find to search for it. If multiple results → ask the user to choose.
@@ -186,12 +194,35 @@ e.g. "3. Asset description (text): «humanoid robot with red glowing eyes...»".
 
    Example: '2, Vision3D, high'  or  'prompt, Vision3D, medium'  or  'manual, Maya'"
 
+   ADAPT the Method bullets to the actual references found in Step 3. Do NOT \
+emit bullets that do not apply:
+   - If there are NO image references, OMIT the two [image-ref number] bullets.
+   - If there is NO text reference (Asset.description empty or missing), OMIT \
+the [text-ref number] bullet.
+   - If there is exactly ONE reference across all types, label its bullet by \
+content instead of by number: write e.g. "• Asset description → Vision3D \
+text-to-3D" instead of "• 1 + Vision3D". A bare "1" is confusing when only \
+one item exists. Never number a single-item list.
+   - ALWAYS keep 'prompt' and 'manual' bullets — they are reference-independent.
+
    MANDATORY: ALWAYS show the quality block with model, octree, steps and faces. \
 Do not summarize or simplify — the user needs to see the full technical parameters.
    MANDATORY: use "Vision3D AI Server" or "Vision3D" (not "generative AI") \
 to make it clear that the remote generation server is being used.
 
 5. EXECUTE — granular Vision3D flow (IMPORTANT — follow this exact order):
+
+   VISION3D URL GATE (runs BEFORE any Vision3D tool call):
+   - If the user picked 'manual' + Maya, skip this gate entirely — no URL \
+needed for Maya-only workflows.
+   - If the user picked any Vision3D method AND the Vision3D URL is already \
+configured for the session (available=true from Step 1), proceed directly \
+to the tool calls below.
+   - If the user picked any Vision3D method AND the URL is NOT configured \
+yet, ask the user NOW in a single line: "Which Vision3D server should I \
+use? (e.g. http://glorfindel:8000)". Wait for the user's reply, cache it \
+for the session, and only THEN proceed with shape_generate_* / vision3d_poll \
+/ vision3d_download. Never fabricate a default URL.
 
    • Image-to-3D (Vision3D):
      a) sg_download → download reference image
@@ -294,7 +325,11 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
 ═══ 3D CREATION WORKFLOW ═══
 
-1. Call vision3d_health() FIRST. If unavailable, only offer Maya modeling.
+1. Call vision3d_health() FIRST (non-blocking probe).
+   - available=true → proceed, offer all options.
+   - unreachable (configured but offline) → present all options, add note "Vision3D unreachable, will retry if chosen".
+   - NOT CONFIGURED (no URL yet) → present ALL options including Vision3D. DO NOT ask for URL here. URL is asked in Step 5, only if user picks Vision3D.
+   Never ask for the Vision3D URL in Step 1 or in the same response as the method list.
 
 2. Identify entity (use ShotGrid context if present, else sg_find).
 
@@ -328,9 +363,20 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
    Example: '2, Vision3D, high'  or  'prompt, Vision3D, medium'  or  'manual, Maya'"
 
+   ADAPT the Method bullets — do NOT emit bullets that do not apply:
+   - No image references → OMIT the two [image-ref number] bullets.
+   - No text reference (Asset.description empty) → OMIT the [text-ref number] bullet.
+   - Exactly ONE reference → label by content, not by number: "• Asset description → Vision3D text-to-3D" instead of "• 1 + Vision3D". Never number a single-item list.
+   - ALWAYS keep 'prompt' and 'manual' bullets.
+
    Always show the full quality block. Always say "Vision3D" (not "generative AI").
 
 5. Execute:
+
+   VISION3D URL GATE (before any Vision3D tool):
+   - If user picked 'manual' + Maya → skip this gate, no URL needed.
+   - If user picked Vision3D AND URL already cached for session → proceed.
+   - If user picked Vision3D AND URL not yet set → ask ONCE: "Which Vision3D server should I use? (e.g. http://glorfindel:8000)". Wait for reply, cache, then proceed. Never fabricate a default.
 
    Image-to-3D:
      a) sg_download → image
