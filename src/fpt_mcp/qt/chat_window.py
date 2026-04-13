@@ -117,9 +117,14 @@ def _md_to_html(text: str) -> str:
     Handles: **bold**, *italic*, `code`, ```code blocks```,
     headings (#), bullet lists, and image paths.
     """
+    # Collapse runs of 3+ consecutive blank lines into max 2 so the rendered
+    # output does not accumulate enormous vertical gaps when the model emits
+    # extra blank separators. Single and double blank lines are preserved as-is.
+    text = re.sub(r"\n{3,}", "\n\n", text)
     lines = text.split("\n")
     out: list[str] = []
     in_code = False
+    prev_was_blank = False
 
     for line in lines:
         # Fenced code blocks
@@ -130,8 +135,9 @@ def _md_to_html(text: str) -> str:
             else:
                 out.append('<pre style="background:#0f172a;color:#93c5fd;'
                            'padding:10px;border-radius:6px;font-size:13px;'
-                           'overflow-x:auto;">')
+                           'overflow-x:auto;margin:4px 0;">')
                 in_code = True
+            prev_was_blank = False
             continue
 
         if in_code:
@@ -144,21 +150,29 @@ def _md_to_html(text: str) -> str:
             level = len(m.group(1))
             sizes = {1: "18px", 2: "16px", 3: "14px"}
             out.append(f'<p style="font-size:{sizes[level]};font-weight:700;'
-                       f'color:#e0e0e0;margin:8px 0 4px;">{html.escape(m.group(2))}</p>')
+                       f'color:#e0e0e0;margin:6px 0 2px;">{html.escape(m.group(2))}</p>')
+            prev_was_blank = False
             continue
 
-        # Bullet points
+        # Bullet points (already compact at margin:2px 0 2px 16px)
         if re.match(r"^\s*[-*]\s+", line):
             content = re.sub(r"^\s*[-*]\s+", "", line)
             content = _inline_fmt(content)
             out.append(f'<p style="margin:2px 0 2px 16px;">&#8226; {content}</p>')
+            prev_was_blank = False
             continue
 
-        # Normal paragraph
+        # Normal paragraph — tight margin to avoid stacking default <p> gaps.
         if line.strip():
-            out.append(f"<p>{_inline_fmt(line)}</p>")
+            out.append(f'<p style="margin:3px 0;">{_inline_fmt(line)}</p>')
+            prev_was_blank = False
         else:
-            out.append("<br>")
+            # A single blank line inside a paragraph run adds a small gap,
+            # but consecutive blanks collapse to at most one gap (paragraph
+            # margins already provide separation between prose blocks).
+            if not prev_was_blank:
+                out.append('<div style="height:6px;"></div>')
+            prev_was_blank = True
 
     if in_code:
         out.append("</pre>")

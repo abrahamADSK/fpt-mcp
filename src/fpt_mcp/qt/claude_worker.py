@@ -169,12 +169,12 @@ e.g. "3. Asset description (text): «humanoid robot with red glowing eyes...»".
 
    "Which reference and method would you like to use?
 
-   Method:
-    • [number] + Vision3D AI Server (image-to-3D with AI generation)
-    • [number] + Maya Modeling (primitives and transforms, geometric)
-    • [text-ref number] + Vision3D AI Server (text-to-3D — text references only)
-    • 'none' + Vision3D AI Server (text-to-3D with AI generation)
-    • 'none' + Maya Modeling (primitives and transforms)
+   Method (each option starts with a DISTINCT keyword the user types back — no duplicate 'none'):
+    • [image-ref number] + Vision3D → image-to-3D from that image reference
+    • [image-ref number] + Maya     → direct Maya modeling, reference used as visual aid
+    • [text-ref number] + Vision3D  → text-to-3D from that text reference (Asset description)
+    • 'prompt' + Vision3D           → text-to-3D, user will type a custom prompt next
+    • 'manual' + Maya               → direct Maya modeling with primitives, no reference
 
    AI Quality — Vision3D server (model, octree, steps and faces):
     • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
@@ -184,7 +184,7 @@ e.g. "3. Asset description (text): «humanoid robot with red glowing eyes...»".
    You can also customize: '1, Vision3D, low with full model'
    or '2, Vision3D, octree 512, 30 steps, 100k faces'
 
-   Example: '2, Vision3D, high'"
+   Example: '2, Vision3D, high'  or  'prompt, Vision3D, medium'  or  'manual, Maya'"
 
    MANDATORY: ALWAYS show the quality block with model, octree, steps and faces. \
 Do not summarize or simplify — the user needs to see the full technical parameters.
@@ -204,15 +204,16 @@ to make it clear that the remote generation server is being used.
 
    • Text-to-3D (Vision3D):
      TEXT PROMPT RESOLUTION (in order of priority):
-       1. If the user typed an explicit prompt → use it as-is (user prompt wins).
-       2. Else if the user chose the "Asset description" text reference → use \
+       1. If the user chose 'prompt' + Vision3D → ASK the user for the prompt \
+text if they did not already type one in the same message, then use it as-is.
+       2. Else if the user chose a [text-ref number] (Asset description) → use \
 Asset.description as-is (do NOT summarize or paraphrase; translate to English \
 only if the description is not already in English).
-       3. Else if no image reference exists and the user said 'none' AND the \
-Asset.description is non-empty → use Asset.description (same rules as above). \
-In case (3), briefly inform the user 'Using Asset.description as text prompt: \
-<first 80 chars>...' before calling shape_generate_text, so the user knows \
-what is being generated.
+       3. Fallback — only if no image reference exists, the user said 'prompt' \
+but did not type a prompt, AND the Asset.description is non-empty → use \
+Asset.description as the prompt. In this fallback case, briefly inform the user \
+'Using Asset.description as text prompt: <first 80 chars>...' before calling \
+shape_generate_text, so the user knows what is being generated.
      a) shape_generate_text(text_prompt=<resolved prompt>, preset='medium') → returns job_id
      b) vision3d_poll(job_id=...) → repeat until completed
      c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
@@ -311,12 +312,12 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
    "Which reference and method would you like to use?
 
-   Method:
-    • [number] + Vision3D AI Server (image-to-3D with AI generation)
-    • [number] + Maya Modeling (primitives and transforms, geometric)
-    • [text-ref number] + Vision3D AI Server (text-to-3D — text references only)
-    • 'none' + Vision3D AI Server (text-to-3D with AI generation)
-    • 'none' + Maya Modeling (primitives and transforms)
+   Method (each option starts with a DISTINCT keyword — NO duplicate 'none'):
+    • [image-ref number] + Vision3D → image-to-3D from that image reference
+    • [image-ref number] + Maya     → direct Maya modeling, reference as visual aid
+    • [text-ref number] + Vision3D  → text-to-3D from that text reference (Asset description)
+    • 'prompt' + Vision3D           → text-to-3D with a custom prompt the user will type next
+    • 'manual' + Maya               → direct Maya modeling with primitives, no reference
 
    AI Quality — Vision3D server (model, octree, steps and faces):
     • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
@@ -325,7 +326,7 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
     • ultra  — full model,  octree 512, 50 steps, no limit    (~12 min)
    Customize: '1, Vision3D, low with full model' or '2, Vision3D, octree 512, 30 steps, 100k faces'
 
-   Example: '2, Vision3D, high'"
+   Example: '2, Vision3D, high'  or  'prompt, Vision3D, medium'  or  'manual, Maya'"
 
    Always show the full quality block. Always say "Vision3D" (not "generative AI").
 
@@ -340,9 +341,9 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
    Text-to-3D:
      TEXT PROMPT RESOLUTION (priority order):
-       1. User typed an explicit prompt → use it as-is.
-       2. User chose Asset description text reference → use Asset.description as-is (translate to English only if needed; do not paraphrase).
-       3. No image + user said 'none' + Asset.description non-empty → use Asset.description (same rules). Tell the user "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling shape_generate_text.
+       1. User chose 'prompt' + Vision3D → ask the user for the prompt if not already typed, then use as-is.
+       2. User chose [text-ref number] (Asset description) → use Asset.description as-is (translate to English only if needed; do not paraphrase).
+       3. Fallback — no image + user said 'prompt' but did not type one + Asset.description non-empty → use Asset.description. Tell the user "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling shape_generate_text.
      a) shape_generate_text(text_prompt=<resolved>, preset=<chosen>)
      b) vision3d_poll(job_id=...) → repeat
      c) vision3d_download(job_id=..., output_subdir=..., files=['mesh.glb'])
