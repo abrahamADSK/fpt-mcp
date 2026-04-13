@@ -6,14 +6,14 @@
       "cwd": "."
     },
     "flame": {
-      "command": "/Users/abraham/Claude_projects/flame-mcp/.venv/bin/python",
+      "command": "../flame-mcp/.venv/bin/python",
       "args": ["-m", "flame_mcp.server"],
-      "cwd": "/Users/abraham/Claude_projects/flame-mcp"
+      "cwd": "../flame-mcp"
     },
     "maya-mcp": {
-      "command": "/Users/abraham/Claude_projects/maya-mcp/.venv/bin/python",
+      "command": "../maya-mcp/.venv/bin/python",
       "args": ["-m", "maya_mcp.server"],
-      "cwd": "/Users/abraham/Claude_projects/maya-mcp"
+      "cwd": "../maya-mcp"
     }
   }
 }
