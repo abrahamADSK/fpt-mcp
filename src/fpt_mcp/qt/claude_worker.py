@@ -220,9 +220,10 @@ configured for the session (available=true from Step 1), proceed directly \
 to the tool calls below.
    - If the user picked any Vision3D method AND the URL is NOT configured \
 yet, ask the user NOW in a single line: "Which Vision3D server should I \
-use? (e.g. http://glorfindel:8000)". Wait for the user's reply, cache it \
-for the session, and only THEN proceed with shape_generate_* / vision3d_poll \
-/ vision3d_download. Never fabricate a default URL.
+use? (format: http://<hostname>:<port>)". Wait for the user's reply, cache \
+it for the session, and only THEN proceed with shape_generate_* / \
+vision3d_poll / vision3d_download. Never fabricate a default URL and \
+never suggest a specific hostname — the user provides it from scratch.
 
    • Image-to-3D (Vision3D):
      a) sg_download → download reference image
@@ -376,7 +377,7 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
    VISION3D URL GATE (before any Vision3D tool):
    - If user picked 'manual' + Maya → skip this gate, no URL needed.
    - If user picked Vision3D AND URL already cached for session → proceed.
-   - If user picked Vision3D AND URL not yet set → ask ONCE: "Which Vision3D server should I use? (e.g. http://glorfindel:8000)". Wait for reply, cache, then proceed. Never fabricate a default.
+   - If user picked Vision3D AND URL not yet set → ask ONCE: "Which Vision3D server should I use? (format: http://<hostname>:<port>)". Wait for reply, cache, then proceed. Never fabricate a default, never suggest a specific hostname — the user provides it from scratch.
 
    Image-to-3D:
      a) sg_download → image
