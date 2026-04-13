@@ -9,10 +9,11 @@ Advantages over the HTML AMI console:
 from __future__ import annotations
 
 import html
+import random
 import re
 from typing import Optional
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -204,6 +205,57 @@ def _inline_fmt(text: str) -> str:
 class ChatWindow(QMainWindow):
     """Native chat window that routes messages through Claude Code CLI."""
 
+    # ── Whimsical "thinking" gerunds shown as a rotating orange header
+    # while the worker is busy. Flavored for VFX / pipeline / MCP work so
+    # the bubble always feels alive even when the actual tool chain is
+    # stuck on a long Vision3D poll with no streaming output.
+    _THINKING_VERBS = (
+        "vfxing",
+        "pipelining",
+        "workflowing hard",
+        "shotgridding",
+        "assetting",
+        "publishing furiously",
+        "keyframing",
+        "rigging mightily",
+        "texturing",
+        "UV-unwrapping",
+        "shadering",
+        "bouncing photons",
+        "marching octree cells",
+        "voxelizing",
+        "tetrahedralizing",
+        "dispatching tools",
+        "polling Vision3D",
+        "shaping the latent space",
+        "hunyuaning",
+        "untangling tool calls",
+        "ambient occluding",
+        "cachIng BGE embeddings",
+        "BM25-fusing",
+        "RRF-ranking",
+        "HyDE-expanding",
+        "prompt-engineering",
+        "spelunking the docs",
+        "RAG-searching",
+        "tokenomicking",
+        "context-windowing",
+        "streaming deltas",
+        "compositing",
+        "rendering diligently",
+        "maya-bridging",
+        "flame-igniting",
+        "glorfindeling",
+        "deep-diving chromadb",
+        "action-dispatching",
+        "JSON-parsing",
+        "MCP-ing",
+        "handshaking with Claude",
+        "unpickling latents",
+        "launching subprocess",
+        "negotiating STDIO",
+    )
+
     def __init__(
         self,
         entity_type: str | None = None,
@@ -228,8 +280,55 @@ class ChatWindow(QMainWindow):
         self._worker: Optional[ClaudeWorker] = None
         # Multi-backend: default to first model (anthropic)
         self._selected_model_idx = 0
+        # Whimsical thinking-bubble rotator state
+        self._thinking_verb: str = ""
+        self._progress_lines: list[str] = []
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.setInterval(2500)  # ms between verb rotations
+        self._thinking_timer.timeout.connect(self._rotate_thinking_verb)
         self._setup_ui()
         self.setStyleSheet(DARK_STYLE)
+
+    # ---- Thinking bubble helpers ----
+
+    def _pick_thinking_verb(self) -> str:
+        """Return a random verb that differs from the current one."""
+        if len(self._THINKING_VERBS) <= 1:
+            return self._THINKING_VERBS[0]
+        while True:
+            v = random.choice(self._THINKING_VERBS)
+            if v != self._thinking_verb:
+                return v
+
+    def _rotate_thinking_verb(self):
+        """Pick a new verb and redraw the thinking bubble. Called by QTimer."""
+        if self._worker is None:
+            return
+        self._thinking_verb = self._pick_thinking_verb()
+        self._refresh_thinking_bubble()
+
+    def _refresh_thinking_bubble(self):
+        """Render the thinking bubble with the orange header + progress lines."""
+        header_html = (
+            f'<div style="color:#fb923c;font-style:italic;font-size:13px;'
+            f'margin-bottom:4px;">{html.escape(self._thinking_verb)}&hellip;</div>'
+        )
+        if self._progress_lines:
+            visible = self._progress_lines[-12:]
+            lines_html = "<br>".join(html.escape(l) for l in visible)
+            if len(self._progress_lines) > 12:
+                lines_html = (
+                    f"<i style='color:#4a5568;'>... "
+                    f"({len(self._progress_lines) - 12} previous lines)</i><br>"
+                    + lines_html
+                )
+            body_html = (
+                f'<div style="font-family:monospace;font-size:12px;'
+                f'line-height:1.5;color:#64748b;">{lines_html}</div>'
+            )
+        else:
+            body_html = ""
+        self._update_last_bubble(header_html + body_html, "thinking")
 
     # ---- UI Setup ----
 
@@ -394,10 +493,13 @@ class ChatWindow(QMainWindow):
         # Record user message in history
         self._history.append({"role": "user", "text": text})
 
-        # Status bubble that will be updated with progress events
+        # Status bubble that will be updated with progress events + rotating verb
         self._status_id = self._chat.document().blockCount()
-        self._progress_lines = []  # Accumulated progress lines
-        self._append_bubble("<i>Thinking...</i>", "thinking")
+        self._progress_lines = []
+        self._thinking_verb = self._pick_thinking_verb()
+        self._append_bubble("", "thinking")  # placeholder, _refresh fills it in
+        self._refresh_thinking_bubble()
+        self._thinking_timer.start()
 
         model_id, backend = self._get_selected_model()
         self._worker = ClaudeWorker(
@@ -409,17 +511,9 @@ class ChatWindow(QMainWindow):
         self._worker.start()
 
     def _on_progress(self, status: str):
-        """Update the thinking bubble with accumulated progress lines."""
+        """Append a real progress line and redraw the thinking bubble."""
         self._progress_lines.append(status)
-        # Show last 12 lines to keep the bubble manageable
-        visible = self._progress_lines[-12:]
-        lines_html = "<br>".join(html.escape(l) for l in visible)
-        if len(self._progress_lines) > 12:
-            lines_html = f"<i style='color:#4a5568;'>... ({len(self._progress_lines) - 12} previous lines)</i><br>" + lines_html
-        self._update_last_bubble(
-            f"<div style='font-family:monospace;font-size:12px;line-height:1.5;'>{lines_html}</div>",
-            "thinking",
-        )
+        self._refresh_thinking_bubble()
 
     def _update_last_bubble(self, html_content: str, role: str):
         """Replace the last bubble in the chat with new content."""
@@ -449,6 +543,9 @@ class ChatWindow(QMainWindow):
 
     def _on_response(self, text: str, is_error: bool):
         role = "error" if is_error else "assistant"
+        # Stop the rotating "thinking" verb timer before replacing the bubble.
+        if self._thinking_timer.isActive():
+            self._thinking_timer.stop()
         # Replace the thinking/status bubble with the final response
         self._update_last_bubble(_md_to_html(text), role)
         self._send_btn.setEnabled(True)
