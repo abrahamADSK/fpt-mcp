@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -522,11 +523,13 @@ class ClaudeWorker(QThread):
 
     # ---- nice names for MCP tools ----
 
+    # Flat tool labels for non-dispatcher tools (one label regardless of params).
     _TOOL_LABELS = {
+        # fpt-mcp
         "sg_find": "Searching ShotGrid",
         "sg_create": "Creating entity in ShotGrid",
         "sg_update": "Updating ShotGrid",
-        "sg_delete": "Deleting from ShotGrid",
+        "sg_delete": "Retiring entity in ShotGrid",
         "sg_schema": "Querying ShotGrid schema",
         "sg_upload": "Uploading file to ShotGrid",
         "sg_download": "Downloading from ShotGrid",
@@ -541,31 +544,71 @@ class ClaudeWorker(QThread):
         "search_sg_docs": "Searching ShotGrid documentation",
         "learn_pattern": "Learning validated pattern",
         "session_stats": "Fetching session statistics",
-        "vision3d_health": "Checking Vision3D availability",
-        "shape_generate_remote": "Starting image-to-3D generation (Vision3D)",
-        "shape_generate_text": "Starting text-to-3D generation (Vision3D)",
-        "texture_mesh_remote": "Starting texturing (Vision3D)",
-        "vision3d_poll": "Polling Vision3D progress",
-        "vision3d_download": "Downloading Vision3D results",
-        "maya_ping": "Checking Maya connection",
-        "maya_launch": "Launching Maya",
+        # maya-mcp — direct tools (not dispatchers)
         "maya_create_primitive": "Creating primitive in Maya",
         "maya_assign_material": "Assigning material in Maya",
         "maya_transform": "Transforming object in Maya",
-        "maya_list_scene": "Querying Maya scene",
-        "maya_delete": "Deleting object in Maya",
-        "maya_execute_python": "Running Python in Maya",
-        "maya_new_scene": "Creating new Maya scene",
-        "maya_save_scene": "Saving Maya scene",
+        "maya_mesh_operation": "Editing mesh in Maya",
+        "maya_set_keyframe": "Setting keyframe in Maya",
+        "maya_create_light": "Creating light in Maya",
+        "maya_create_camera": "Creating camera in Maya",
+        "maya_import_file": "Importing file into Maya",
+        "maya_viewport_capture": "Capturing Maya viewport",
+        "search_maya_docs": "Searching Maya documentation",
+        # maya-mcp — dispatchers (generic fallback; refined per-action below)
+        "maya_session": "Maya scene operation",
+        "maya_vision3d": "Vision3D operation",
     }
 
-    def _label_for_tool(self, tool_name: str) -> str:
-        """Return a human-friendly label for an MCP tool name."""
-        short = tool_name
+    # Tools that take an `action` param and deserve action-aware labels so
+    # long-running dispatch loops (e.g. poll) still produce a visible
+    # heartbeat in the Qt console progress bubble. Keyed by (tool, action).
+    _DISPATCHER_ACTION_LABELS = {
+        # maya_session actions
+        ("maya_session", "launch"): "Launching Maya",
+        ("maya_session", "ping"): "Checking Maya connection",
+        ("maya_session", "new_scene"): "Creating new Maya scene",
+        ("maya_session", "save_scene"): "Saving Maya scene",
+        ("maya_session", "list_scene"): "Querying Maya scene",
+        ("maya_session", "delete"): "Deleting object in Maya",
+        ("maya_session", "execute_python"): "Running Python in Maya",
+        ("maya_session", "scene_snapshot"): "Snapshotting Maya scene state",
+        ("maya_session", "shelf_button"): "Creating Maya shelf button",
+        ("maya_session", "viewport_capture"): "Capturing Maya viewport",
+        # maya_vision3d actions
+        ("maya_vision3d", "select_server"): "Selecting Vision3D server",
+        ("maya_vision3d", "health"): "Checking Vision3D availability",
+        ("maya_vision3d", "generate_image"): "Starting image-to-3D (Vision3D)",
+        ("maya_vision3d", "generate_text"): "Starting text-to-3D (Vision3D)",
+        ("maya_vision3d", "texture"): "Starting texturing (Vision3D)",
+        ("maya_vision3d", "poll"): "Polling Vision3D progress",
+        ("maya_vision3d", "download"): "Downloading Vision3D results",
+    }
+
+    _DISPATCHER_TOOLS = frozenset(("maya_session", "maya_vision3d"))
+
+    def _short_tool_name(self, tool_name: str) -> str:
+        """Strip the mcp__<server>__ prefix from a raw tool name."""
         for prefix in ("mcp__fpt-mcp__", "mcp__maya-mcp__"):
             if tool_name.startswith(prefix):
-                short = tool_name[len(prefix):]
-                break
+                return tool_name[len(prefix):]
+        return tool_name
+
+    def _label_for_tool(self, tool_name: str, tool_input: dict | None = None) -> str:
+        """Return a human-friendly label for an MCP tool call.
+
+        For dispatcher tools (``maya_session``, ``maya_vision3d``) that take
+        an ``action`` param, a refined label keyed by ``(tool, action)`` is
+        preferred. When the action is not yet known (the stream still hasn't
+        delivered the full input JSON), the flat fallback is used.
+        """
+        short = self._short_tool_name(tool_name)
+        if short in self._DISPATCHER_TOOLS and tool_input:
+            action = tool_input.get("action")
+            if action:
+                refined = self._DISPATCHER_ACTION_LABELS.get((short, action))
+                if refined:
+                    return refined
         return self._TOOL_LABELS.get(short, f"Running {short}")
 
     # ---- main thread body ----
@@ -645,6 +688,8 @@ class ClaudeWorker(QThread):
 
             text_parts: list[str] = []
             active_tools: dict[int, str] = {}  # index → tool_name
+            tool_input_buffers: dict[int, str] = {}  # index → partial input JSON
+            tool_refined_emitted: set[int] = set()  # indices that already got a refined label
             result_text = ""
             _text_buffer = ""  # Buffer for streaming text lines to progress
 
@@ -674,13 +719,20 @@ class ClaudeWorker(QThread):
                         idx = event.get("index", 0)
                         tool_name = block.get("name", "unknown")
                         active_tools[idx] = tool_name
-                        label = self._label_for_tool(tool_name)
+                        tool_input_buffers[idx] = ""
+                        # Some CLI variants populate the full input here.
+                        # If so, use it to compute a refined label immediately.
+                        initial_input = block.get("input") or {}
+                        label = self._label_for_tool(tool_name, initial_input if isinstance(initial_input, dict) else None)
                         self.progress.emit(f"{label}...")
+                        if initial_input and isinstance(initial_input, dict) and initial_input.get("action"):
+                            tool_refined_emitted.add(idx)
 
-                # ── Text chunk (API streaming format) ─────────────────
+                # ── Delta event (text OR tool input JSON chunks) ──────
                 elif ev_type == "content_block_delta":
                     delta = event.get("delta", {})
-                    if delta.get("type") == "text_delta":
+                    dtype = delta.get("type", "")
+                    if dtype == "text_delta":
                         chunk = delta.get("text", "")
                         text_parts.append(chunk)
                         # Stream complete lines as progress (Vision3D log, etc.)
@@ -690,16 +742,43 @@ class ClaudeWorker(QThread):
                             line_text = line_text.strip()
                             if line_text:
                                 self.progress.emit(line_text)
+                    elif dtype == "input_json_delta":
+                        # Tool input arrives in JSON fragments; accumulate
+                        # per-index and try to surface the action as soon as
+                        # it is parseable. This lets long-running dispatcher
+                        # loops (maya_vision3d action=poll) show "Polling
+                        # Vision3D progress..." on every poll tick.
+                        idx = event.get("index", 0)
+                        partial = delta.get("partial_json", "")
+                        tool_input_buffers[idx] = tool_input_buffers.get(idx, "") + partial
+                        if idx in active_tools and idx not in tool_refined_emitted:
+                            # Try a cheap regex first to avoid paying json.loads
+                            # on every chunk until the action key is at least
+                            # textually present.
+                            buf = tool_input_buffers[idx]
+                            if '"action"' in buf:
+                                m = re.search(r'"action"\s*:\s*"([^"]+)"', buf)
+                                if m:
+                                    action = m.group(1)
+                                    refined = self._DISPATCHER_ACTION_LABELS.get(
+                                        (self._short_tool_name(active_tools[idx]), action)
+                                    )
+                                    if refined:
+                                        self.progress.emit(f"{refined}...")
+                                        tool_refined_emitted.add(idx)
 
                 # ── Tool finished ─────────────────────────────────────
                 elif ev_type == "content_block_stop":
                     idx = event.get("index", 0)
                     if idx in active_tools:
                         del active_tools[idx]
+                        tool_input_buffers.pop(idx, None)
+                        tool_refined_emitted.discard(idx)
                         if active_tools:
-                            remaining = list(active_tools.values())
+                            remaining_idx = next(iter(active_tools))
+                            remaining_name = active_tools[remaining_idx]
                             self.progress.emit(
-                                f"{self._label_for_tool(remaining[0])}..."
+                                f"{self._label_for_tool(remaining_name)}..."
                             )
                         else:
                             self.progress.emit("Processing response...")
