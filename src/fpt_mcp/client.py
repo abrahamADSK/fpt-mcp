@@ -26,9 +26,19 @@ SCRIPT_NAME: str = os.getenv("SHOTGRID_SCRIPT_NAME", "")
 SCRIPT_KEY: str = os.getenv("SHOTGRID_SCRIPT_KEY", "")
 PROJECT_ID: int = int(os.getenv("SHOTGRID_PROJECT_ID", "0"))
 
+# Placeholder values shipped in .env.example. If the user never filled in
+# .env (or just ran setup_venv.sh / install.sh and forgot step 2), these
+# strings leak through and the first real ShotGrid call fails with an
+# opaque SSL CERTIFICATE_VERIFY_FAILED error. Fail fast and loud instead.
+_PLACEHOLDER_FRAGMENTS = {
+    "SHOTGRID_URL": ("YOUR_SITE", "yoursite.shotgrid"),
+    "SHOTGRID_SCRIPT_NAME": ("your_script_name",),
+    "SHOTGRID_SCRIPT_KEY": ("your_script_key", "your_key"),
+}
+
 
 def _validate_config() -> None:
-    """Raise early if required env vars are missing."""
+    """Raise early if required env vars are missing or still hold placeholders."""
     missing = []
     if not SHOTGRID_URL:
         missing.append("SHOTGRID_URL")
@@ -40,6 +50,25 @@ def _validate_config() -> None:
         raise EnvironmentError(
             f"Missing required environment variables: {', '.join(missing)}. "
             "Check your .env file."
+        )
+
+    placeholders = []
+    for var, value in (
+        ("SHOTGRID_URL", SHOTGRID_URL),
+        ("SHOTGRID_SCRIPT_NAME", SCRIPT_NAME),
+        ("SHOTGRID_SCRIPT_KEY", SCRIPT_KEY),
+    ):
+        lowered = value.lower()
+        if any(frag.lower() in lowered for frag in _PLACEHOLDER_FRAGMENTS[var]):
+            placeholders.append(var)
+    if placeholders:
+        raise EnvironmentError(
+            "ShotGrid credentials still hold placeholder values from .env.example: "
+            f"{', '.join(placeholders)}. "
+            "Edit .env at the repo root and replace the template values with "
+            "your real ShotGrid site URL, script name, and application key "
+            "(ShotGrid Admin → Scripts). "
+            "Without this step every call will fail with an SSL certificate error."
         )
 
 

@@ -27,11 +27,36 @@ deactivate
 # -----------------------------------------------
 echo ""
 echo "[2/4] Checking .env..."
+ENV_PLACEHOLDERS=0
 if [ ! -f "$FPT_DIR/.env" ]; then
     cp "$FPT_DIR/.env.example" "$FPT_DIR/.env"
     echo "      Created .env from .env.example — edit it with your credentials."
+    ENV_PLACEHOLDERS=1
 else
     echo "      OK: .env exists"
+fi
+
+# Content validation — detects a stale .env still holding the .env.example
+# placeholder values. Without this check the first real ShotGrid call
+# fails with an opaque SSL CERTIFICATE_VERIFY_FAILED error.
+if [ -f "$FPT_DIR/.env" ] && [ $ENV_PLACEHOLDERS -eq 0 ]; then
+    if grep -qE '^SHOTGRID_URL=https?://(YOUR_SITE|yoursite\.shotgrid)' "$FPT_DIR/.env"; then
+        ENV_PLACEHOLDERS=1
+    fi
+    if grep -qE '^SHOTGRID_SCRIPT_NAME=your_script_name' "$FPT_DIR/.env"; then
+        ENV_PLACEHOLDERS=1
+    fi
+    if grep -qE '^SHOTGRID_SCRIPT_KEY=(your_script_key|your_key)' "$FPT_DIR/.env"; then
+        ENV_PLACEHOLDERS=1
+    fi
+fi
+
+if [ $ENV_PLACEHOLDERS -eq 1 ]; then
+    echo ""
+    echo "      ⚠  WARNING: .env holds placeholder values from .env.example."
+    echo "         Edit $FPT_DIR/.env with your real ShotGrid credentials"
+    echo "         BEFORE using fpt-mcp. Every call will fail with an SSL"
+    echo "         certificate error until this is done."
 fi
 
 # -----------------------------------------------

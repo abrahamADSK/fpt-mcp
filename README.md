@@ -87,16 +87,35 @@ chmod +x setup_venv.sh
 ./setup_venv.sh
 ```
 
-## Configure
+## Configure (MANDATORY — do not skip)
 
-Copy `.env.example` → `.env` and fill in your credentials:
+> [!IMPORTANT]
+> Running `setup_venv.sh` or `install.sh` on its own is **not enough**.
+> The installer creates `.env` from the template but leaves the fields
+> holding placeholder values. Until you edit `.env` with your real
+> ShotGrid credentials, every MCP call fails with an SSL
+> `CERTIFICATE_VERIFY_FAILED` error.
+
+Copy `.env.example` → `.env` (or let the installer do it) and replace
+**every** field with your real values:
 
 ```
-SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com
-SHOTGRID_SCRIPT_NAME=your_script_name
-SHOTGRID_SCRIPT_KEY=your_key
+SHOTGRID_URL=https://your-actual-site.shotgrid.autodesk.com
+SHOTGRID_SCRIPT_NAME=your-actual-script-name
+SHOTGRID_SCRIPT_KEY=your-actual-application-key
 SHOTGRID_PROJECT_ID=123
 ```
+
+**Where each field comes from**:
+
+- `SHOTGRID_URL` — the exact URL you use to log into your ShotGrid site via browser, in the form `https://<your-site>.shotgrid.autodesk.com`.
+- `SHOTGRID_SCRIPT_NAME` — the name of an API script registered in **ShotGrid Admin → Scripts**. If you don't have one with the permissions you need, create it there first.
+- `SHOTGRID_SCRIPT_KEY` — the **application key** shown next to the script name in the same admin page.
+- `SHOTGRID_PROJECT_ID` — integer ID of the project you work in most often. Used as a default filter for `sg_find`, `sg_create`, `sg_upload`, and as the key for Toolkit `PipelineConfiguration` lookup. Set to `0` to disable the default filter (every call must then specify project explicitly).
+
+After editing `.env`, restart any running fpt-mcp process (Qt console, MCP server) so it picks up the new values.
+
+The installer scripts now detect placeholder values left in `.env` and emit a visible warning at the end of the install. The MCP server itself will also refuse to start with a clear error message pointing to `.env` if placeholders remain. Both safeguards exist specifically to prevent confusing SSL errors on the first real call.
 
 ## Usage
 

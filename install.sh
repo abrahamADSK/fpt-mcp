@@ -356,15 +356,55 @@ fi
 
 echo ""
 
-# ── .env reminder (non-blocking — checked independently of step results) ──────
+# ── .env credentials check (non-blocking — checked independently of steps) ───
+# Creates .env from template if missing, then validates content for
+# placeholder values. Even a pre-existing .env is re-checked — the installer
+# was run multiple times in Chat 39 with a stale template .env and the
+# first real ShotGrid call failed with SSL cert error because the check
+# only looked at file existence, not content.
+ENV_HAS_PLACEHOLDERS=0
 if [[ ! -f "${ENV_FILE}" ]]; then
     if [[ -f "${ENV_EXAMPLE}" ]]; then
         info "Creating .env from .env.example — fill in your ShotGrid credentials."
         cp "${ENV_EXAMPLE}" "${ENV_FILE}"
-        warn ".env created from template — credentials not yet configured."
+        ENV_HAS_PLACEHOLDERS=1
     else
         warn ".env not found and no .env.example to copy from — create it manually."
+        ENV_HAS_PLACEHOLDERS=1
     fi
+fi
+
+if [[ -f "${ENV_FILE}" ]] && [[ ${ENV_HAS_PLACEHOLDERS} -eq 0 ]]; then
+    # Check existing .env for placeholder fragments from .env.example.
+    # Any hit means the user never filled in real credentials.
+    if grep -qE '^SHOTGRID_URL=https?://(YOUR_SITE|yoursite\.shotgrid)' "${ENV_FILE}" 2>/dev/null; then
+        ENV_HAS_PLACEHOLDERS=1
+    fi
+    if grep -qE '^SHOTGRID_SCRIPT_NAME=your_script_name' "${ENV_FILE}" 2>/dev/null; then
+        ENV_HAS_PLACEHOLDERS=1
+    fi
+    if grep -qE '^SHOTGRID_SCRIPT_KEY=(your_script_key|your_key)' "${ENV_FILE}" 2>/dev/null; then
+        ENV_HAS_PLACEHOLDERS=1
+    fi
+fi
+
+if [[ ${ENV_HAS_PLACEHOLDERS} -eq 1 ]]; then
+    echo ""
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${RED}${BOLD}  ⚠  ShotGrid credentials NOT configured${RESET}"
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${YELLOW}Your ${BOLD}.env${RESET}${YELLOW} still holds the template placeholder values from"
+    echo -e ".env.example. The installation is NOT complete until you edit it${RESET}"
+    echo -e "${YELLOW}with your real ShotGrid credentials. Until then every MCP call${RESET}"
+    echo -e "${YELLOW}will fail with an SSL CERTIFICATE_VERIFY_FAILED error.${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Edit:${RESET} ${CYAN}${ENV_FILE}${RESET}"
+    echo -e "  ${BOLD}Required fields:${RESET}"
+    echo -e "    ${CYAN}SHOTGRID_URL${RESET}         — https://<your-site>.shotgrid.autodesk.com"
+    echo -e "    ${CYAN}SHOTGRID_SCRIPT_NAME${RESET} — API script name (ShotGrid Admin → Scripts)"
+    echo -e "    ${CYAN}SHOTGRID_SCRIPT_KEY${RESET}  — application key of that script"
+    echo -e "    ${CYAN}SHOTGRID_PROJECT_ID${RESET}  — integer project ID (0 = no default)"
+    echo ""
 fi
 
 # ── Next steps hint ───────────────────────────────────────────────────────────
