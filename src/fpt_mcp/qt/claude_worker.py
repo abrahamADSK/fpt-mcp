@@ -87,9 +87,19 @@ def build_backend_env(model_id: str, backend: str) -> dict:
     Always returns explicit values for all three Anthropic SDK env vars,
     even when switching back to the anthropic backend, so a stale
     ANTHROPIC_BASE_URL from a previous Ollama run cannot misroute the SDK.
+
+    Also hardens reasoning quality on every claude subprocess spawned
+    from the Qt console: adaptive thinking off, effort level max. Set
+    unconditionally so the behavior is identical regardless of backend
+    switch order (Ollama ignores the vars in practice). The user
+    controls their own top-level claude session via /effort — these
+    overrides apply to the MCP-spawned subprocess only.
     """
     cfg = _load_config()
-    env: dict[str, str] = {}
+    env: dict[str, str] = {
+        "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+        "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    }
 
     if backend == "ollama":
         base_url = cfg.get("ollama_url", DEFAULT_OLLAMA_URL)
