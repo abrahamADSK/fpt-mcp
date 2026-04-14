@@ -15,7 +15,12 @@ from typing import Any
 import shotgun_api3
 from dotenv import load_dotenv
 
-load_dotenv()
+# override=True: values from .env must win over any stale env var
+# inherited from the parent process. Without override, a long-lived
+# stdio server spawned while .env still contained placeholder values
+# would retain those bad values for its whole lifetime even after .env
+# is fixed, because SHOTGRID_URL is already present at load time.
+load_dotenv(override=True)
 
 # ---------------------------------------------------------------------------
 # Configuration
