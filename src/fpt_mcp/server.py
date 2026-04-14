@@ -52,6 +52,7 @@ from fpt_mcp.client import (
 )
 from fpt_mcp.tk_config import discover_or_fallback, TkConfigError
 from fpt_mcp.safety import check_dangerous
+from fpt_mcp.software_resolver import resolve_app
 
 _SERVER_DIR = Path(__file__).parent
 
@@ -948,6 +949,141 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 
     except TkConfigError as e:
         return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Software launcher — locate DCC applications and launch them in context
+# ---------------------------------------------------------------------------
+
+
+class FptLaunchAppInput(BaseModel):
+    model_config = _STRICT_CONFIG
+    app: str = Field(
+        description=(
+            "App to launch, case-insensitive. Supported: 'maya'. "
+            "Other DCCs (nuke, houdini, flame) are resolvable but not "
+            "yet wired for context launch — they fall back to 'open'."
+        )
+    )
+    entity_type: str = Field(
+        description=(
+            "ShotGrid entity type the launch is scoped to. One of "
+            "'Asset', 'Shot', 'Sequence', 'Task'."
+        )
+    )
+    entity_id: int = Field(
+        description="ShotGrid entity id."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "If true, resolve the app and return the launch plan WITHOUT "
+            "spawning the process. Useful for UI previews and tests."
+        ),
+    )
+
+
+def _project_id_for_entity(entity_type: str, entity_id: int) -> Optional[int]:
+    """Resolve the Project id that owns a given entity.
+
+    Project entities return their own id. For everything else, we look up
+    the ``project`` field. Returns ``None`` on SG errors so the caller can
+    degrade gracefully to a bare OS-scan result.
+    """
+    if entity_type == "Project":
+        return entity_id
+    try:
+        sg = get_sg()
+        row = sg.find_one(
+            entity_type, [["id", "is", entity_id]], ["project"]
+        )
+    except Exception:
+        return None
+    if not row or not row.get("project"):
+        return None
+    return row["project"].get("id")
+
+
+@mcp.tool(name="fpt_launch_app")
+async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
+    """Launch a DCC application scoped to a ShotGrid entity.
+
+    Discovery is OS-first: if the app is not installed on this machine the
+    tool fails immediately without consulting ShotGrid. When the owning
+    project has an Advanced Setup PipelineConfiguration whose ``tank`` CLI
+    is reachable on disk, the launch is routed through ``tank`` so Toolkit
+    pre-launch hooks run and the app opens in the correct context.
+    Otherwise the tool falls back to a direct ``open -a`` launch and
+    surfaces a warning — the app still opens, but without context
+    injection from Toolkit.
+    """
+    import subprocess
+
+    sg = get_sg()
+    project_id = _project_id_for_entity(params.entity_type, params.entity_id)
+
+    result = resolve_app(
+        params.app,
+        project_id=project_id,
+        sg_find=sg.find,
+    )
+    if result is None:
+        return json.dumps({
+            "error": (
+                f"{params.app} is not installed on this machine; cannot "
+                f"launch. Install the app first and retry."
+            )
+        })
+
+    plan: dict[str, Any] = {
+        "app": result.app,
+        "binary": str(result.binary),
+        "version": result.version,
+        "engine": result.engine,
+        "launch_method": result.launch_method,
+        "tank_command": (
+            str(result.tank_command) if result.tank_command else None
+        ),
+        "pipeline_config_path": (
+            str(result.pipeline_config_path)
+            if result.pipeline_config_path
+            else None
+        ),
+        "entity_type": params.entity_type,
+        "entity_id": params.entity_id,
+        "project_id": project_id,
+        "source_layers": result.source_layers,
+        "warnings": list(result.warnings),
+    }
+
+    if result.launch_method == "tank" and result.tank_command is not None:
+        argv = [
+            str(result.tank_command),
+            params.entity_type,
+            str(params.entity_id),
+            f"launch_{result.app}",
+        ]
+    else:
+        argv = ["open", "-a", str(result.binary)]
+        if result.launch_method != "tank":
+            plan["warnings"].append(
+                "launching without Toolkit context (no tank CLI); the app "
+                "will open but not in the selected entity context"
+            )
+
+    plan["argv"] = argv
+
+    if params.dry_run:
+        plan["dry_run"] = True
+        return json.dumps(plan, default=str)
+
+    try:
+        proc = subprocess.Popen(argv, start_new_session=True)
+        plan["pid"] = proc.pid
+    except Exception as exc:
+        plan["error"] = f"launch failed: {exc}"
+
+    return json.dumps(plan, default=str)
 
 
 # ---------------------------------------------------------------------------
