@@ -1016,6 +1016,24 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     Otherwise the tool falls back to a direct ``open -a`` launch and
     surfaces a warning — the app still opens, but without context
     injection from Toolkit.
+
+    Common failure modes to explain to the user if they surface:
+
+    - ``error: "... is not installed ..."`` — the DCC binary is not under
+      the expected install path. Tell the user to install it and retry.
+    - Popen succeeds but the launched process dies immediately with a
+      tank message like ``EOF when reading a line`` or ``Authentication
+      ... expired``. This means the Toolkit ``tank`` CLI lost its cached
+      session. The user must run ``<PipelineConfiguration>/tank <Entity>
+      <id>`` once in an interactive terminal, authenticate via the
+      browser, and retry. The tool cannot do this because it cannot
+      deliver the browser approval step.
+    - Popen succeeds but tank errors with ``does not exist on disk`` for
+      an engine (e.g. ``tk-shell v0.10.2``). The pipeline config expects
+      bundles under ``<config>/install/`` which are absent. Suggest the
+      user add ``bundle_cache_fallback_roots`` pointing to
+      ``~/Library/Caches/Shotgun/bundle_cache`` in the config's
+      ``pipeline_configuration.yml``.
     """
     import subprocess
 

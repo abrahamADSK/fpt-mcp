@@ -141,7 +141,7 @@ You: "How do I filter Versions by review status using the ShotGrid Python API?"
 Claude → search_sg_docs (status filter operators, Version entity) → Returns verified filter syntax, valid operator names, and a working code example from the RAG knowledge base
 ```
 
-## Tools (18)
+## Tools (19)
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
 
@@ -170,6 +170,12 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `tk_resolve_path` | Resolve publish path from the project's real PipelineConfiguration |
 | `tk_publish` | Publish file: resolve path, copy file, find/create PublishedFileType, link Task, register in ShotGrid |
 
+### Launcher (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `fpt_launch_app` | Launch a DCC (Maya today) scoped to a ShotGrid entity. OS-first discovery, Toolkit `tank` routing when available, `open -a` fallback. Returns a launch plan with `pid`, `argv`, `launch_method`, `warnings`. See [Launcher prerequisites](#launcher-prerequisites) before first use. |
+
 ### RAG — API Knowledge Engine (3 tools)
 
 | Tool | Description |
@@ -193,6 +199,50 @@ The server queries the `PipelineConfiguration` entity from ShotGrid, reads the l
 If no `PipelineConfiguration` is found, `tk_publish` asks for an explicit publish path. The file is copied to the given location and registered as a PublishedFile in ShotGrid. If the project has a Local File Storage configured (ShotGrid → File Management → Local File Storage), the path will be resolvable from the ShotGrid web UI. Without Local Storage, the path is still stored in the PublishedFile `path` field and accessible to any script or loader that reads it.
 
 The `tk_config.py` module reads whatever Toolkit config is installed — default, custom, or forked.
+
+### Launcher prerequisites
+
+`fpt_launch_app` uses an OS-first resolver (`software_resolver.py`) to find the DCC binary on the local machine, then upgrades the launch to route through Toolkit's `tank` CLI when the project has an Advanced Setup PipelineConfiguration. On fresh machines, two one-time setup steps are required before the tool can launch a DCC in context:
+
+**1. Tank CLI authentication (per user, per site)**
+
+Toolkit's `tank` CLI has its own browser-based authentication, separate from the script key used by the ShotGrid Python API. The cached session expires periodically. On first use (or after expiry), you must run once interactively:
+
+```bash
+/path/to/PipelineConfiguration/tank <EntityType> <entity_id>
+```
+
+The CLI will open a browser for Autodesk SSO, approve, and the session token is cached under `~/Library/Caches/Shotgun/<site>/`. After that, all subsequent tank invocations — including the ones `fpt_launch_app` spawns — work non-interactively.
+
+If you see an error like `EOF when reading a line` or `Authentication ... expired` when calling `fpt_launch_app`, your tank session needs a refresh via the manual step above.
+
+**2. `bundle_cache_fallback_roots` in pipeline_configuration.yml**
+
+Classic Advanced Setup configs created by `setup_project` expect bundles (engines, apps, frameworks) to live under `<config>/install/engines/`, `<config>/install/apps/`, etc. When the config was set up without running the bundle-cache step, or when it shares bundles with other projects via the global ShotGrid cache, the local `install/` directory will only contain `core/` and tank will fail with `Cannot start engine! tk-shell v<X> does not exist on disk`.
+
+Fix by adding a fallback path to `<config>/config/core/pipeline_configuration.yml`:
+
+```yaml
+pc_id: <project-pc-id>
+pc_name: Primary
+project_id: <project-id>
+project_name: <project-name>
+published_file_entity_type: PublishedFile
+use_shotgun_path_cache: true
+bundle_cache_fallback_roots:
+  - /Users/<you>/Library/Caches/Shotgun/bundle_cache
+```
+
+This is an additive change: classic localized bundles under `<config>/install/` still win when present; the fallback kicks in only for bundles that are not in the local install dir but exist in the global ShotGrid cache from a previous FPT Desktop sync.
+
+**3. Tank command naming convention**
+
+`tk-multi-launchapp` registers its launcher command under two common names depending on the pipeline:
+
+- `launch_<app>` — the default when the pipeline exposes a single DCC version.
+- `<app>_<version>` — the convention when the pipeline registers one launcher per installed version (`maya_2027`, `nuke_16.0v4`, etc.).
+
+`fpt_launch_app` prefers the version-specific form when the OS scan parses a version from the install path, and falls back to `launch_<app>` otherwise. Pipelines with yet another convention will need a wrapper that maps to the right tank command.
 
 ## RAG — Anti-hallucination Engine
 
