@@ -1057,11 +1057,25 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     }
 
     if result.launch_method == "tank" and result.tank_command is not None:
+        # tk-multi-launchapp registers its command under two common
+        # conventions depending on the pipeline:
+        #   1. launch_<app>      — default, single DCC version per config
+        #   2. <app>_<version>   — multi-version pipelines that register
+        #                          one launcher per installed version
+        # We prefer pattern 2 when we have a version string from the OS
+        # scan, since it is unambiguous across pipelines that expose both
+        # a specific Maya release and legacy generic launchers. Callers
+        # whose pipeline uses a non-standard convention should launch
+        # Maya via a wrapper that maps to the right tank command.
+        if result.version:
+            cmd_name = f"{result.app}_{result.version}"
+        else:
+            cmd_name = f"launch_{result.app}"
         argv = [
             str(result.tank_command),
             params.entity_type,
             str(params.entity_id),
-            f"launch_{result.app}",
+            cmd_name,
         ]
     else:
         argv = ["open", "-a", str(result.binary)]

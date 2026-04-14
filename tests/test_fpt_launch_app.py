@@ -137,10 +137,40 @@ class TestFptLaunchAppTool:
         assert data["launch_method"] == "tank"
         assert data["project_id"] == 1244
         assert data["argv"] == [
-            str(resolved_tank.tank_command), "Asset", "42", "launch_maya"
+            str(resolved_tank.tank_command), "Asset", "42", "maya_2027"
         ]
         assert "pid" not in data
         assert data["source_layers"] == ["os_scan", "toolkit_yaml", "sg_software"]
+
+    def test_tank_fallback_to_launch_app_when_no_version(
+        self, fake_sg, tmp_path: Path
+    ):
+        """When the OS scan cannot parse a version, fall back to the
+        generic ``launch_<app>`` tank command instead of ``<app>_<ver>``."""
+        binary = tmp_path / "mayaRC" / "Maya.app"
+        binary.mkdir(parents=True)
+        tank = tmp_path / "tank"
+        tank.write_text("#!/bin/sh", encoding="utf-8")
+        tank.chmod(0o755)
+        versionless = ResolvedApp(
+            app="maya",
+            binary=binary,
+            version=None,
+            engine="tk-maya",
+            launch_method="tank",
+            tank_command=tank,
+            pipeline_config_path=tmp_path,
+            source_layers=["os_scan", "toolkit_yaml"],
+            warnings=[],
+        )
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Asset", entity_id=42, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=versionless):
+            raw = _run(fpt_launch_app_tool(params))
+        data = json.loads(raw)
+        assert data["argv"][-1] == "launch_maya"
 
     def test_open_fallback_adds_warning(self, fake_sg, resolved_open):
         params = FptLaunchAppInput(
@@ -169,7 +199,7 @@ class TestFptLaunchAppTool:
         popen.assert_called_once()
         call_argv = popen.call_args[0][0]
         assert call_argv[0] == str(resolved_tank.tank_command)
-        assert call_argv[-1] == "launch_maya"
+        assert call_argv[-1] == "maya_2027"
         # start_new_session must be set so the launched Maya survives the
         # MCP server process if the server is restarted.
         assert popen.call_args.kwargs.get("start_new_session") is True
