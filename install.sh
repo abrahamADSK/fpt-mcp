@@ -288,6 +288,7 @@ TOOLS = [
     "sg_upload", "sg_download", "sg_batch", "sg_text_search", "sg_summarize",
     "sg_revive", "sg_note_thread", "sg_activity",
     "tk_resolve_path", "tk_publish",
+    "fpt_launch_app",
     "search_sg_docs", "learn_pattern", "session_stats",
 ]
 PREFIX = "mcp__fpt-mcp__"
@@ -318,8 +319,8 @@ print(f"[fpt-mcp] {new_count} new tools pre-approved ({len(merged)} total in ~/.
 PYEOF
 
 if [[ $? -eq 0 ]]; then
-    success "18 fpt-mcp tools pre-approved in ~/.claude/settings.json"
-    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (18 tools)")
+    success "19 fpt-mcp tools pre-approved in ~/.claude/settings.json"
+    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (19 tools)")
 else
     warn "Tool pre-approval failed — you may see permission prompts on first use"
     STEPS_WARN+=("MCP tool pre-approval failed — run manually or approve at first prompt")
