@@ -95,7 +95,39 @@ When the user asks to create/generate/model something 3D, follow these steps in 
 
    PROGRESS: every time you call maya_vision3d(action='poll'), show the new_log_lines to the user as-is (lines like "[1/6] Loading shape pipeline...", "═══ PHASE 1/2: SHAPE GENERATION ═══", etc). This gives progress visibility.
 
-6. POST-CREATION: offer `maya_session(action='save_scene', params={...})` and `tk_publish` to save the Maya scene and register a PublishedFile.
+6. POST-CREATION — save, export, publish, and preview:
+
+   a) SAVE Maya scene:
+      maya_session(action='save_scene', params={...})
+
+   b) EXPORT interchange formats via execute_python:
+      - USD: `cmds.file('<path>.usd', force=True, type='USD Export', exportAll=True)`
+      - FBX: `cmds.file('<path>.fbx', force=True, type='FBX export', exportAll=True)`
+      The GLB and OBJ from Vision3D download are already on disk — no re-export needed.
+
+   c) PUBLISH all formats via tk_publish (one call per format, same entity):
+      - tk_publish(entity_type, entity_id, publish_type="Maya Scene", step="model", local_path=<.mb>)
+      - tk_publish(entity_type, entity_id, publish_type="USD", step="model", local_path=<.usd>)
+      - tk_publish(entity_type, entity_id, publish_type="FBX", step="model", local_path=<.fbx>)
+      - tk_publish(entity_type, entity_id, publish_type="GLB", step="model", local_path=<.glb>)
+      - tk_publish(entity_type, entity_id, publish_type="Texture", step="model", local_path=<.png>)
+      Template matching is convention-based: publish_type "USD" matches template `usd_asset_publish`.
+
+   d) TURNTABLE preview (for Assets — skip for Shots):
+      Generate an orbit render around the asset for ShotGrid preview/thumbnail:
+      1. maya_session(action='execute_python') with code that:
+         - Computes bounding box of scene geometry
+         - Creates an Arnold camera at 1.5x the bounding radius, aimed at center
+         - Creates a 3-point light rig (key + fill + rim)
+         - Sets timeline to 90 frames, keyframes camera orbiting 360°
+         - Playblasts to a .mov file (viewport 2.0, 1920x1080, HUD off)
+      2. tk_publish(entity_type, entity_id, publish_type="Movie", step="model",
+                    local_path=<.mov>, name="turntable")
+      3. sg_upload(entity_type, entity_id, field_name="sg_uploaded_movie",
+                   file_path=<.mov>)  — this makes the turntable appear as ShotGrid preview
+
+   Offer all of this as: "Save + publish in all formats and generate turntable preview? (yes/no)"
+   If the user says yes, execute steps a-d sequentially. If no, just save the scene.
 
 ═══════════════════════════════════════════════════════════════════════
 OTHER FLOWS

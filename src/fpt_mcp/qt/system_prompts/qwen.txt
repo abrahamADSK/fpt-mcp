@@ -86,7 +86,26 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
    Manual Maya: maya_create_primitive + maya_transform + maya_assign_material
 
-6. After: offer `maya_session(action='save_scene', params={...})` and `tk_publish`.
+6. POST-CREATION — save, export, publish, preview:
+
+   a) Save: maya_session(action='save_scene', params={...})
+   b) Export interchange via execute_python:
+      - USD: `cmds.file('<path>.usd', force=True, type='USD Export', exportAll=True)`
+      - FBX: `cmds.file('<path>.fbx', force=True, type='FBX export', exportAll=True)`
+      GLB and OBJ from Vision3D download are already on disk.
+   c) Publish all formats (one tk_publish per format, same entity):
+      - publish_type="Maya Scene" → template maya_asset_publish
+      - publish_type="USD" → template usd_asset_publish
+      - publish_type="FBX" → template fbx_asset_publish
+      - publish_type="GLB" → template glb_asset_publish
+      - publish_type="Texture" → template texture_asset_publish
+   d) Turntable preview (Assets only):
+      1. execute_python: compute bbox, create camera at 1.5x radius aimed at center,
+         3-point light rig, 90 frames, keyframe 360° orbit, playblast to .mov
+      2. tk_publish(publish_type="Movie", name="turntable", local_path=<.mov>)
+      3. sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>) → SG preview
+
+   Offer: "Save + publish all formats + turntable? (yes/no)". Execute a-d if yes, just save if no.
 
 ═══ OTHER WORKFLOWS ═══
 - ShotGrid query/update → sg_find / sg_update
