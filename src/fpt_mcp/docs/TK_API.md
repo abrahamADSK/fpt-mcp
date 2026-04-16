@@ -301,11 +301,11 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `maya_asset_publish`: `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
 - `nuke_asset_publish`: `@asset_root/publish/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_asset_publish`: `@asset_root/publish/houdini/{name}.v{version}.{houdini_extension}`
-- `houdini_asset_publish_alembic_cache`: `@asset_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
+- `asset_alembic_cache`: `@asset_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
 - `photoshop_asset_publish`: `@asset_root/publish/photoshop/{name}.v{version}.psd`
 - `aftereffects_asset_publish`: `@asset_root/publish/afx/{name}.v{version}.aep`
-- `3dsmax_asset_publish`: `@asset_root/publish/3dsmax/{name}.v{version}.max`
-- `motionbuilder_asset_publish`: `@asset_root/publish/mobu/{name}.v{version}.fbx`
+- `max_asset_publish`: `@asset_root/publish/3dsmax/{name}.v{version}.max`
+- `mobu_asset_publish`: `@asset_root/publish/mobu/{name}.v{version}.fbx`
 - `alias_asset_publish`: `@asset_root/publish/alias/{name}.v{version}.wire`
 - `vred_asset_publish`: `@asset_root/publish/vred/{name}.v{version}.vpb`
 
@@ -319,7 +319,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 ### Asset render/image templates
 
 - `asset_alembic_cache`: `@asset_root/publish/caches/{name}.v{version}.abc`
-- `photoshop_asset_publish_image`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
+- `photoshop_asset_jpg_publish`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
 
 ### Shot work templates
 
@@ -338,12 +338,12 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `maya_shot_publish`: `@shot_root/publish/maya/{name}.v{version}.{maya_extension}`
 - `nuke_shot_publish`: `@shot_root/publish/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_shot_publish`: `@shot_root/publish/houdini/{name}.v{version}.{houdini_extension}`
-- `houdini_shot_publish_alembic_cache`: `@shot_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
+- `shot_alembic_cache`: `@shot_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
 - `photoshop_shot_publish`: `@shot_root/publish/photoshop/{name}.v{version}.psd`
 - `aftereffects_shot_publish`: `@shot_root/publish/afx/{name}.v{version}.aep`
-- `3dsmax_shot_publish`: `@shot_root/publish/3dsmax/{name}.v{version}.max`
-- `motionbuilder_shot_publish`: `@shot_root/publish/mobu/{name}.v{version}.fbx`
-- `flame_shot_publish`: `@shot_root/publish/flame/{name}.v{version}.clip`
+- `max_shot_publish`: `@shot_root/publish/3dsmax/{name}.v{version}.max`
+- `mobu_shot_publish`: `@shot_root/publish/mobu/{name}.v{version}.fbx`
+- `flame_shot_render_exr`: `@shot_root/publish/flame/{name}.v{version}.clip`
 
 ### Shot snapshot templates
 
@@ -360,8 +360,8 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `nuke_shot_render_stereo`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `houdini_shot_render`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `houdini_shot_publish_render`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `photoshop_shot_publish_image`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
+- `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
+- `photoshop_shot_jpg_publish`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
 
 ### Review templates (Quicktime/MOV for dailies)
 
@@ -414,8 +414,8 @@ code in ShotGrid, which determines what each DCC's loader can pick up.
 | Houdini Scene | houdini_asset_publish | houdini_shot_publish | No |
 | Photoshop | photoshop_asset_publish | photoshop_shot_publish | No |
 | After Effects | aftereffects_asset_publish | aftereffects_shot_publish | No |
-| 3ds Max | max_asset_publish | max_shot_publish | No |
-| MotionBuilder | mobu_asset_publish | mobu_shot_publish | No |
+| 3ds Max | `max_asset_publish` | `max_shot_publish` | No |
+| MotionBuilder | `mobu_asset_publish` | `mobu_shot_publish` | No |
 
 ## Path resolution example
 
