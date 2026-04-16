@@ -432,7 +432,14 @@ class ChatWindow(QMainWindow):
         """Update the ShotGrid context after window creation.
 
         Called by FPTApplication when a protocol URL arrives via Apple Event.
+        Resets conversation history when the entity changes so Claude does
+        not carry stale context from the previous entity.
         """
+        old_entity = (
+            self._context.get("entity_type"),
+            self._context.get("entity_id"),
+        )
+
         if ctx.get("entity_type"):
             self._context["entity_type"] = ctx["entity_type"]
         if ctx.get("entity_id"):
@@ -443,6 +450,16 @@ class ChatWindow(QMainWindow):
             self._context["project_name"] = ctx["project_name"]
         if ctx.get("user_login"):
             self._context["user_login"] = ctx["user_login"]
+
+        new_entity = (
+            self._context.get("entity_type"),
+            self._context.get("entity_id"),
+        )
+
+        # Reset history and chat display when switching to a different entity
+        if old_entity != new_entity and any(old_entity):
+            self._history = []
+            self._chat.clear()
 
         # Update the badge
         if self._context.get("entity_type") and self._context.get("entity_id"):
