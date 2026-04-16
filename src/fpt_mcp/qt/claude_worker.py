@@ -205,6 +205,7 @@ class ClaudeWorker(QThread):
         "tk_publish": "Publishing to ShotGrid",
         "search_sg_docs": "Searching ShotGrid documentation",
         "learn_pattern": "Learning validated pattern",
+        "fpt_launch_app": "Launching DCC application",
         "session_stats": "Fetching session statistics",
         # maya-mcp — direct tools (not dispatchers)
         "maya_create_primitive": "Creating primitive in Maya",
