@@ -226,6 +226,16 @@ _STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
 # (the natural shape from JSON) without forcing the LLM to use enum
 # member syntax.
 
+# Entity types that live inside a project.  Queries for these without a
+# project filter return results from ALL projects on the ShotGrid site,
+# which is almost never what the user wants.  The guard in sg_find_tool
+# injects a warning when PROJECT_ID is unset or add_project_filter is False.
+_PROJECT_SCOPED_ENTITIES: frozenset[str] = frozenset({
+    "Asset", "Shot", "Sequence", "Task", "Version", "Note",
+    "PublishedFile", "Playlist", "TimeLog", "Milestone",
+    "CustomEntity01", "CustomEntity02", "CustomEntity03",
+})
+
 _VALID_FILTER_OPERATORS: frozenset[str] = frozenset({
     # Equality / containment
     "is", "is_not",
@@ -507,6 +517,22 @@ async def sg_find_tool(params: SgFindInput) -> str:
         return json.dumps({"safety_warning": warning})
 
     filters = list(params.filters)
+    project_warning = None
+    is_scoped = params.entity_type in _PROJECT_SCOPED_ENTITIES
+
+    if is_scoped and not PROJECT_ID:
+        project_warning = (
+            f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
+            f"This {params.entity_type} query spans ALL projects on the site. "
+            f"Set SHOTGRID_PROJECT_ID in .env or add a project filter manually."
+        )
+    elif is_scoped and not params.add_project_filter:
+        project_warning = (
+            f"⚠️  add_project_filter=false on a project-scoped entity "
+            f"({params.entity_type}). Results may include entities from "
+            f"other projects. Active project: {PROJECT_ID}."
+        )
+
     if params.add_project_filter and PROJECT_ID:
         filters.append(["project", "is", {"type": "Project", "id": PROJECT_ID}])
 
@@ -515,6 +541,8 @@ async def sg_find_tool(params: SgFindInput) -> str:
         order=params.order, limit=params.limit,
     )
     payload: dict[str, Any] = {"total": len(results), "entities": results}
+    if project_warning:
+        payload["project_scope_warning"] = project_warning
     warning = _rag_skipped_warning()
     if warning:
         payload.update(warning)
@@ -1198,7 +1226,16 @@ async def _do_sg_text_search(params: dict) -> str:
     entity_types = json.loads(validated.entity_types)
     project_ids = [PROJECT_ID] if PROJECT_ID else None
     results = await sg_text_search(validated.text, entity_types, project_ids=project_ids, limit=validated.limit)
-    out = json.dumps(results, default=str)
+    payload: dict[str, Any] = results if isinstance(results, dict) else {"results": results}
+    if not PROJECT_ID:
+        scoped = [et for et in entity_types if et in _PROJECT_SCOPED_ENTITIES]
+        if scoped:
+            payload["project_scope_warning"] = (
+                f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
+                f"text_search for {', '.join(scoped)} spans ALL projects. "
+                f"Set SHOTGRID_PROJECT_ID in .env to scope results."
+            )
+    out = json.dumps(payload, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
 
