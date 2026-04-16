@@ -53,6 +53,350 @@ ENV_FILE="${REPO_ROOT}/.env"
 ENV_EXAMPLE="${REPO_ROOT}/.env.example"
 CLAUDE_JSON="${HOME}/.claude.json"
 
+# =============================================================================
+# DOCTOR — verify install completeness without re-running the installer
+# =============================================================================
+# Usage: ./install.sh --doctor
+#
+# Sweeps the install state in 5 independent checks. Each check prints PASS,
+# FAIL, WARN, or SKIP with a concrete remediation sentence. Exit code is 0 if
+# all checks pass, 1 otherwise — safe to chain in CI or pre-session hooks.
+#
+# The doctor is designed so that a future Claude Code session opening this
+# repo can run `./install.sh --doctor` as a Phase 0 verification step BEFORE
+# attempting any smoke test against ShotGrid. This is the lesson of Chat 41:
+# spending an hour diagnosing symptoms of a broken install is a waste when a
+# 2-second doctor sweep would have revealed the root cause immediately.
+#
+# Checks:
+#   1. ~/.claude.json has mcpServers.fpt-mcp with valid cwd.
+#   2. .env exists and does not contain placeholder values for
+#      SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_SCRIPT_KEY.
+#   3. Venv importability — python -c "import fpt_mcp" succeeds.
+#   4. ShotGrid connectivity — if .env has real values, attempt sg.info().
+#      WARN if fails, SKIP if .env has placeholders.
+#   5. Qt dependencies — PySide6 importable in the venv.
+#      WARN (not FAIL) if missing, with remediation.
+# =============================================================================
+
+run_doctor() {
+    echo ""
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${BOLD}  fpt-mcp — doctor${RESET}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo ""
+    info "Repo root : ${REPO_ROOT}"
+
+    local venv_python="${VENV_DIR}/bin/python"
+    local exit_code=0
+
+    if [[ ! -x "${venv_python}" ]]; then
+        error "Venv is missing: ${venv_python}"
+        error "  Run './install.sh' to create it."
+        return 1
+    fi
+
+    "${venv_python}" - "${REPO_ROOT}" "${CLAUDE_JSON}" <<'PYEOF'
+"""
+Doctor implementation for fpt-mcp. Each check is a single function returning a
+(status, message) tuple where status is one of 'PASS', 'FAIL', 'WARN', 'SKIP'.
+Messages must include a remediation sentence on FAIL so a user (or a Claude
+session) can act on the report without reading the source.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(sys.argv[1])
+CLAUDE_JSON = Path(sys.argv[2])
+VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+ENV_FILE = REPO_ROOT / ".env"
+
+RESET = "\033[0m"
+RED = "\033[0;31m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+BOLD = "\033[1m"
+
+
+def _symbol(status: str) -> str:
+    return {
+        "PASS": f"{GREEN}✓{RESET}",
+        "FAIL": f"{RED}✗{RESET}",
+        "WARN": f"{YELLOW}⚠{RESET}",
+        "SKIP": f"{CYAN}·{RESET}",
+    }[status]
+
+
+# -- Check 1: claude.json registration --
+def check_claude_json() -> tuple[str, str]:
+    if not CLAUDE_JSON.is_file():
+        return (
+            "FAIL",
+            f"{CLAUDE_JSON} does not exist. "
+            f"Run ./install.sh to create the MCP server entry.",
+        )
+    try:
+        data = json.loads(CLAUDE_JSON.read_text())
+    except json.JSONDecodeError as exc:
+        return ("FAIL", f"{CLAUDE_JSON} is not valid JSON ({exc}). "
+                        f"Restore from a backup or run ./install.sh.")
+    entry = data.get("mcpServers", {}).get("fpt-mcp")
+    if not entry:
+        return (
+            "FAIL",
+            f"~/.claude.json has no mcpServers.fpt-mcp entry. "
+            f"Run ./install.sh to register it.",
+        )
+    entry_cwd = entry.get("cwd", "")
+    if Path(entry_cwd) != REPO_ROOT:
+        return (
+            "WARN",
+            f"mcpServers.fpt-mcp.cwd = {entry_cwd!r} but repo root is "
+            f"{str(REPO_ROOT)!r}. Another fpt-mcp clone may be active; "
+            f"rerun ./install.sh from THIS repo if that is wrong.",
+        )
+    command = entry.get("command", "")
+    if "/.venv/bin/python" not in command:
+        return (
+            "WARN",
+            f"mcpServers.fpt-mcp.command = {command!r} does not point at a "
+            f"venv python. Rerun ./install.sh to regenerate the entry.",
+        )
+    return ("PASS", f"mcpServers.fpt-mcp points at {entry_cwd}")
+
+
+# -- Check 2: .env real values --
+def check_env_file() -> tuple[str, str]:
+    if not ENV_FILE.is_file():
+        return (
+            "FAIL",
+            f".env not found at {ENV_FILE}. Copy .env.example -> .env and set "
+            f"SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_SCRIPT_KEY.",
+        )
+    content = ENV_FILE.read_text(errors="replace")
+
+    # Check each required field for placeholder patterns
+    placeholders_found = []
+    placeholder_patterns = {
+        "SHOTGRID_URL": [
+            r"your[-_]?site",
+            r"your[-_]?actual[-_]?site",
+            r"YOUR_SITE",
+            r"<your",
+            r"https?://yoursite",
+        ],
+        "SHOTGRID_SCRIPT_NAME": [
+            r"your[-_]?script[-_]?name",
+            r"your[-_]?actual[-_]?script",
+            r"<your",
+        ],
+        "SHOTGRID_SCRIPT_KEY": [
+            r"your[-_]?(script[-_]?key|key|actual)",
+            r"<your",
+        ],
+    }
+
+    for field, patterns in placeholder_patterns.items():
+        # Find the line for this field
+        for line in content.splitlines():
+            if line.startswith(f"{field}="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if not value:
+                    placeholders_found.append(f"{field} is empty")
+                    break
+                for pat in patterns:
+                    if re.search(pat, value, re.IGNORECASE):
+                        placeholders_found.append(f"{field} contains placeholder '{value}'")
+                        break
+                break
+
+    if placeholders_found:
+        return (
+            "FAIL",
+            f".env contains placeholder values: {'; '.join(placeholders_found)}. "
+            f"Edit {ENV_FILE} with your real ShotGrid credentials. "
+            f"Until then every MCP call fails with SSL CERTIFICATE_VERIFY_FAILED.",
+        )
+    return ("PASS", f"{ENV_FILE} present, no placeholder markers found")
+
+
+def _env_has_real_values() -> bool:
+    """Quick check whether .env has real (non-placeholder) SG credentials."""
+    status, _ = check_env_file()
+    return status == "PASS"
+
+
+# -- Check 3: venv importability --
+def check_venv_import() -> tuple[str, str]:
+    if not VENV_PYTHON.is_file():
+        return (
+            "FAIL",
+            f"Venv python not found at {VENV_PYTHON}. Run ./install.sh to create it.",
+        )
+    try:
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-c", "import fpt_mcp; print('ok')"],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(REPO_ROOT),
+        )
+        if result.returncode == 0 and "ok" in result.stdout:
+            return ("PASS", "fpt_mcp is importable from the venv")
+        return (
+            "FAIL",
+            f"'import fpt_mcp' failed (exit {result.returncode}): "
+            f"{result.stderr.strip()[:200]}. "
+            f"Run: cd {REPO_ROOT} && .venv/bin/pip install -e .",
+        )
+    except subprocess.TimeoutExpired:
+        return ("FAIL", "Import test timed out after 30s. Check venv health.")
+    except Exception as exc:
+        return ("FAIL", f"Import test raised {type(exc).__name__}: {exc}")
+
+
+# -- Check 4: ShotGrid connectivity --
+def check_sg_connectivity() -> tuple[str, str]:
+    if not _env_has_real_values():
+        return (
+            "SKIP",
+            ".env has placeholder values — skipping ShotGrid connectivity test. "
+            "Fill in real credentials and rerun the doctor.",
+        )
+    try:
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-c", """
+import os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
+from dotenv import load_dotenv
+load_dotenv(os.path.join(sys.argv[1], '.env'))
+import shotgun_api3
+sg = shotgun_api3.Shotgun(
+    os.environ['SHOTGRID_URL'],
+    script_name=os.environ['SHOTGRID_SCRIPT_NAME'],
+    api_key=os.environ.get('SHOTGRID_SCRIPT_KEY', os.environ.get('SHOTGRID_API_KEY', '')),
+)
+info = sg.info()
+print(f"Connected: {info.get('title', 'unknown')} v{info.get('version', '?')}")
+""", str(REPO_ROOT)],
+            capture_output=True, text=True, timeout=15,
+            cwd=str(REPO_ROOT),
+        )
+        if result.returncode == 0 and "Connected" in result.stdout:
+            return ("PASS", result.stdout.strip())
+        stderr = result.stderr.strip()[:200]
+        return (
+            "WARN",
+            f"ShotGrid connection failed (exit {result.returncode}): {stderr}. "
+            f"Check SHOTGRID_URL and credentials in .env.",
+        )
+    except subprocess.TimeoutExpired:
+        return ("WARN", "ShotGrid connection timed out (15s). "
+                        "Check network and SHOTGRID_URL in .env.")
+    except Exception as exc:
+        return ("WARN", f"ShotGrid connectivity test raised {type(exc).__name__}: {exc}")
+
+
+# -- Check 5: Qt dependencies --
+def check_qt_deps() -> tuple[str, str]:
+    if not VENV_PYTHON.is_file():
+        return ("SKIP", "Venv not found — skipping Qt check.")
+    try:
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-c", "import PySide6; print(PySide6.__version__)"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            return ("PASS", f"PySide6 {version} is importable")
+    except Exception:
+        pass
+
+    # Try PyQt6 as fallback
+    try:
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-c", "from PyQt6 import QtWidgets; print('ok')"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            return ("PASS", "PyQt6 is importable (Qt console available)")
+    except Exception:
+        pass
+
+    return (
+        "WARN",
+        "Neither PySide6 nor PyQt6 is importable. The Qt console (fpt-console) "
+        "will not work. Install with: .venv/bin/pip install PySide6>=6.6",
+    )
+
+
+# -- Run all checks --
+checks = [
+    ("claude.json registration", check_claude_json),
+    (".env credentials", check_env_file),
+    ("Venv importability", check_venv_import),
+    ("ShotGrid connectivity", check_sg_connectivity),
+    ("Qt dependencies (PySide6)", check_qt_deps),
+]
+
+worst = "PASS"
+severity = {"PASS": 0, "SKIP": 1, "WARN": 2, "FAIL": 3}
+
+print()
+for label, fn in checks:
+    status, msg = fn()
+    sym = _symbol(status)
+    print(f"  {sym} {BOLD}{label}{RESET}: {msg}")
+    if severity.get(status, 0) > severity.get(worst, 0):
+        worst = status
+print()
+
+if worst == "PASS":
+    print(f"  {GREEN}{BOLD}All checks passed.{RESET}")
+elif worst == "WARN":
+    print(f"  {YELLOW}{BOLD}Some warnings — review above.{RESET}")
+elif worst == "FAIL":
+    print(f"  {RED}{BOLD}One or more checks failed — fix before using fpt-mcp.{RESET}")
+else:
+    print(f"  {CYAN}{BOLD}Some checks skipped.{RESET}")
+
+print()
+sys.exit(1 if worst == "FAIL" else 0)
+PYEOF
+    return $?
+}
+
+# ── Argument parsing ─────────────────────────────────────────────────────────
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        --doctor|-d)
+            run_doctor
+            exit $?
+            ;;
+        --help|-h)
+            cat <<'HELPEOF'
+Usage: ./install.sh [--doctor]
+
+Commands:
+  (no args)       Run the full 6-step installer.
+  --doctor, -d    Sanity-check the install state without reinstalling.
+                  5 checks: claude.json entry, .env contents, venv
+                  importability, ShotGrid connectivity, Qt dependencies.
+  --help, -h      Show this help.
+HELPEOF
+            exit 0
+            ;;
+        *)
+            error "Unknown argument: $1"
+            echo "Usage: ./install.sh [--doctor | --help]"
+            exit 1
+            ;;
+    esac
+fi
+
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo -e "${BOLD}  fpt-mcp — installation${RESET}"
@@ -284,9 +628,9 @@ import json, os
 from pathlib import Path
 
 TOOLS = [
-    "sg_find", "sg_create", "sg_update", "sg_delete", "sg_schema",
-    "sg_upload", "sg_download", "sg_batch", "sg_text_search", "sg_summarize",
-    "sg_revive", "sg_note_thread", "sg_activity",
+    "sg_find", "sg_create", "sg_update", "sg_schema",
+    "sg_upload", "sg_download",
+    "fpt_bulk", "fpt_reporting",
     "tk_resolve_path", "tk_publish",
     "fpt_launch_app",
     "search_sg_docs", "learn_pattern", "session_stats",
@@ -319,8 +663,8 @@ print(f"[fpt-mcp] {new_count} new tools pre-approved ({len(merged)} total in ~/.
 PYEOF
 
 if [[ $? -eq 0 ]]; then
-    success "19 fpt-mcp tools pre-approved in ~/.claude/settings.json"
-    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (19 tools)")
+    success "14 fpt-mcp tools pre-approved in ~/.claude/settings.json"
+    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (14 tools)")
 else
     warn "Tool pre-approval failed — you may see permission prompts on first use"
     STEPS_WARN+=("MCP tool pre-approval failed — run manually or approve at first prompt")

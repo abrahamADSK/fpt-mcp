@@ -80,12 +80,20 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Or use the automated setup (creates venv + launchd service + Qt console app on macOS):
+Or use the automated installer (creates venv, installs deps, builds RAG index, registers in Claude Code, pre-approves tools):
 
 ```bash
-chmod +x setup_venv.sh
-./setup_venv.sh
+chmod +x install.sh
+./install.sh
 ```
+
+After installing, run the doctor to verify everything is wired correctly:
+
+```bash
+./install.sh --doctor
+```
+
+A legacy `setup_venv.sh` script also exists (creates venv + launchd service + Qt console .app bundle on macOS) but `install.sh` is the recommended entry point.
 
 ## Configure (MANDATORY — do not skip)
 
@@ -141,27 +149,37 @@ You: "How do I filter Versions by review status using the ShotGrid Python API?"
 Claude → search_sg_docs (status filter operators, Version entity) → Returns verified filter syntax, valid operator names, and a working code example from the RAG knowledge base
 ```
 
-## Tools (19)
+## Tools (14 MCP tool registrations — dispatcher pattern)
 
-General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field.
+General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field. Bulk and reporting operations are consolidated behind two dispatcher tools to reduce tool-count overhead for the LLM.
 
-### ShotGrid API (13 tools)
+### ShotGrid API — Direct Tools (6 tools)
 
 | Tool | Description |
 |------|-------------|
 | `sg_find` | Search any entity type with any filters and fields |
 | `sg_create` | Create any entity with any fields (project auto-linked) |
 | `sg_update` | Update any field on any entity |
-| `sg_delete` | Soft-delete (retire) any entity |
-| `sg_revive` | Restore a soft-deleted entity from trash |
-| `sg_batch` | Transactional bulk operations — all succeed or all fail |
 | `sg_schema` | Inspect available fields for any entity type |
 | `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
 | `sg_download` | Download attachment from any entity field |
-| `sg_text_search` | Full-text search across multiple entity types simultaneously |
-| `sg_summarize` | Server-side aggregation: count, sum, avg, min, max with grouping |
-| `sg_note_thread` | Read the full reply thread of a Note with all nested replies |
-| `sg_activity` | Read the activity stream (updates, status changes, notes) for an entity |
+
+### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 3 actions)
+
+| Action | Description |
+|--------|-------------|
+| `fpt_bulk(action="delete")` | Soft-delete (retire) any entity. Can be restored from trash |
+| `fpt_bulk(action="revive")` | Restore a previously retired entity |
+| `fpt_bulk(action="batch")` | Transactional bulk operations — all succeed or all fail |
+
+### ShotGrid API — Reporting Dispatcher (`fpt_reporting` — 1 tool, 4 actions)
+
+| Action | Description |
+|--------|-------------|
+| `fpt_reporting(action="text_search")` | Full-text search across multiple entity types simultaneously |
+| `fpt_reporting(action="summarize")` | Server-side aggregation: count, sum, avg, min, max with grouping |
+| `fpt_reporting(action="note_thread")` | Read the full reply thread of a Note with all nested replies |
+| `fpt_reporting(action="activity")` | Read the activity stream (updates, status changes, notes) for an entity |
 
 ### Toolkit (2 tools)
 
@@ -460,16 +478,12 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "mcp__fpt-mcp__sg_find",
       "mcp__fpt-mcp__sg_create",
       "mcp__fpt-mcp__sg_update",
-      "mcp__fpt-mcp__sg_delete",
       "mcp__fpt-mcp__sg_schema",
       "mcp__fpt-mcp__sg_upload",
       "mcp__fpt-mcp__sg_download",
-      "mcp__fpt-mcp__sg_batch",
-      "mcp__fpt-mcp__sg_revive",
-      "mcp__fpt-mcp__sg_text_search",
-      "mcp__fpt-mcp__sg_summarize",
-      "mcp__fpt-mcp__sg_note_thread",
-      "mcp__fpt-mcp__sg_activity",
+      "mcp__fpt-mcp__fpt_bulk",
+      "mcp__fpt-mcp__fpt_reporting",
+      "mcp__fpt-mcp__fpt_launch_app",
       "mcp__fpt-mcp__tk_resolve_path",
       "mcp__fpt-mcp__tk_publish",
       "mcp__fpt-mcp__search_sg_docs",
@@ -490,13 +504,13 @@ fpt-mcp works standalone, but when combined with other MCP servers in the same C
 
 ## Autostart with launchd (macOS)
 
-The `setup_venv.sh` script automatically:
+The `setup_venv.sh` script (legacy) handles launchd and Qt console setup:
 1. Creates the venv and installs dependencies
 2. Generates and installs the MCP server launchd plist (HTTP mode on port 8090)
 3. Builds the Qt console .app bundle with protocol handler registration
 4. Registers the protocol handler with macOS Launch Services
 
-Run it once:
+For most users, `install.sh` is the recommended entry point (handles venv, deps, RAG index, Claude Code registration, and tool permissions). Use `setup_venv.sh` only if you need launchd auto-start or the Qt console .app bundle.
 
 ```bash
 ./setup_venv.sh
