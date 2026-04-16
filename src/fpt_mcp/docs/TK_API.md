@@ -370,38 +370,52 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `nuke_shot_render_review_quicktime`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
 - `houdini_shot_render_review_quicktime`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
 
-### Derived templates (Vision3D pipeline — added by fpt-mcp)
+### Pipeline interchange, render and review templates
 
-These are injected by `tk_config.py` for types not in tk-config-default2:
+These templates are defined in the project's `templates.yml` (added to
+`abrahamADSK/toolkit_config_custom_template` in commit `4ea29d3`).
+They are NOT injected by code — `tk_config.py` is generic and reads
+whatever templates the project config defines.
 
+**Asset templates:**
+- `rendered_image_asset_publish`: `@asset_root/publish/renders/{name}/v{version}/{Asset}_{name}_v{version}.{SEQ}.exr`
+- `movie_asset_publish`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
 - `usd_asset_publish`: `@asset_root/publish/usd/{name}.v{version}.usd`
 - `fbx_asset_publish`: `@asset_root/publish/fbx/{name}.v{version}.fbx`
+- `glb_asset_publish`: `@asset_root/publish/glb/{name}.v{version}.glb`
+- `obj_asset_publish`: `@asset_root/publish/obj/{name}.v{version}.obj`
 - `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.png`
-- `review_asset_mov`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
+
+**Shot templates:**
+- `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `movie_shot_publish`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
 - `usd_shot_publish`: `@shot_root/publish/usd/{name}.v{version}.usd`
 - `fbx_shot_publish`: `@shot_root/publish/fbx/{name}.v{version}.fbx`
-- `camera_shot_fbx_publish`: `@shot_root/publish/camera/{name}.v{version}.fbx`
-- `exr_shot_render`: `@shot_root/publish/renders/{name}/v{version}/{name}.v{version}.{SEQ}.exr`
-- `review_shot_mov`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
 
-## PUBLISH_TYPE_MAP — type to template mapping
+## Publish type to template mapping
 
-| Publish Type | Asset Template | Shot Template |
-|---|---|---|
-| Maya Scene | maya_asset_publish | maya_shot_publish |
-| USD Scene | usd_asset_publish | usd_shot_publish |
-| FBX Model | fbx_asset_publish | fbx_shot_publish |
-| Texture | texture_asset_publish | — |
-| Alembic Cache | asset_alembic_cache | — |
-| Camera FBX | — | camera_shot_fbx_publish |
-| EXR Render | — | exr_shot_render |
-| Review MOV | review_asset_mov | review_shot_mov |
-| Nuke Script | nuke_asset_publish | nuke_shot_publish |
-| Houdini Scene | houdini_asset_publish | houdini_shot_publish |
-| Photoshop | photoshop_asset_publish | photoshop_shot_publish |
-| After Effects | aftereffects_asset_publish | aftereffects_shot_publish |
-| 3ds Max | 3dsmax_asset_publish | 3dsmax_shot_publish |
-| MotionBuilder | motionbuilder_asset_publish | motionbuilder_shot_publish |
+Template matching in `tk_publish` is convention-based: given `publish_type`
+and `entity_type`, it tries `{ptype_lower}_{entity_key}_publish` as the
+template name. The `publish_type` string also becomes the `PublishedFileType`
+code in ShotGrid, which determines what each DCC's loader can pick up.
+
+| Publish Type | Asset Template | Shot Template | Flame loads? |
+|---|---|---|---|
+| Rendered Image | rendered_image_asset_publish | rendered_image_shot_publish | **Yes** (load_clip) |
+| Movie | movie_asset_publish | movie_shot_publish | **Yes** (load_clip) |
+| Texture | texture_asset_publish | — | **Yes** (load_clip) |
+| USD | usd_asset_publish | usd_shot_publish | No |
+| FBX | fbx_asset_publish | fbx_shot_publish | No |
+| GLB | glb_asset_publish | — | No |
+| OBJ | obj_asset_publish | — | No |
+| Maya Scene | maya_asset_publish | maya_shot_publish | No |
+| Alembic Cache | asset_alembic_cache | — | No |
+| Nuke Script | nuke_asset_publish | nuke_shot_publish | No |
+| Houdini Scene | houdini_asset_publish | houdini_shot_publish | No |
+| Photoshop | photoshop_asset_publish | photoshop_shot_publish | No |
+| After Effects | aftereffects_asset_publish | aftereffects_shot_publish | No |
+| 3ds Max | max_asset_publish | max_shot_publish | No |
+| MotionBuilder | mobu_asset_publish | mobu_shot_publish | No |
 
 ## Path resolution example
 

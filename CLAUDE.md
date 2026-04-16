@@ -284,7 +284,7 @@ In `~/.claude/settings.json`, enable all these tools:
 - **PublishedFileType not created for new types** → tk_publish now does automatic find-or-create
 - **Task not linked to PublishedFile** → tk_publish now searches Task by entity + step automatically
 - **File not copied to publish path** → tk_publish now does shutil.copy2 if local_path is provided
-- **Pipeline-specific templates in core code** → Removed DERIVED_TEMPLATES and PUBLISH_TYPE_MAP. tk_config.py is now generic.
+- **Pipeline-specific templates in core code** → Removed DERIVED_TEMPLATES and PUBLISH_TYPE_MAP. tk_config.py is now generic. Pipeline interchange, render and review templates (USD, FBX, GLB, OBJ, Texture, Rendered Image EXR, Movie MOV) are defined in the project's `templates.yml` (`abrahamADSK/toolkit_config_custom_template`, commit `4ea29d3`). Flame reads "Rendered Image" and "Movie" types via `load_clip` without config changes.
 - **Mode 2 fabricated directory structure** → Replaced with explicit publish_path from user
 - **Asset.description fetched but never routed to Vision3D text-to-3D** → Fixed by TEXT PROMPT RESOLUTION priority chain in SYSTEM_PROMPT (commits 267fbc7 + 0b10609). Asset.description now feeds text-to-3D with proper user-awareness rules.
 
