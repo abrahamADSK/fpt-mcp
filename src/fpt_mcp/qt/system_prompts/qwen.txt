@@ -100,10 +100,18 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
       - publish_type="GLB" → template glb_asset_publish
       - publish_type="Texture" → template texture_asset_publish
    d) Turntable preview (Assets only):
-      1. execute_python: compute bbox, create camera at 1.5x radius aimed at center,
-         3-point light rig, 90 frames, keyframe 360° orbit, playblast to .mov
-      2. tk_publish(publish_type="Movie", name="turntable", local_path=<.mov>)
-      3. sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>) → SG preview
+      1. execute_python — SET UP rig: compute bbox, create turntableCam at 1.5x radius,
+         3-point Arnold lights (aiAreaLight key+rim, aiSkyDomeLight fill),
+         90 frames, keyframe 360° orbit around Y (linear tangents)
+      2. execute_python — PLAYBLAST: cmds.playblast → .mov (1920x1080, fast, for SG thumbnail)
+      3. execute_python — ARNOLD RENDER EXR sequence (no batch needed):
+         Configure defaultArnoldDriver: exr, mergeAOVs=1 (multichannel), zip compression.
+         Loop frames 1-90: cmds.currentTime(f); cmds.arnoldRender(cam='turntableCam')
+         Produces multichannel EXR per frame → Flame reads as "Rendered Image"
+      4. Publish:
+         - tk_publish(publish_type="Movie", name="turntable", local_path=<.mov>)
+         - tk_publish(publish_type="Rendered Image", name="turntable", local_path=<first_exr>)
+         - sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>) → SG preview
 
    Offer: "Save + publish all formats + turntable? (yes/no)". Execute a-d if yes, just save if no.
 

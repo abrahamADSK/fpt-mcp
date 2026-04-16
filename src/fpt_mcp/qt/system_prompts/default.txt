@@ -114,17 +114,36 @@ When the user asks to create/generate/model something 3D, follow these steps in 
       Template matching is convention-based: publish_type "USD" matches template `usd_asset_publish`.
 
    d) TURNTABLE preview (for Assets — skip for Shots):
-      Generate an orbit render around the asset for ShotGrid preview/thumbnail:
-      1. maya_session(action='execute_python') with code that:
-         - Computes bounding box of scene geometry
-         - Creates an Arnold camera at 1.5x the bounding radius, aimed at center
-         - Creates a 3-point light rig (key + fill + rim)
-         - Sets timeline to 90 frames, keyframes camera orbiting 360°
-         - Playblasts to a .mov file (viewport 2.0, 1920x1080, HUD off)
-      2. tk_publish(entity_type, entity_id, publish_type="Movie", step="model",
-                    local_path=<.mov>, name="turntable")
-      3. sg_upload(entity_type, entity_id, field_name="sg_uploaded_movie",
-                   file_path=<.mov>)  — this makes the turntable appear as ShotGrid preview
+      Generate an orbit render around the asset for ShotGrid preview and Flame:
+      1. maya_session(action='execute_python') — SET UP the turntable rig:
+         - Compute bounding box of all scene geometry
+         - Create a camera ("turntableCam") at 1.5x the bounding radius, aimed at center
+         - Create a 3-point light rig (key aiAreaLight + fill aiSkyDomeLight + rim aiAreaLight)
+         - Set timeline to 90 frames
+         - Keyframe the camera orbiting 360° around Y axis (linear tangents)
+      2. maya_session(action='execute_python') — PLAYBLAST quick preview:
+         - `cmds.playblast(format='qt', filename='<path>.mov', w=1920, h=1080, p=100, orn=False)`
+         - This is fast (~2s) and produces the .mov for ShotGrid thumbnail
+      3. maya_session(action='execute_python') — ARNOLD RENDER EXR sequence:
+         - Configure Arnold render settings via execute_python:
+           `cmds.setAttr('defaultArnoldDriver.aiTranslator', 'exr', type='string')`
+           `cmds.setAttr('defaultArnoldDriver.exrCompression', 2)`  # zip
+           `cmds.setAttr('defaultArnoldDriver.mergeAOVs', 1)`  # multichannel EXR
+           `cmds.setAttr('defaultArnoldDriver.prefix', '<output_path>/<name>', type='string')`
+           `cmds.setAttr('defaultResolution.width', 1920)`
+           `cmds.setAttr('defaultResolution.height', 1080)`
+         - Render frame by frame (no external batch needed):
+           ```
+           for frame in range(1, 91):
+               cmds.currentTime(frame)
+               cmds.arnoldRender(cam='turntableCam', w=1920, h=1080)
+           ```
+         - This produces multichannel EXR files that Flame reads via "Rendered Image"
+      4. PUBLISH results:
+         - tk_publish(publish_type="Movie", name="turntable", local_path=<.mov>)
+         - tk_publish(publish_type="Rendered Image", name="turntable", local_path=<first_exr>,
+                      comment="EXR sequence: 90 frames, multichannel Arnold")
+         - sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>)  → ShotGrid preview
 
    Offer all of this as: "Save + publish in all formats and generate turntable preview? (yes/no)"
    If the user says yes, execute steps a-d sequentially. If no, just save the scene.
