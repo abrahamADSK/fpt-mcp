@@ -256,7 +256,10 @@ _VALID_FILTER_OPERATORS: frozenset[str] = frozenset({
 })
 
 
-def _validate_filter_triples(filters: list) -> list:
+_MAX_FILTER_DEPTH = 20  # cap recursion to prevent stack overflow on malformed input
+
+
+def _validate_filter_triples(filters: list, _depth: int = 0) -> list:
     """C.3 — structural validation for ShotGrid filter lists.
 
     Walks every filter and rejects:
@@ -267,6 +270,8 @@ def _validate_filter_triples(filters: list) -> list:
       - Entity references passed as bare integers/strings instead of the
         canonical {"type": "...", "id": N} dict (the single most common
         ShotGrid hallucination, per the audit)
+      - Nesting deeper than _MAX_FILTER_DEPTH levels (prevents RecursionError
+        on adversarial or hallucinated deeply-nested filters)
 
     Allows logical groupings of the form
       {"filter_operator": "any"|"all", "filters": [...]}
@@ -277,6 +282,12 @@ def _validate_filter_triples(filters: list) -> list:
     JSON-key-value entity refs ("entity": 123) and misses the array form
     ([["entity", "is", 123]]) that filter lists actually use.
     """
+    if _depth > _MAX_FILTER_DEPTH:
+        raise ValueError(
+            f"Filter nesting exceeds maximum depth of {_MAX_FILTER_DEPTH}. "
+            "Simplify your filter structure."
+        )
+
     # Field names that are typed as entity links and therefore require
     # a {"type": ..., "id": ...} dict on the value side. This is a
     # conservative subset — there are more entity-link fields in custom
@@ -310,7 +321,7 @@ def _validate_filter_triples(filters: list) -> list:
                     raise ValueError(
                         f"filter[{idx}]: 'filters' inside a logical group must be a list"
                     )
-                _validate_filter_triples(f["filters"])
+                _validate_filter_triples(f["filters"], _depth + 1)
                 continue
             raise ValueError(
                 f"filter[{idx}]: dict filters must have 'filter_operator' "
@@ -649,6 +660,8 @@ async def sg_schema_tool(params: SgSchemaInput) -> str:
     Returns field names, types, and properties. Use this to discover
     what fields are available before querying or creating entities.
     """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(params.entity_type) + _tok(params.field_name or "")
     schema = await sg_schema_field_read(params.entity_type, params.field_name)
     # Simplify output for readability
     summary = {}
@@ -658,7 +671,9 @@ async def sg_schema_tool(params: SgSchemaInput) -> str:
             "label": info.get("name", {}).get("value", field_name),
             "editable": info.get("editable", {}).get("value", False),
         }
-    return json.dumps(summary, default=str)
+    out = json.dumps(summary, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="sg_upload")
@@ -668,6 +683,8 @@ async def sg_upload_tool(params: SgUploadInput) -> str:
     Use field_name='image' for thumbnails, 'sg_uploaded_movie' for movies,
     or any file/url field.
     """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(params.file_path)
     if params.field_name == "image":
         result_id = await sg_upload_thumbnail(params.entity_type, params.entity_id, params.file_path)
     else:
@@ -675,28 +692,36 @@ async def sg_upload_tool(params: SgUploadInput) -> str:
             params.entity_type, params.entity_id, params.file_path,
             params.field_name, params.display_name,
         )
-    return json.dumps({
+    out = json.dumps({
         "attachment_id": result_id,
         "entity_type": params.entity_type,
         "entity_id": params.entity_id,
         "field": params.field_name,
     })
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="sg_download")
 async def sg_download_tool(params: SgDownloadInput) -> str:
     """Download an attachment from any entity field in ShotGrid."""
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.field_name}")
     entity = await sg_find_one(
         params.entity_type,
         [["id", "is", params.entity_id]],
         [params.field_name],
     )
     if not entity or not entity.get(params.field_name):
-        return json.dumps({"error": f"No attachment in {params.field_name} for {params.entity_type} #{params.entity_id}"})
+        out = json.dumps({"error": f"No attachment in {params.field_name} for {params.entity_type} #{params.entity_id}"})
+        _stats["tokens_out"] += _tok(out)
+        return out
 
     attachment = entity[params.field_name]
     path = await sg_download_attachment(attachment, params.download_path)
-    return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    out = json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 async def _get_tk_config():
@@ -766,14 +791,18 @@ async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
 
     Use search_sg_docs to find available template names for the project's config.
     """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.template_name}")
     try:
         tk_config = await _get_tk_config()
         if tk_config is None:
-            return json.dumps({
+            out = json.dumps({
                 "error": "No PipelineConfiguration found for this project. "
                          "Cannot resolve Toolkit paths without a pipeline config. "
                          "Use an explicit publish_path in tk_publish instead."
             })
+            _stats["tokens_out"] += _tok(out)
+            return out
 
         # Build fields from SG entity context
         version = params.version
@@ -791,15 +820,19 @@ async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
 
         path = tk_config.resolve_path(params.template_name, fields)
 
-        return json.dumps({
+        out = json.dumps({
             "path": str(path),
             "version": version,
             "template": params.template_name,
             "project_root": str(tk_config.project_root),
         })
+        _stats["tokens_out"] += _tok(out)
+        return out
 
     except TkConfigError as e:
-        return json.dumps({"error": str(e)})
+        out = json.dumps({"error": str(e)})
+        _stats["tokens_out"] += _tok(out)
+        return out
 
 
 @mcp.tool(name="tk_publish")
@@ -814,6 +847,8 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
       that reads the path field. If the project has a Local File Storage
       configured in ShotGrid, the file will be browsable from the web UI.
     """
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.publish_type}")
     try:
         tk_config = await _get_tk_config()
         publish_path = None
@@ -973,10 +1008,14 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
             response["template"] = template_name
             response["project_root"] = str(tk_config.project_root)
 
-        return json.dumps(response, default=str)
+        out = json.dumps(response, default=str)
+        _stats["tokens_out"] += _tok(out)
+        return out
 
     except TkConfigError as e:
-        return json.dumps({"error": str(e)})
+        out = json.dumps({"error": str(e)})
+        _stats["tokens_out"] += _tok(out)
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -1065,6 +1104,9 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     """
     import subprocess
 
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.app} {params.entity_type} {params.entity_id}")
+
     sg = get_sg()
     project_id = _project_id_for_entity(params.entity_type, params.entity_id)
 
@@ -1135,7 +1177,9 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
 
     if params.dry_run:
         plan["dry_run"] = True
-        return json.dumps(plan, default=str)
+        out = json.dumps(plan, default=str)
+        _stats["tokens_out"] += _tok(out)
+        return out
 
     try:
         proc = subprocess.Popen(argv, start_new_session=True)
@@ -1143,7 +1187,9 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     except Exception as exc:
         plan["error"] = f"launch failed: {exc}"
 
-    return json.dumps(plan, default=str)
+    out = json.dumps(plan, default=str)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 # ---------------------------------------------------------------------------

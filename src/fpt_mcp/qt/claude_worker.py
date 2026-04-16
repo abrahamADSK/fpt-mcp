@@ -62,8 +62,10 @@ AVAILABLE_MODELS = [
 # Models allowed to write RAG patterns (learn_pattern). Local models are read-only.
 WRITE_ALLOWED_MODELS = ["claude-opus", "claude-sonnet"]
 
-# Default Ollama URLs — can be overridden by config.json
-DEFAULT_OLLAMA_URL = "http://glorfindel:11434"
+# Default Ollama URLs — overridden by config.json (ollama_url / ollama_mac_url).
+# Remote Ollama has no default: users must configure config.json explicitly.
+# Local Mac Ollama defaults to localhost which is always correct.
+DEFAULT_OLLAMA_URL: str | None = None
 DEFAULT_OLLAMA_MAC_URL = "http://localhost:11434"
 
 
@@ -102,7 +104,12 @@ def build_backend_env(model_id: str, backend: str) -> dict:
     }
 
     if backend == "ollama":
-        base_url = cfg.get("ollama_url", DEFAULT_OLLAMA_URL)
+        base_url = cfg.get("ollama_url") or DEFAULT_OLLAMA_URL
+        if not base_url:
+            raise ValueError(
+                "Ollama remote URL not configured. Set 'ollama_url' in "
+                "config.json (e.g. \"ollama_url\": \"http://hostname:11434\")."
+            )
         env["ANTHROPIC_BASE_URL"] = base_url
         env["ANTHROPIC_AUTH_TOKEN"] = "ollama"
         env["ANTHROPIC_API_KEY"] = ""
