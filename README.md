@@ -125,6 +125,23 @@ After editing `.env`, restart any running fpt-mcp process (Qt console, MCP serve
 
 The installer scripts now detect placeholder values left in `.env` and emit a visible warning at the end of the install. The MCP server itself will also refuse to start with a clear error message pointing to `.env` if placeholders remain. Both safeguards exist specifically to prevent confusing SSL errors on the first real call.
 
+### Verify credentials
+
+After editing `.env`, run the doctor to validate connectivity end-to-end:
+
+```bash
+./install.sh --doctor
+```
+
+The doctor performs five independent checks — claude.json registration, `.env` placeholder detection, venv importability, live ShotGrid API connectivity, and Qt dependency availability. Any `FAIL` line includes a concrete remediation sentence.
+
+**Common pitfalls:**
+
+- **Placeholder values left in `.env`** — the most frequent cause of `CERTIFICATE_VERIFY_FAILED` errors on first use. The doctor detects these automatically.
+- **`SHOTGRID_PROJECT_ID=0`** — disables default project scoping. Every `sg_find`, `sg_create`, and `sg_upload` call must then specify a project filter explicitly. This is valid for multi-project workflows but unexpected for single-project setups.
+- **Script key vs. user credentials** — the `.env` key is an **API script key** from Admin → Scripts, not your personal login password.
+- **Stale `.env` after site migration** — if your ShotGrid site URL changes (e.g. during an Autodesk ID migration), update `SHOTGRID_URL` and re-run `--doctor`.
+
 ## Usage
 
 Once configured, fpt-mcp is available through Claude Code, Claude Desktop, or the Qt console. Connect to your ShotGrid instance and start a conversation:
