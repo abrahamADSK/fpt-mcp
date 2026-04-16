@@ -167,7 +167,7 @@ The system prompt defines the complete workflow for 3D creation. Structure:
 
 ### Step 1: Check Vision3D
 ```
-Call vision3d_health() BEFORE offering options
+Call maya_vision3d(action="health") BEFORE offering options
 - If available=true → offer both options
 - If available=false → inform and offer Maya only
 ```
@@ -205,36 +205,36 @@ AI Quality — Vision3D server (model, octree, steps and faces):
 
 **Image-to-3D**:
 1. `sg_download` → download reference image
-2. `shape_generate_remote(image_path=..., preset='high')` → returns job_id
-3. `vision3d_poll(job_id=...)` → REPEAT while status='running', show new_log_lines
-4. `vision3d_download(job_id=..., output_subdir=...)` → download files
-5. `maya_execute_python` → import into Maya
+2. `maya_vision3d(action="generate_image", image_path=..., preset='high')` → returns job_id
+3. `maya_vision3d(action="poll", job_id=...)` → REPEAT while status='running', show new_log_lines
+4. `maya_vision3d(action="download", job_id=..., output_subdir=...)` → download files
+5. `maya_session(action="execute_python", code=...)` → import into Maya
 
 **Text-to-3D** (full pipeline with texture):
 
 TEXT PROMPT RESOLUTION (priority order):
 1. User typed an explicit prompt → use it as-is (user prompt wins).
 2. User chose Asset description text reference → use `Asset.description` as-is (translate to English only if needed; do NOT summarize or paraphrase).
-3. No image found + user said 'none' + `Asset.description` is non-empty → use `Asset.description` (same rules as above). **MUST inform user** with "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling `shape_generate_text` (avoids surprising users who expected to type their own prompt).
+3. No image found + user said 'none' + `Asset.description` is non-empty → use `Asset.description` (same rules as above). **MUST inform user** with "Using Asset.description as text prompt: <first 80 chars>..." BEFORE calling `maya_vision3d(action="generate_text")` (avoids surprising users who expected to type their own prompt).
 
 Then execute:
-1. `shape_generate_text(text_prompt=<resolved prompt>, preset='medium')` → returns job_id
-2. `vision3d_poll(job_id=...)` → repeat until completed (3 phases: text→image, shape, texture)
-3. `vision3d_download(job_id=..., output_subdir=..., files=['textured.glb', 'mesh.glb', 'mesh_uv.obj', 'texture_baked.png'])`
-4. `maya_execute_python` → import into Maya
+1. `maya_vision3d(action="generate_text", text_prompt=<resolved prompt>, preset='medium')` → returns job_id
+2. `maya_vision3d(action="poll", job_id=...)` → repeat until completed (3 phases: text→image, shape, texture)
+3. `maya_vision3d(action="download", job_id=..., output_subdir=..., files=['textured.glb', 'mesh.glb', 'mesh_uv.obj', 'texture_baked.png'])`
+4. `maya_session(action="execute_python", code=...)` → import into Maya
 
-**Direct Maya modeling**: `maya_create_primitive` + `maya_transform` + `maya_assign_material`
+**Direct Maya modeling**: `maya_create_primitive` + `maya_transform` + `maya_assign_material` (direct tools, not dispatched)
 
 ### Step 6: Post-creation
 ```
-Offer maya_save_scene and tk_publish
+Offer maya_session(action="save_scene") and tk_publish
 ```
 
 ### General rules
 - NEVER repeat a question already answered in history
 - ALWAYS use MCP tools, NEVER tell the user "do it manually"
-- If Maya doesn't respond → `maya_launch`
-- If Vision3D doesn't respond → `vision3d_health()` for diagnostics
+- If Maya doesn't respond → `maya_session(action="launch")`
+- If Vision3D doesn't respond → `maya_vision3d(action="health")` for diagnostics
 - Text-to-3D: translate prompt to English
 - Be concise, execute don't explain
 
@@ -260,14 +260,10 @@ DO NOT ask again. Continue from where the conversation left off.
 
 In `~/.claude/settings.json`, enable all these tools:
 
-**maya-mcp**:
-- `mcp__maya-mcp__vision3d_health`
-- `mcp__maya-mcp__shape_generate_remote`
-- `mcp__maya-mcp__shape_generate_text`
-- `mcp__maya-mcp__texture_mesh_remote`
-- `mcp__maya-mcp__vision3d_poll`
-- `mcp__maya-mcp__vision3d_download`
-- All maya_* tools (maya_launch, maya_ping, maya_create_primitive, maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera)
+**maya-mcp** (14 tools — dispatcher pattern):
+- Direct Maya tools (9): `mcp__maya-mcp__maya_create_primitive`, `mcp__maya-mcp__maya_transform`, `mcp__maya-mcp__maya_create_light`, `mcp__maya-mcp__maya_create_camera`, `mcp__maya-mcp__maya_set_keyframe`, `mcp__maya-mcp__maya_mesh_operation`, `mcp__maya-mcp__maya_assign_material`, `mcp__maya-mcp__maya_import_file`, `mcp__maya-mcp__maya_viewport_capture`
+- Dispatchers (2): `mcp__maya-mcp__maya_session` (9 actions: ping, launch, list_scene, new_scene, save_scene, execute_python, delete, get_attribute, set_attribute), `mcp__maya-mcp__maya_vision3d` (7 actions: select_server, health, generate_image, generate_text, texture, poll, download)
+- RAG (3): `mcp__maya-mcp__search_maya_docs`, `mcp__maya-mcp__learn_pattern`, `mcp__maya-mcp__session_stats`
 
 **fpt-mcp** (14 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
@@ -304,13 +300,13 @@ All three repos are on the local Mac (see dual install paths in global CLAUDE.md
 
 - **maya-mcp**: MCP server used by the console for Maya + Vision3D
   - Repo: `~/Projects/maya-mcp/` (M4 Pro) or `~/Claude_projects/maya-mcp/` (M5 Pro)
-  - Contains tools for maya_launch, maya_create_primitive, maya_execute_python, etc.
+  - 14 tools (dispatcher pattern): 9 direct + `maya_session` (9 actions) + `maya_vision3d` (7 actions) + 3 RAG
   - Internally calls vision3d (remote GPU server) via HTTP REST (port 8000)
-  - Includes `vision3d_health` to check availability before offering options
+  - Includes `maya_vision3d(action="health")` to check availability before offering options
 
 - **vision3d**: remote GPU server accessible via maya-mcp
   - Repo: `~/Projects/vision3d/` (M4 Pro) or `~/Claude_projects/vision3d/` (M5 Pro) / `/home/flame/ai-studio/vision3d/` (glorfindel)
-  - Handles shape_generate_remote, shape_generate_text, texture_mesh_remote
+  - Handles generate_image, generate_text, texture (accessed via `maya_vision3d` dispatcher)
   - Text-to-3D: 3-phase pipeline (HunyuanDiT → rembg → shape → paint → textured.glb)
   - Returns job_id for polling
 
@@ -329,11 +325,11 @@ All three repos are on the local Mac (see dual install paths in global CLAUDE.md
 1. User → Qt Console (fpt-mcp) → Claude Code CLI
 2. sg_find → search Asset/Shot and references in ShotGrid
 3. sg_download → download reference image
-4. shape_generate_remote (maya-mcp) → start 3D generation in Vision3D
-5. vision3d_poll (maya-mcp) → monitor progress
-6. vision3d_download (maya-mcp) → download results (GLB, OBJ, texture)
-7. maya_execute_python (maya-mcp) → import mesh into Maya, normalize
-8. maya_save_scene (maya-mcp) → save Maya scene
+4. maya_vision3d(action="generate_image") (maya-mcp) → start 3D generation in Vision3D
+5. maya_vision3d(action="poll") (maya-mcp) → monitor progress
+6. maya_vision3d(action="download") (maya-mcp) → download results (GLB, OBJ, texture)
+7. maya_session(action="execute_python") (maya-mcp) → import mesh into Maya, normalize
+8. maya_session(action="save_scene") (maya-mcp) → save Maya scene
 9. tk_publish (fpt-mcp) → resolve path + copy file + register PublishedFile
 ```
 
