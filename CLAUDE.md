@@ -18,35 +18,42 @@ Claude Desktop / Claude Code / Terminal
         └── Qt console      → native chat app via fpt-mcp:// protocol handler
 ```
 
-### MCP Server: fpt-mcp
+### MCP Server: fpt-mcp (14 @mcp.tool registrations — dispatcher pattern)
 
-**ShotGrid API tools** (unrestricted access to any entity):
+**ShotGrid API tools** (6 direct tools, unrestricted access to any entity):
 - `sg_find` — query entities with filters and fields
 - `sg_create` — create entities (project auto-linked)
 - `sg_update` — update any field
-- `sg_delete` — soft-delete (retire) entities
 - `sg_schema` — inspect available fields
 - `sg_upload` — upload files (thumbnail, movie, attachment)
 - `sg_download` — download attachments
-- `sg_batch` — transactional batch operations (all-or-nothing)
-- `sg_text_search` — full-text search across all text fields of multiple entity types
-- `sg_summarize` — server-side aggregation (count, sum, avg, min, max) with grouping
-- `sg_revive` — restore soft-deleted (retired) entities
-- `sg_note_thread` — read full Note reply threads with all linked entities
-- `sg_activity` — read the activity stream for any entity
 
-**Toolkit tools**:
+**Bulk operations dispatcher** (`fpt_bulk` — 1 tool, 3 actions):
+- `fpt_bulk(action="delete")` — soft-delete (retire) entities
+- `fpt_bulk(action="revive")` — restore soft-deleted (retired) entities
+- `fpt_bulk(action="batch")` — transactional batch operations (all-or-nothing)
+
+**Reporting dispatcher** (`fpt_reporting` — 1 tool, 4 actions):
+- `fpt_reporting(action="text_search")` — full-text search across multiple entity types
+- `fpt_reporting(action="summarize")` — server-side aggregation (count, sum, avg, min, max) with grouping
+- `fpt_reporting(action="note_thread")` — read full Note reply threads with all linked entities
+- `fpt_reporting(action="activity")` — read the activity stream for any entity
+
+**Toolkit tools** (2 direct tools):
 - `tk_resolve_path` — resolve publish paths from the project's real PipelineConfiguration
 - `tk_publish` — publish file: resolve path, copy file, find/create PublishedFileType, link Task, register PublishedFile in ShotGrid
 
-**RAG tools** (Retrieval-Augmented Generation):
+**Launcher** (1 direct tool):
+- `fpt_launch_app` — launch a DCC scoped to a ShotGrid entity (OS-first discovery, Toolkit tank routing)
+
+**RAG tools** (3 direct tools — Retrieval-Augmented Generation):
 - `search_sg_docs` — hybrid search (ChromaDB semantic + BM25 lexical + HyDE + RRF fusion) across all 3 ShotGrid API docs. **MANDATORY** before complex or unknown queries.
 - `learn_pattern` — persist validated patterns in the knowledge base. Model trust gates: only Sonnet/Opus write directly; other models stage candidates.
 - `session_stats` — session statistics: tokens used, tokens saved by RAG, learned patterns, safety blocks.
 
 **Safety module** (`safety.py`):
 - 12+ regex patterns detecting dangerous operations before execution
-- Integrated into sg_find and sg_delete (highest-risk tools)
+- Integrated into sg_find and fpt_bulk delete (highest-risk tools)
 - Detects: bulk delete, empty filters without limit, path traversal, schema modification, entity format errors, invalid filter operators
 
 ### RAG Technologies
@@ -262,10 +269,12 @@ In `~/.claude/settings.json`, enable all these tools:
 - `mcp__maya-mcp__vision3d_download`
 - All maya_* tools (maya_launch, maya_ping, maya_create_primitive, maya_assign_material, maya_transform, maya_list_scene, maya_delete, maya_execute_python, maya_new_scene, maya_save_scene, maya_create_light, maya_create_camera)
 
-**fpt-mcp**:
-- All sg_* tools (sg_find, sg_create, sg_update, sg_delete, sg_schema, sg_upload, sg_download, sg_batch, sg_text_search, sg_summarize, sg_revive, sg_note_thread, sg_activity)
-- All tk_* tools (tk_resolve_path, tk_publish)
-- All RAG tools (search_sg_docs, learn_pattern, session_stats)
+**fpt-mcp** (14 tools — dispatcher pattern):
+- Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
+- Dispatchers: fpt_bulk (delete/revive/batch), fpt_reporting (text_search/summarize/note_thread/activity)
+- Toolkit: tk_resolve_path, tk_publish
+- Launcher: fpt_launch_app
+- RAG: search_sg_docs, learn_pattern, session_stats
 
 ---
 
@@ -291,24 +300,28 @@ In `~/.claude/settings.json`, enable all these tools:
 
 ## 8. Relationship with Other Projects
 
-All three repos are in `~/Claude_projects/` on the local Mac:
+All three repos are on the local Mac (see dual install paths in global CLAUDE.md):
 
 - **maya-mcp**: MCP server used by the console for Maya + Vision3D
-  - Repo: `~/Claude_projects/maya-mcp/`
+  - Repo: `~/Projects/maya-mcp/` (M4 Pro) or `~/Claude_projects/maya-mcp/` (M5 Pro)
   - Contains tools for maya_launch, maya_create_primitive, maya_execute_python, etc.
   - Internally calls vision3d (remote GPU server) via HTTP REST (port 8000)
   - Includes `vision3d_health` to check availability before offering options
 
 - **vision3d**: remote GPU server accessible via maya-mcp
-  - Repo: `~/Claude_projects/vision3d/` (Mac) / `/home/flame/ai-studio/vision3d/` (glorfindel)
+  - Repo: `~/Projects/vision3d/` (M4 Pro) or `~/Claude_projects/vision3d/` (M5 Pro) / `/home/flame/ai-studio/vision3d/` (glorfindel)
   - Handles shape_generate_remote, shape_generate_text, texture_mesh_remote
   - Text-to-3D: 3-phase pipeline (HunyuanDiT → rembg → shape → paint → textured.glb)
   - Returns job_id for polling
 
 - **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
-  - 13 ShotGrid API tools (CRUD, schema, media, batch, search, summarize, revive, notes, activity)
-  - 2 Toolkit tools (path resolution, publish pipeline) with dynamic config discovery
-  - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
+  - 14 @mcp.tool registrations using dispatcher pattern:
+    - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
+    - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch)
+    - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
+    - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery
+    - 1 launcher tool (fpt_launch_app)
+    - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
   - Native Qt console running Claude Code CLI
 
 ### Typical cross-MCP flow (full pipeline)
@@ -443,7 +456,7 @@ update procedures, and architecture decisions.
 
 ---
 
-**Last updated**: 2026-04-12
+**Last updated**: 2026-04-16
 **Author**: Claude Agent
 **Project**: fpt-mcp (Autodesk Flow Production Tracking + Qt Console)
 
