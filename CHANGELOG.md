@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- `docs/O3_NEXT_SUGGESTED_ACTIONS.md` — design doc for the deferred O3
+  `next_suggested_actions` feature (not designed as of Chat 45). Covers
+  motivation, response schema, rules registry (static Python dict v1 →
+  YAML v2), candidate rules for 5 tools, concept-registry invariant to
+  prevent drift, and 4-phase implementation sequence. No code shipped;
+  the doc unblocks a future implementation session. Closes Chat 45 P2
+  "O3 not designed" deferral.
+
 ### Fixed
 - `install.sh` — removed two unused-variable shellcheck warnings
   (`exit_code` local that was never read, `MCP_ARGS` JSON string that was
