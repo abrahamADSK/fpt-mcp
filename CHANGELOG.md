@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `.github/workflows/ci.yml` — GitHub Actions CI workflow. Three jobs:
+  pytest (3.10/3.11/3.12 matrix, Qt forced to `QT_QPA_PLATFORM=offscreen`),
+  ruff lint (non-blocking in v1), verify_concepts on every push + PR.
+  Closes Chat 45 P3 CI item.
+- `.github/workflows/pr-review.yml` — automated Claude PR review
+  (`anthropics/claude-code-action@v1`). Byte-identical across the 4
+  ecosystem repos. Requires repo secret `ANTHROPIC_API_KEY`. Closes
+  Chat 45 P3 PR-review item.
+
 ### Documentation
 - `docs/O3_NEXT_SUGGESTED_ACTIONS.md` — design doc for the deferred O3
   `next_suggested_actions` feature (not designed as of Chat 45). Covers
