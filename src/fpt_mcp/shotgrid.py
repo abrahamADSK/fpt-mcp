@@ -1,0 +1,258 @@
+"""shotgrid.py — bodies of the direct SG tools + bulk dispatcher handlers.
+
+Extracted from server.py in Bucket F Phase 2d. Contains:
+  - sg_find_impl, sg_create_impl, sg_update_impl
+  - sg_schema_impl, sg_upload_impl, sg_download_impl
+  - _do_sg_delete, _do_sg_batch, _do_sg_revive  (bulk dispatcher handlers)
+  - BULK_DISPATCH                               (dict: BulkAction → handler)
+
+Impl functions are pure: they do NOT bump `_stats["exec_calls"]`,
+`tokens_in`, or `tokens_out`. The @mcp.tool wrappers in server.py handle
+those increments so:
+  - test_telemetry AST scan of server.py still finds the increments
+  - the bookkeeping is consistent with launcher / toolkit_tools patterns
+
+`_stats["safety_blocks"]` stays inside impls where the safety check
+fires, because the wrapper cannot know which code path triggered the
+block.
+
+Imports from `fpt_mcp.server` are lazy so existing test patches
+(`patch("fpt_mcp.server.get_sg", ...)` etc.) keep intercepting calls
+that originate in this module.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from fpt_mcp.models import (
+    SgBatchInput,
+    SgCreateInput,
+    SgDeleteInput,
+    SgDownloadInput,
+    SgFindInput,
+    SgReviveInput,
+    SgSchemaInput,
+    SgUpdateInput,
+    SgUploadInput,
+)
+
+
+async def sg_find_impl(params: SgFindInput) -> str:
+    """Body of sg_find_tool. See server.py for user-facing docstring."""
+    from fpt_mcp.server import (
+        PROJECT_ID, _PROJECT_SCOPED_ENTITIES, _rag_skipped_warning, _stats,
+        check_dangerous, sg_find,
+    )
+
+    params_str = json.dumps({"filters": params.filters, "limit": params.limit}, default=str)
+    warning = check_dangerous(params_str)
+    if warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": warning})
+
+    filters = list(params.filters)
+    project_warning = None
+    is_scoped = params.entity_type in _PROJECT_SCOPED_ENTITIES
+
+    if is_scoped and not PROJECT_ID:
+        project_warning = (
+            f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
+            f"This {params.entity_type} query spans ALL projects on the site. "
+            f"Set SHOTGRID_PROJECT_ID in .env or add a project filter manually."
+        )
+    elif is_scoped and not params.add_project_filter:
+        project_warning = (
+            f"⚠️  add_project_filter=false on a project-scoped entity "
+            f"({params.entity_type}). Results may include entities from "
+            f"other projects. Active project: {PROJECT_ID}."
+        )
+
+    if params.add_project_filter and PROJECT_ID:
+        filters.append(["project", "is", {"type": "Project", "id": PROJECT_ID}])
+
+    results = await sg_find(
+        params.entity_type, filters, params.fields,
+        order=params.order, limit=params.limit,
+    )
+    payload: dict[str, Any] = {"total": len(results), "entities": results}
+    if project_warning:
+        payload["project_scope_warning"] = project_warning
+    rag_warning = _rag_skipped_warning()
+    if rag_warning:
+        payload.update(rag_warning)
+    return json.dumps(payload, default=str)
+
+
+async def sg_create_impl(params: SgCreateInput) -> str:
+    """Body of sg_create_tool."""
+    from fpt_mcp.server import (
+        PROJECT_ID, _rag_skipped_warning, _stats, check_dangerous, sg_create,
+    )
+
+    data = dict(params.data)
+    if "project" not in data and PROJECT_ID:
+        data["project"] = {"type": "Project", "id": PROJECT_ID}
+
+    params_str = json.dumps({"entity_type": params.entity_type, "data": data}, default=str)
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
+    result = await sg_create(params.entity_type, data)
+    payload: dict[str, Any] = {"created": result} if not isinstance(result, dict) else dict(result)
+    rag_warning = _rag_skipped_warning()
+    if rag_warning:
+        payload.update(rag_warning)
+    return json.dumps(payload, default=str)
+
+
+async def sg_update_impl(params: SgUpdateInput) -> str:
+    """Body of sg_update_tool."""
+    from fpt_mcp.server import (
+        _rag_skipped_warning, _stats, check_dangerous, sg_update,
+    )
+
+    params_str = json.dumps(
+        {"entity_type": params.entity_type, "entity_id": params.entity_id, "data": params.data},
+        default=str,
+    )
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
+    result = await sg_update(params.entity_type, params.entity_id, params.data)
+    payload: dict[str, Any] = {"updated": result} if not isinstance(result, dict) else dict(result)
+    rag_warning = _rag_skipped_warning()
+    if rag_warning:
+        payload.update(rag_warning)
+    return json.dumps(payload, default=str)
+
+
+async def sg_schema_impl(params: SgSchemaInput) -> str:
+    """Body of sg_schema_tool."""
+    from fpt_mcp.server import sg_schema_field_read
+
+    schema = await sg_schema_field_read(params.entity_type, params.field_name)
+    summary: dict[str, Any] = {}
+    for field_name, info in schema.items():
+        summary[field_name] = {
+            "type": info.get("data_type", {}).get("value", "unknown"),
+            "label": info.get("name", {}).get("value", field_name),
+            "editable": info.get("editable", {}).get("value", False),
+        }
+    return json.dumps(summary, default=str)
+
+
+async def sg_upload_impl(params: SgUploadInput) -> str:
+    """Body of sg_upload_tool."""
+    from fpt_mcp.server import sg_upload, sg_upload_thumbnail
+
+    if params.field_name == "image":
+        result_id = await sg_upload_thumbnail(params.entity_type, params.entity_id, params.file_path)
+    else:
+        result_id = await sg_upload(
+            params.entity_type, params.entity_id, params.file_path,
+            params.field_name, params.display_name,
+        )
+    return json.dumps({
+        "attachment_id": result_id,
+        "entity_type": params.entity_type,
+        "entity_id": params.entity_id,
+        "field": params.field_name,
+    })
+
+
+async def sg_download_impl(params: SgDownloadInput) -> str:
+    """Body of sg_download_tool."""
+    from fpt_mcp.server import sg_download_attachment, sg_find_one
+
+    entity = await sg_find_one(
+        params.entity_type,
+        [["id", "is", params.entity_id]],
+        [params.field_name],
+    )
+    if not entity or not entity.get(params.field_name):
+        return json.dumps({
+            "error": f"No attachment in {params.field_name} for {params.entity_type} #{params.entity_id}"
+        })
+
+    attachment = entity[params.field_name]
+    path = await sg_download_attachment(attachment, params.download_path)
+    return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
+
+
+# ---------------------------------------------------------------------------
+# Bulk dispatcher handlers
+# ---------------------------------------------------------------------------
+
+
+async def _do_sg_delete(params: dict) -> str:
+    """Delete (retire) an entity. Soft-delete — can be restored."""
+    from pydantic import ValidationError
+    from fpt_mcp.server import _rag_skipped_warning, _stats, check_dangerous, get_sg
+
+    try:
+        validated = SgDeleteInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for delete: {e}"})
+
+    params_str = json.dumps({"entity_type": validated.entity_type, "entity_id": validated.entity_id})
+    safety_warning = check_dangerous(params_str)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
+    sg = get_sg()
+    result = await asyncio.to_thread(sg.delete, validated.entity_type, validated.entity_id)
+    payload: dict[str, Any] = {
+        "deleted": result,
+        "entity_type": validated.entity_type,
+        "entity_id": validated.entity_id,
+    }
+    rag_warning = _rag_skipped_warning()
+    if rag_warning:
+        payload.update(rag_warning)
+    return json.dumps(payload)
+
+
+async def _do_sg_batch(params: dict) -> str:
+    """Execute multiple ShotGrid operations in a single transactional call."""
+    from pydantic import ValidationError
+    from fpt_mcp.server import _stats, check_dangerous, sg_batch
+
+    try:
+        validated = SgBatchInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for batch: {e}"})
+
+    safety_warning = check_dangerous(validated.requests)
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return safety_warning
+
+    batch_data = json.loads(validated.requests)
+    results = await sg_batch(batch_data)
+    return json.dumps(results, default=str)
+
+
+async def _do_sg_revive(params: dict) -> str:
+    """Restore a soft-deleted (retired) entity."""
+    from pydantic import ValidationError
+    from fpt_mcp.server import sg_revive
+
+    try:
+        validated = SgReviveInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for revive: {e}"})
+
+    result = await sg_revive(validated.entity_type, validated.entity_id)
+    return json.dumps({
+        "revived": result,
+        "entity_type": validated.entity_type,
+        "entity_id": validated.entity_id,
+    })

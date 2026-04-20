@@ -253,49 +253,12 @@ async def sg_find_tool(params: SgFindInput) -> str:
     Operators: is, is_not, contains, not_contains, starts_with,
     greater_than, less_than, in, between, etc.
     """
+    from fpt_mcp.shotgrid import sg_find_impl
     _stats["exec_calls"] += 1
-
-    # Safety check
-    params_str = json.dumps({"filters": params.filters, "limit": params.limit}, default=str)
-    _stats["tokens_in"] += _tok(params_str)
-    warning = check_dangerous(params_str)
-    if warning:
-        _stats["safety_blocks"] += 1
-        return json.dumps({"safety_warning": warning})
-
-    filters = list(params.filters)
-    project_warning = None
-    is_scoped = params.entity_type in _PROJECT_SCOPED_ENTITIES
-
-    if is_scoped and not PROJECT_ID:
-        project_warning = (
-            f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
-            f"This {params.entity_type} query spans ALL projects on the site. "
-            f"Set SHOTGRID_PROJECT_ID in .env or add a project filter manually."
-        )
-    elif is_scoped and not params.add_project_filter:
-        project_warning = (
-            f"⚠️  add_project_filter=false on a project-scoped entity "
-            f"({params.entity_type}). Results may include entities from "
-            f"other projects. Active project: {PROJECT_ID}."
-        )
-
-    if params.add_project_filter and PROJECT_ID:
-        filters.append(["project", "is", {"type": "Project", "id": PROJECT_ID}])
-
-    results = await sg_find(
-        params.entity_type, filters, params.fields,
-        order=params.order, limit=params.limit,
-    )
-    payload: dict[str, Any] = {"total": len(results), "entities": results}
-    if project_warning:
-        payload["project_scope_warning"] = project_warning
-    warning = _rag_skipped_warning()
-    if warning:
-        payload.update(warning)
-    response = json.dumps(payload, default=str)
-    _stats["tokens_out"] += _tok(response)
-    return response
+    _stats["tokens_in"] += _tok(json.dumps({"filters": params.filters, "limit": params.limit}, default=str))
+    out = await sg_find_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="sg_create")
@@ -305,88 +268,26 @@ async def sg_create_tool(params: SgCreateInput) -> str:
     Works with ALL entity types. Project is auto-linked if SHOTGRID_PROJECT_ID
     is set and 'project' is not in the data dict.
     """
+    from fpt_mcp.shotgrid import sg_create_impl
     _stats["exec_calls"] += 1
-
-    data = dict(params.data)
-    if "project" not in data and PROJECT_ID:
-        data["project"] = {"type": "Project", "id": PROJECT_ID}
-
-    # Safety check (catches integer entity refs in nested data, etc.)
-    params_str = json.dumps({"entity_type": params.entity_type, "data": data}, default=str)
-    _stats["tokens_in"] += _tok(params_str)
-    safety_warning = check_dangerous(params_str)
-    if safety_warning:
-        _stats["safety_blocks"] += 1
-        return json.dumps({"safety_warning": safety_warning})
-
-    result = await sg_create(params.entity_type, data)
-    payload: dict[str, Any] = {"created": result} if not isinstance(result, dict) else dict(result)
-    warning = _rag_skipped_warning()
-    if warning:
-        payload.update(warning)
-    response = json.dumps(payload, default=str)
-    _stats["tokens_out"] += _tok(response)
-    return response
+    _stats["tokens_in"] += _tok(json.dumps({"entity_type": params.entity_type, "data": params.data}, default=str))
+    out = await sg_create_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="sg_update")
 async def sg_update_tool(params: SgUpdateInput) -> str:
     """Update any entity's fields in ShotGrid."""
+    from fpt_mcp.shotgrid import sg_update_impl
     _stats["exec_calls"] += 1
-
-    # Safety check (catches dangerous status codes, integer entity refs, etc.)
-    params_str = json.dumps(
+    _stats["tokens_in"] += _tok(json.dumps(
         {"entity_type": params.entity_type, "entity_id": params.entity_id, "data": params.data},
         default=str,
-    )
-    _stats["tokens_in"] += _tok(params_str)
-    safety_warning = check_dangerous(params_str)
-    if safety_warning:
-        _stats["safety_blocks"] += 1
-        return json.dumps({"safety_warning": safety_warning})
-
-    result = await sg_update(params.entity_type, params.entity_id, params.data)
-    payload: dict[str, Any] = {"updated": result} if not isinstance(result, dict) else dict(result)
-    warning = _rag_skipped_warning()
-    if warning:
-        payload.update(warning)
-    response = json.dumps(payload, default=str)
-    _stats["tokens_out"] += _tok(response)
-    return response
-
-
-async def _do_sg_delete(params: dict) -> str:
-    """Delete (retire) an entity in ShotGrid. Soft-delete — can be restored from trash."""
-    from pydantic import ValidationError
-    try:
-        validated = SgDeleteInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for delete: {e}"})
-
-    _stats["exec_calls"] += 1
-
-    # Safety check
-    params_str = json.dumps({"entity_type": validated.entity_type, "entity_id": validated.entity_id})
-    _stats["tokens_in"] += _tok(params_str)
-    safety_warning = check_dangerous(params_str)
-    if safety_warning:
-        _stats["safety_blocks"] += 1
-        return json.dumps({"safety_warning": safety_warning})
-
-    sg = get_sg()
-    import asyncio
-    result = await asyncio.to_thread(sg.delete, validated.entity_type, validated.entity_id)
-    payload: dict[str, Any] = {
-        "deleted": result,
-        "entity_type": validated.entity_type,
-        "entity_id": validated.entity_id,
-    }
-    rag_warning = _rag_skipped_warning()
-    if rag_warning:
-        payload.update(rag_warning)
-    response = json.dumps(payload)
-    _stats["tokens_out"] += _tok(response)
-    return response
+    ))
+    out = await sg_update_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="sg_schema")
@@ -396,18 +297,10 @@ async def sg_schema_tool(params: SgSchemaInput) -> str:
     Returns field names, types, and properties. Use this to discover
     what fields are available before querying or creating entities.
     """
+    from fpt_mcp.shotgrid import sg_schema_impl
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(params.entity_type) + _tok(params.field_name or "")
-    schema = await sg_schema_field_read(params.entity_type, params.field_name)
-    # Simplify output for readability
-    summary = {}
-    for field_name, info in schema.items():
-        summary[field_name] = {
-            "type": info.get("data_type", {}).get("value", "unknown"),
-            "label": info.get("name", {}).get("value", field_name),
-            "editable": info.get("editable", {}).get("value", False),
-        }
-    out = json.dumps(summary, default=str)
+    out = await sg_schema_impl(params)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -419,21 +312,10 @@ async def sg_upload_tool(params: SgUploadInput) -> str:
     Use field_name='image' for thumbnails, 'sg_uploaded_movie' for movies,
     or any file/url field.
     """
+    from fpt_mcp.shotgrid import sg_upload_impl
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(params.file_path)
-    if params.field_name == "image":
-        result_id = await sg_upload_thumbnail(params.entity_type, params.entity_id, params.file_path)
-    else:
-        result_id = await sg_upload(
-            params.entity_type, params.entity_id, params.file_path,
-            params.field_name, params.display_name,
-        )
-    out = json.dumps({
-        "attachment_id": result_id,
-        "entity_type": params.entity_type,
-        "entity_id": params.entity_id,
-        "field": params.field_name,
-    })
+    out = await sg_upload_impl(params)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -441,21 +323,10 @@ async def sg_upload_tool(params: SgUploadInput) -> str:
 @mcp.tool(name="sg_download")
 async def sg_download_tool(params: SgDownloadInput) -> str:
     """Download an attachment from any entity field in ShotGrid."""
+    from fpt_mcp.shotgrid import sg_download_impl
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.field_name}")
-    entity = await sg_find_one(
-        params.entity_type,
-        [["id", "is", params.entity_id]],
-        [params.field_name],
-    )
-    if not entity or not entity.get(params.field_name):
-        out = json.dumps({"error": f"No attachment in {params.field_name} for {params.entity_type} #{params.entity_id}"})
-        _stats["tokens_out"] += _tok(out)
-        return out
-
-    attachment = entity[params.field_name]
-    path = await sg_download_attachment(attachment, params.download_path)
-    out = json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
+    out = await sg_download_impl(params)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -565,6 +436,15 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 # pre-date the split.
 from fpt_mcp.launcher import _project_id_for_entity  # noqa: E402,F401
 
+# Bucket F Phase 2d — re-export handler functions from shotgrid / reporting so
+# tests that import them by the `fpt_mcp.server._do_sg_*` path still resolve.
+from fpt_mcp.shotgrid import (  # noqa: E402,F401
+    _do_sg_batch, _do_sg_delete, _do_sg_revive,
+)
+from fpt_mcp.reporting import (  # noqa: E402,F401
+    _do_sg_activity, _do_sg_note_thread, _do_sg_summarize, _do_sg_text_search,
+)
+
 
 @mcp.tool(name="fpt_launch_app")
 async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
@@ -606,161 +486,14 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Additional SG API tools — batch, text_search, summarize, revive,
-# note_thread, activity_stream
+# Bulk + Reporting dispatcher tools
 # ---------------------------------------------------------------------------
+# Handlers live in fpt_mcp.shotgrid (bulk) and fpt_mcp.reporting (reporting),
+# extracted in Bucket F Phase 2d. The dispatcher wrappers below handle the
+# _stats bookkeeping so test_telemetry AST scan of server.py finds the
+# increments; handlers themselves are pure (except safety_blocks, which
+# stays at the point the block is triggered).
 
-async def _do_sg_batch(params: dict) -> str:
-    """Execute multiple ShotGrid operations in a single transactional call.
-
-    ALL operations succeed or ALL fail — no partial results.
-    Supports create, update, and delete in a single batch.
-    Much more efficient than individual calls for bulk operations.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgBatchInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for batch: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(validated.requests)
-    # Safety check
-    safety_warning = check_dangerous(validated.requests)
-    if safety_warning:
-        _stats["safety_blocks"] += 1
-        return safety_warning
-    batch_data = json.loads(validated.requests)
-    results = await sg_batch(batch_data)
-    # Note: sg_batch returns a raw list to preserve the existing tool
-    # contract (callers expect a JSON array). The RAG soft-warning
-    # is intentionally NOT applied here — sg_batch is already gated by
-    # the dangerous-pattern check above and is used by workflows that
-    # already know the schema.
-    out = json.dumps(results, default=str)
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-async def _do_sg_text_search(params: dict) -> str:
-    """Full-text search across multiple entity types simultaneously.
-
-    Unlike sg_find which searches field-by-field, text_search looks
-    across all text fields (code, description, notes, etc.) at once.
-    Useful for finding entities when you only have a keyword.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgTextSearchInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for text_search: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(validated.text) + _tok(validated.entity_types)
-    entity_types = json.loads(validated.entity_types)
-    project_ids = [PROJECT_ID] if PROJECT_ID else None
-    results = await sg_text_search(validated.text, entity_types, project_ids=project_ids, limit=validated.limit)
-    payload: dict[str, Any] = results if isinstance(results, dict) else {"results": results}
-    if not PROJECT_ID:
-        scoped = [et for et in entity_types if et in _PROJECT_SCOPED_ENTITIES]
-        if scoped:
-            payload["project_scope_warning"] = (
-                f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
-                f"text_search for {', '.join(scoped)} spans ALL projects. "
-                f"Set SHOTGRID_PROJECT_ID in .env to scope results."
-            )
-    out = json.dumps(payload, default=str)
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-async def _do_sg_summarize(params: dict) -> str:
-    """Server-side aggregation: count, sum, avg, min, max with optional grouping.
-
-    Much more efficient than fetching all records with sg_find and
-    calculating in Python. Runs entirely on the ShotGrid server.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgSummarizeInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for summarize: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(validated.filters) + _tok(validated.summary_fields)
-    filters = json.loads(validated.filters)
-    summary_fields = json.loads(validated.summary_fields)
-    grouping = json.loads(validated.grouping) if validated.grouping else None
-    results = await sg_summarize(validated.entity_type, filters, summary_fields, grouping=grouping)
-    out = json.dumps(results, default=str)
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-async def _do_sg_revive(params: dict) -> str:
-    """Restore a soft-deleted (retired) entity.
-
-    Reverses sg_delete. The entity is moved out of the trash and
-    becomes active again with all its data intact.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgReviveInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for revive: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(f"{validated.entity_type} {validated.entity_id}")
-    result = await sg_revive(validated.entity_type, validated.entity_id)
-    out = json.dumps({"revived": result, "entity_type": validated.entity_type, "entity_id": validated.entity_id})
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-async def _do_sg_note_thread(params: dict) -> str:
-    """Read the full reply thread of a Note, including all nested replies.
-
-    Returns the complete conversation thread that sg_find cannot
-    reconstruct. Includes reply content, authors, and timestamps.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgNoteThreadInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for note_thread: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(str(validated.note_id))
-    results = await sg_note_thread_read(validated.note_id)
-    out = json.dumps(results, default=str)
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-async def _do_sg_activity(params: dict) -> str:
-    """Read the activity stream for an entity.
-
-    Returns recent updates, status changes, notes, and other events.
-    This uses a dedicated ShotGrid API method that cannot be replicated
-    with sg_find.
-    """
-    from pydantic import ValidationError
-    try:
-        validated = SgActivityInput(**params)
-    except ValidationError as e:
-        return json.dumps({"error": f"Invalid params for activity: {e}"})
-
-    _stats["exec_calls"] += 1
-    _stats["tokens_in"] += _tok(f"{validated.entity_type} {validated.entity_id}")
-    results = await sg_activity_stream_read(validated.entity_type, validated.entity_id, limit=validated.limit)
-    out = json.dumps(results, default=str)
-    _stats["tokens_out"] += _tok(out)
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Bulk Dispatch Tool
-# ---------------------------------------------------------------------------
 
 @mcp.tool(name="fpt_bulk")
 async def fpt_bulk(params: BulkDispatchInput) -> str:
@@ -772,18 +505,20 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
     """
+    from fpt_mcp.shotgrid import _do_sg_batch, _do_sg_delete, _do_sg_revive
     dispatch = {
         BulkAction.DELETE: _do_sg_delete,
         BulkAction.REVIVE: _do_sg_revive,
         BulkAction.BATCH: _do_sg_batch,
     }
     handler = dispatch[params.action]
-    return await handler(params.params or {})
+    _stats["exec_calls"] += 1
+    params_str = json.dumps(params.params or {}, default=str)
+    _stats["tokens_in"] += _tok(params_str)
+    out = await handler(params.params or {})
+    _stats["tokens_out"] += _tok(out)
+    return out
 
-
-# ---------------------------------------------------------------------------
-# Reporting Dispatch Tool
-# ---------------------------------------------------------------------------
 
 @mcp.tool(name="fpt_reporting")
 async def fpt_reporting(params: ReportingDispatchInput) -> str:
@@ -796,6 +531,9 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
     • note_thread — Read the full reply thread of a Note. Required params: {"note_id": 123}
     • activity — Read the activity stream for an entity. Required params: {"entity_type": "Shot", "entity_id": 456} Optional: {"limit": 20}
     """
+    from fpt_mcp.reporting import (
+        _do_sg_activity, _do_sg_note_thread, _do_sg_summarize, _do_sg_text_search,
+    )
     dispatch = {
         ReportingAction.TEXT_SEARCH: _do_sg_text_search,
         ReportingAction.SUMMARIZE: _do_sg_summarize,
@@ -803,7 +541,12 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
         ReportingAction.ACTIVITY: _do_sg_activity,
     }
     handler = dispatch[params.action]
-    return await handler(params.params or {})
+    _stats["exec_calls"] += 1
+    params_str = json.dumps(params.params or {}, default=str)
+    _stats["tokens_in"] += _tok(params_str)
+    out = await handler(params.params or {})
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 # ---------------------------------------------------------------------------
