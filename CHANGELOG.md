@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-20
+
+### Changed
+- **Bucket F refactor — `server.py` split into focused subject modules.**
+  No behaviour change; MCP tool surface is identical (14 tools, same
+  parameters, same returns). Goal: reduce the orchestrator from 1677
+  lines to a slim dispatcher (final: 648 lines, -61 %).
+
+  New modules under `src/fpt_mcp/`:
+  - `filters.py` (Phase 2a) — `_validate_filter_triples`,
+    `_VALID_FILTER_OPERATORS`, `_PROJECT_SCOPED_ENTITIES`,
+    `_MAX_FILTER_DEPTH`.
+  - `models.py` (Phase 2a) — all 17 Pydantic input models + 2 enums +
+    `_STRICT_CONFIG`.
+  - `launcher.py` (Phase 2b) — `fpt_launch_app_impl` +
+    `_project_id_for_entity`.
+  - `toolkit_tools.py` (Phase 2c) — `tk_resolve_path_impl` +
+    `tk_publish_impl`.
+  - `shotgrid.py` (Phase 2d) — `sg_*_impl` × 6 + `_do_sg_delete` +
+    `_do_sg_batch` + `_do_sg_revive`.
+  - `reporting.py` (Phase 2d) — `_do_sg_text_search`, `_do_sg_summarize`,
+    `_do_sg_note_thread`, `_do_sg_activity`.
+  - `rag_tools.py` (Phase 2e) — `search_sg_docs_impl`,
+    `learn_pattern_impl`.
+
+  `@mcp.tool` decorators stay in `server.py` as thin wrappers so
+  `install.sh` ast-extraction continues to find them and the
+  `mcp_tool_inventory` invariant stays green. `_stats` bookkeeping lives
+  in wrappers (impls are pure) so `test_telemetry`'s AST scan of
+  `server.py` still sees every increment. Impls lazy-import test-patched
+  symbols (`get_sg`, `sg_find`, `_get_tk_config`, etc.) from
+  `fpt_mcp.server` so existing test patches keep intercepting.
+
+### Added
+- `tests/test_server_line_budget.py` — regression guard asserting
+  `src/fpt_mcp/server.py` stays under 700 lines. Any future growth back
+  toward the old 1677-line state fails this test with a pointer to the
+  right extraction target module.
+- Re-exports in `server.py` for backwards compatibility with tests that
+  import `_project_id_for_entity`, `_do_sg_batch`, `_do_sg_delete`,
+  `_do_sg_revive`, `_do_sg_text_search`, `_do_sg_summarize`,
+  `_do_sg_note_thread`, `_do_sg_activity` from the `fpt_mcp.server`
+  namespace.
+- `docs/BUCKET_F_PLAN.md` (landed before the refactor in commit
+  `18073ae`) documents the phased approach used to land this.
+
 ## [1.5.2] - 2026-04-20
 
 ### Fixed
