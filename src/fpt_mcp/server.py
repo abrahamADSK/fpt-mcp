@@ -25,10 +25,8 @@ import json
 import os
 import sys
 from pathlib import Path
-from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
 from mcp.server.fastmcp import FastMCP
 
 from fpt_mcp.client import (
@@ -564,37 +562,8 @@ async def search_sg_docs_tool(params: SearchSgDocsInput) -> str:
     Covers three APIs: shotgun_api3 (Python SDK), Toolkit (sgtk), REST API.
     Uses HyDE query expansion + Reciprocal Rank Fusion for high precision.
     """
-    global _last_rag_score, _rag_called_this_session
-
-    try:
-        from fpt_mcp.rag.search import search
-        text, relevance = search(params.query, n_results=params.n_results)
-    except ImportError:
-        return json.dumps({
-            "error": "RAG dependencies not installed. Run: pip install chromadb sentence-transformers rank-bm25",
-            "fallback": "Proceed with caution — no documentation verification available.",
-        })
-    except Exception as e:
-        return json.dumps({"error": f"RAG search failed: {e}"})
-
-    _stats["rag_calls"] += 1
-    _stats["tokens_saved"] += _FULL_DOC_TOKENS - _tok(text)
-    _last_rag_score = relevance
-    _rag_called_this_session = True
-
-    result = {
-        "documentation": text,
-        "max_relevance": relevance,
-        "chunks_returned": params.n_results,
-    }
-
-    if relevance < 60:
-        result["warning"] = (
-            f"Low relevance ({relevance}%) — this query may cover an undocumented area. "
-            "Proceed carefully. If your approach works, call learn_pattern to save it."
-        )
-
-    return json.dumps(result, default=str)
+    from fpt_mcp.rag_tools import search_sg_docs_impl
+    return await search_sg_docs_impl(params)
 
 
 @mcp.tool(name="learn_pattern")
@@ -608,69 +577,8 @@ async def learn_pattern_tool(params: LearnPatternInput) -> str:
     Model trust gates: only Sonnet/Opus can write directly.
     Other models stage candidates for review.
     """
-    if _model_can_write():
-        # Direct write to docs
-        api_file_map = {
-            "shotgun_api3": "SG_API.md",
-            "toolkit": "TK_API.md",
-            "rest_api": "REST_API.md",
-        }
-        doc_file = api_file_map.get(params.api, "SG_API.md")
-        doc_path = _SERVER_DIR / "docs" / doc_file
-
-        try:
-            entry = (
-                f"\n\n## Learned: {params.description}\n\n"
-                f"```python\n{params.code}\n```\n"
-            )
-            with open(doc_path, "a", encoding="utf-8") as f:
-                f.write(entry)
-            _stats["patterns_learned"] += 1
-
-            # Clear RAG cache so new pattern is found on next search
-            try:
-                from fpt_mcp.rag.search import clear_cache
-                clear_cache()
-            except ImportError:
-                pass
-
-            return json.dumps({
-                "status": "learned",
-                "description": params.description,
-                "file": doc_file,
-                "note": "Pattern appended to docs. Run build_index to include in RAG.",
-            })
-        except Exception as e:
-            return json.dumps({"error": f"Failed to write pattern: {e}"})
-    else:
-        # Stage candidate for review
-        candidates_path = _SERVER_DIR / "rag" / "candidates.json"
-        try:
-            candidates = json.loads(candidates_path.read_text()) if candidates_path.exists() else []
-        except Exception:
-            candidates = []
-
-        candidates.append({
-            "description": params.description,
-            "code": params.code,
-            "api": params.api,
-            "model": _get_current_model(),
-            "timestamp": datetime.datetime.now().isoformat(),
-        })
-
-        try:
-            candidates_path.parent.mkdir(parents=True, exist_ok=True)
-            candidates_path.write_text(json.dumps(candidates, indent=2, ensure_ascii=False))
-        except Exception:
-            pass
-
-        _stats["patterns_staged"] += 1
-
-        return json.dumps({
-            "status": "staged",
-            "description": params.description,
-            "note": f"Model '{_get_current_model()}' is read-only. Pattern staged for review.",
-        })
+    from fpt_mcp.rag_tools import learn_pattern_impl
+    return await learn_pattern_impl(params)
 
 
 @mcp.tool(name="session_stats")
