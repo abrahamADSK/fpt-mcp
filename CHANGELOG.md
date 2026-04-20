@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `install.sh` — removed two unused-variable shellcheck warnings
+  (`exit_code` local that was never read, `MCP_ARGS` JSON string that was
+  not referenced by any register path). Zero behaviour change. Closes
+  SC2034 for this file (ecosystem shellcheck sweep Chat 46).
+
 ### Changed
 - `.concepts.yml` — `strict: false → true`. The pre-commit hook now blocks
   commits on any unresolved invariant drift instead of only reporting it.

@@ -88,7 +88,6 @@ run_doctor() {
     info "Repo root : ${REPO_ROOT}"
 
     local venv_python="${VENV_DIR}/bin/python"
-    local exit_code=0
 
     if [[ ! -x "${venv_python}" ]]; then
         error "Venv is missing: ${venv_python}"
@@ -529,7 +528,6 @@ info "Step 5/6 — Registering MCP server in ~/.claude.json..."
 # The package is launched via `python -m fpt_mcp.server` (editable install).
 # cwd = repo root so that load_dotenv() finds .env automatically.
 MCP_COMMAND="${VENV_PYTHON}"
-MCP_ARGS='["-m", "fpt_mcp.server"]'
 MCP_CWD="${REPO_ROOT}"
 SERVER_NAME="fpt-mcp"
 
