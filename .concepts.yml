@@ -158,17 +158,18 @@ concepts:
       fpt-mcp B.5 hardening: every input model declared at module level uses
       _STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
       to reject unknown keys from hallucinated tool calls. This regex guard
-      ensures the _STRICT_CONFIG declaration exists in server.py.
+      ensures the _STRICT_CONFIG declaration exists in models.py (moved from
+      server.py in Bucket F Phase 2a).
     source_of_truth:
-      file: src/fpt_mcp/server.py
+      file: src/fpt_mcp/models.py
       symbol: _STRICT_CONFIG
     invariants:
       - id: strict_config_declaration_present
         type: claim_verifies
-        claim: "_STRICT_CONFIG = ConfigDict(extra='forbid', str_strip_whitespace=True) is declared in server.py"
+        claim: "_STRICT_CONFIG = ConfigDict(extra='forbid', str_strip_whitespace=True) is declared in models.py"
         code_grep:
           regex: '_STRICT_CONFIG\s*=\s*ConfigDict\(extra="forbid"'
-          file_pattern: 'src/fpt_mcp/server.py'
+          file_pattern: 'src/fpt_mcp/models.py'
         expected: found
 
   filter_operator_whitelist:
@@ -176,8 +177,9 @@ concepts:
       C.3/C.4 — _validate_filter_triples rejects hallucinated filter operators.
       Common hallucinations 'like' and 'matches' must NOT appear in the
       _VALID_FILTER_OPERATORS whitelist (they are not real ShotGrid operators).
+      Lives in filters.py (moved from server.py in Bucket F Phase 2a).
     source_of_truth:
-      file: src/fpt_mcp/server.py
+      file: src/fpt_mcp/filters.py
       symbol: _VALID_FILTER_OPERATORS
     invariants:
       - id: valid_operators_reject_like
@@ -185,7 +187,7 @@ concepts:
         claim: "hallucinated operator 'like' is NOT in the whitelist"
         code_grep:
           regex: '^\s*"like"'
-          file_pattern: 'src/fpt_mcp/server.py'
+          file_pattern: 'src/fpt_mcp/filters.py'
         expected: not_found
 
       - id: valid_operators_reject_matches
@@ -193,7 +195,7 @@ concepts:
         claim: "hallucinated operator 'matches' is NOT in the whitelist"
         code_grep:
           regex: '^\s*"matches"'
-          file_pattern: 'src/fpt_mcp/server.py'
+          file_pattern: 'src/fpt_mcp/filters.py'
         expected: not_found
 
       - id: validate_filter_triples_present
@@ -201,7 +203,7 @@ concepts:
         claim: "_validate_filter_triples() implementation exists"
         code_grep:
           regex: 'def _validate_filter_triples'
-          file_pattern: 'src/fpt_mcp/server.py'
+          file_pattern: 'src/fpt_mcp/filters.py'
         expected: found
 
   project_scope_guard:
@@ -209,9 +211,11 @@ concepts:
       Chat 42 — _PROJECT_SCOPED_ENTITIES is the canonical set of entity types
       that live inside a project and must carry an implicit/explicit project
       filter. SHOTGRID_PROJECT_ID is the env var honored by sg_find and
-      text_search.
+      text_search. _PROJECT_SCOPED_ENTITIES lives in filters.py (moved from
+      server.py in Bucket F Phase 2a); server.py still references the env
+      var in handler code, so that check stays on server.py.
     source_of_truth:
-      file: src/fpt_mcp/server.py
+      file: src/fpt_mcp/filters.py
       symbol: _PROJECT_SCOPED_ENTITIES
     invariants:
       - id: project_scoped_entities_declared
@@ -219,7 +223,7 @@ concepts:
         claim: "_PROJECT_SCOPED_ENTITIES frozenset is declared"
         code_grep:
           regex: '_PROJECT_SCOPED_ENTITIES.*frozenset'
-          file_pattern: 'src/fpt_mcp/server.py'
+          file_pattern: 'src/fpt_mcp/filters.py'
         expected: found
 
       - id: shotgrid_project_id_honored
