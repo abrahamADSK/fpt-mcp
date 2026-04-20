@@ -627,6 +627,7 @@ info "Step 6/6 — Pre-approving fpt-mcp tools in ~/.claude/settings.json..."
 import json, os
 from pathlib import Path
 
+# concept:install_sh_tools_list start
 TOOLS = [
     "sg_find", "sg_create", "sg_update", "sg_schema",
     "sg_upload", "sg_download",
@@ -635,6 +636,7 @@ TOOLS = [
     "fpt_launch_app",
     "search_sg_docs", "learn_pattern", "session_stats",
 ]
+# concept:install_sh_tools_list end
 PREFIX = "mcp__fpt-mcp__"
 new_tools = {PREFIX + t for t in TOOLS}
 

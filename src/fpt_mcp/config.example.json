@@ -1,7 +1,8 @@
 {
+  "_comment": "Copy to config.json and adjust. `ollama_url` is REQUIRED when backend='ollama' — set it to the LAN/host Ollama URL (e.g. http://<host>:11434). There is NO default: the Qt console refuses to start an ollama backend without this key (see claude_worker.py::DEFAULT_OLLAMA_URL). `ollama_mac_url` defaults to http://localhost:11434 if omitted and is only read when backend='ollama_mac'.",
   "backend": "anthropic",
   "model": "claude-sonnet-4-6",
-  "ollama_url": "http://glorfindel:11434",
+  "ollama_url": "",
   "ollama_mac_url": "http://localhost:11434",
   "write_allowed_models": ["claude-opus", "claude-sonnet"]
 }
