@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-04-20
+
+### Fixed
+- **`ollama_mac` `num_ctx` preflight** (`src/fpt_mcp/qt/claude_worker.py`).
+  Ollama's Anthropic-compatible endpoint (`/v1/messages`) silently ignores
+  Modelfile `num_ctx` and defaults to 4096 tokens, truncating every Mac-
+  local inference spawned from the Qt console. Added a module-level
+  `_preload_ollama_mac_model(model, url, num_ctx)` helper that POSTs an
+  empty-prompt request to `/api/generate` with `options.num_ctx=8192`,
+  `keep_alive="10m"`, `stream=False` before `subprocess.Popen(claude ...)`
+  runs. Uses `urllib.request` (stdlib — no new dependency). Non-fatal on
+  failure: logged, not raised, so the Qt console still spawns `claude`
+  even if the daemon is briefly unreachable. Only `ollama_mac` is wired;
+  LAN `ollama` (operator-managed) and `ollama_cloud` (cloud runners
+  manage context) are deliberately excluded. New `OLLAMA_MAC_NUM_CTX =
+  8192` constant tuned for 4B/9B models on Mac 24 GB unified memory.
+  Ships with 5 new tests in `tests/test_ollama_mac_preflight.py`
+  (constant pinning, payload shape, custom URL, transport error
+  swallow, timeout swallow). Parity with flame-mcp's existing Option A
+  fix (`hooks/flame_mcp_bridge.py::_preload_ollama_model`).
+
+### Added
+- **`github_release_per_tag` invariant** (`.concepts.yml`). Every `vX.Y.Z`
+  tag from `v1.0.0` onwards must have a corresponding published GitHub
+  Release (pre-1.0 tags excluded — `v0.x` was pre-release noise). The
+  invariant uses `command_lines` on `git tag --list 'v*'` vs
+  `gh release list --limit 200`. Backfilled missing GitHub releases for
+  `v1.0.0` and `v1.1.0` in the same commit to land at 29/29 green.
+  Soft-launch drift only — matches the repo's existing `strict: false`.
+- **`ollama_preflight_parity` invariant** (`.concepts.yml`). Pins that
+  the `ollama_mac` branch of `claude_worker.py` continues to call
+  `_preload_ollama_mac_model(...)` before spawning `claude`; a future
+  refactor that silently drops the preflight will fail `verify_concepts`.
+
 ## [1.5.0] - 2026-04-20
 
 ### Added

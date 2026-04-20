@@ -68,6 +68,72 @@ WRITE_ALLOWED_MODELS = ["claude-opus", "claude-sonnet"]
 DEFAULT_OLLAMA_URL: str | None = None
 DEFAULT_OLLAMA_MAC_URL = "http://localhost:11434"
 
+# Context window forced when pre-loading the Mac-local Ollama model.
+# Ollama's Anthropic-compat /v1/messages ignores Modelfile num_ctx and
+# defaults to 4096 without an explicit preflight against /api/generate.
+# Tuned for 4B/9B models on Mac unified memory (24 GB).
+OLLAMA_MAC_NUM_CTX = 8192
+
+
+def _preload_ollama_mac_model(model: str, url: str, num_ctx: int) -> None:
+    """Pre-load the Mac-local Ollama model with an explicit num_ctx.
+
+    Ollama's Anthropic-compatible endpoint (``/v1/messages``) does NOT honour
+    the ``num_ctx`` set in a model's Modelfile — it silently falls back to
+    the global default of 4096 tokens. The native ``/api/generate`` endpoint
+    DOES respect ``options.num_ctx``. By POSTing an empty-prompt request there
+    first, we load (or reload) the model's runner with ``num_ctx`` tokens.
+    Ollama then reuses that runner for the subsequent Anthropic-API call
+    made by the ``claude`` CLI subprocess.
+
+    Uses ``urllib.request`` (stdlib) — no third-party dependency. This is
+    a standalone module-level helper (not a method) so it is independent
+    of the Qt worker class and trivially unit-testable via monkeypatching.
+
+    Only ``ollama_mac`` uses this preflight. ``ollama_cloud`` is deliberately
+    skipped (cloud runners manage context) and LAN ``ollama`` is operator-
+    managed. Exceptions are logged but not raised — the main call may still
+    succeed, just with the default 4096-token ceiling.
+
+    Parameters
+    ----------
+    model : str
+        Ollama model tag (e.g. ``"qwen3.5:4b"``, ``"qwen3.5-mcp"``).
+    url : str
+        Base URL of the Mac-local Ollama daemon (e.g. ``http://localhost:11434``).
+    num_ctx : int
+        Context window in tokens (typically ``OLLAMA_MAC_NUM_CTX``).
+    """
+    import urllib.request as _urllib_req
+
+    payload = json.dumps({
+        "model":      model,
+        "prompt":     "",          # empty — we only want to load the runner
+        "options":    {"num_ctx": num_ctx},
+        "keep_alive": "10m",
+        "stream":     False,
+    }).encode()
+
+    api_url = f"{url}/api/generate"
+    req = _urllib_req.Request(
+        api_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with _urllib_req.urlopen(req, timeout=120) as resp:
+            resp.read()
+        print(
+            f"[claude_worker] Ollama Mac pre-load OK: model={model} "
+            f"num_ctx={num_ctx} url={url}"
+        )
+    except Exception as exc:
+        # Non-fatal — log and continue; the main call may still succeed
+        # (just capped at Ollama's default 4096-token context).
+        print(
+            f"[claude_worker] Ollama Mac pre-load warning (non-fatal): {exc}"
+        )
+
 
 def _load_config() -> dict:
     """Load config.json from the fpt_mcp package directory."""
@@ -339,6 +405,21 @@ class ClaudeWorker(QThread):
             # Anthropic gets the full prompt; Ollama/Qwen gets the
             # compact SYSTEM_PROMPT_QWEN (D.1).
             system_prompt = _select_system_prompt(self._backend)
+
+            # Force num_ctx on the Mac-local Ollama runner BEFORE spawning
+            # the claude subprocess. Ollama's Anthropic-compat endpoint
+            # ignores Modelfile num_ctx and defaults to 4096; the native
+            # /api/generate endpoint DOES honour options.num_ctx. Non-fatal
+            # on failure. LAN `ollama` (operator-managed) and `ollama_cloud`
+            # are deliberately excluded.
+            if self._backend == "ollama_mac" and self._model_id:
+                _cfg = _load_config()
+                _mac_url = _cfg.get("ollama_mac_url", DEFAULT_OLLAMA_MAC_URL)
+                _preload_ollama_mac_model(
+                    model=self._model_id,
+                    url=_mac_url,
+                    num_ctx=OLLAMA_MAC_NUM_CTX,
+                )
 
             cmd = [CLAUDE_BIN, "-p", prompt,
                    "--output-format", "stream-json", "--verbose",
