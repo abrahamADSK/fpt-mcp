@@ -54,6 +54,36 @@ from fpt_mcp.tk_config import discover_or_fallback, TkConfigError
 from fpt_mcp.safety import check_dangerous
 from fpt_mcp.software_resolver import resolve_app
 
+# Bucket F Phase 2a — filter validation + Pydantic input models live in
+# dedicated modules. server.py keeps the @mcp.tool decorators so install.sh
+# ast-extraction and the .concepts.yml invariants that grep for tool names
+# by file path continue to work unchanged.
+from fpt_mcp.filters import (
+    _PROJECT_SCOPED_ENTITIES,
+    _VALID_FILTER_OPERATORS,
+    _MAX_FILTER_DEPTH,
+    _validate_filter_triples,
+)
+from fpt_mcp.models import (
+    _STRICT_CONFIG,
+    # Direct ShotGrid tool inputs
+    SgFindInput, SgCreateInput, SgUpdateInput, SgDeleteInput,
+    SgSchemaInput, SgUploadInput, SgDownloadInput,
+    # Toolkit tool inputs
+    TkResolvePathInput, TkPublishInput,
+    # Dispatcher enums + wrappers
+    BulkAction, BulkDispatchInput,
+    ReportingAction, ReportingDispatchInput,
+    # Launcher tool input
+    FptLaunchAppInput,
+    # Bulk sub-models
+    SgBatchInput, SgReviveInput,
+    # Reporting sub-models
+    SgTextSearchInput, SgSummarizeInput, SgNoteThreadInput, SgActivityInput,
+    # RAG tool inputs
+    SearchSgDocsInput, LearnPatternInput,
+)
+
 _SERVER_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
@@ -200,304 +230,10 @@ mcp = FastMCP(
 )
 
 
-# ---------------------------------------------------------------------------
-# Input models
-# ---------------------------------------------------------------------------
-
-# Shared strict config for every input model. extra="forbid" makes the
-# schema reject hallucinated keys at validation time (rather than silently
-# accepting them and forwarding garbage to ShotGrid). str_strip_whitespace
-# normalises accidental leading/trailing whitespace from LLM output.
-_STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-
-# ---------------------------------------------------------------------------
-# Filter operator enum (C.4)
-# ---------------------------------------------------------------------------
-#
-# Canonical list of valid ShotGrid filter operators. Sourced from the
-# shotgun_api3 documentation (docs/SG_API.md). Used by the SgFindInput
-# filter validator (C.3) to reject hallucinated operators at the MCP layer
-# instead of letting them fail at the ShotGrid API layer with a confusing
-# error.
-#
-# We use a frozenset of strings rather than an Enum so the validator can
-# accept the operator either as a literal string in the filter triple
-# (the natural shape from JSON) without forcing the LLM to use enum
-# member syntax.
-
-# Entity types that live inside a project.  Queries for these without a
-# project filter return results from ALL projects on the ShotGrid site,
-# which is almost never what the user wants.  The guard in sg_find_tool
-# injects a warning when PROJECT_ID is unset or add_project_filter is False.
-_PROJECT_SCOPED_ENTITIES: frozenset[str] = frozenset({
-    "Asset", "Shot", "Sequence", "Task", "Version", "Note",
-    "PublishedFile", "Playlist", "TimeLog", "Milestone",
-    "CustomEntity01", "CustomEntity02", "CustomEntity03",
-})
-
-_VALID_FILTER_OPERATORS: frozenset[str] = frozenset({
-    # Equality / containment
-    "is", "is_not",
-    "in", "not_in",
-    # String matching
-    "contains", "not_contains",
-    "starts_with", "ends_with",
-    # Numeric / date comparison
-    "less_than", "greater_than", "between", "not_between",
-    "in_last", "not_in_last", "in_next", "not_in_next",
-    "in_calendar_day", "in_calendar_week",
-    "in_calendar_month", "in_calendar_year",
-    # Type-aware
-    "type_is", "type_is_not",
-    # Name matching (multi-entity fields)
-    "name_contains", "name_not_contains", "name_starts_with", "name_ends_with",
-    "name_is",
-})
-
-
-_MAX_FILTER_DEPTH = 20  # cap recursion to prevent stack overflow on malformed input
-
-
-def _validate_filter_triples(filters: list, _depth: int = 0) -> list:
-    """C.3 — structural validation for ShotGrid filter lists.
-
-    Walks every filter and rejects:
-      - Filters that are not a 3-element list/tuple [field, operator, value]
-      - Operators that are not in _VALID_FILTER_OPERATORS (catches the
-        hallucinated 'is_exactly', 'matches', 'like', etc. that the LLM
-        invents when it skips search_sg_docs)
-      - Entity references passed as bare integers/strings instead of the
-        canonical {"type": "...", "id": N} dict (the single most common
-        ShotGrid hallucination, per the audit)
-      - Nesting deeper than _MAX_FILTER_DEPTH levels (prevents RecursionError
-        on adversarial or hallucinated deeply-nested filters)
-
-    Allows logical groupings of the form
-      {"filter_operator": "any"|"all", "filters": [...]}
-    by recursing into the nested filters list. This is the canonical
-    ShotGrid syntax for OR/AND blocks.
-
-    Note: this complements safety.py's regex check, which only catches
-    JSON-key-value entity refs ("entity": 123) and misses the array form
-    ([["entity", "is", 123]]) that filter lists actually use.
-    """
-    if _depth > _MAX_FILTER_DEPTH:
-        raise ValueError(
-            f"Filter nesting exceeds maximum depth of {_MAX_FILTER_DEPTH}. "
-            "Simplify your filter structure."
-        )
-
-    # Field names that are typed as entity links and therefore require
-    # a {"type": ..., "id": ...} dict on the value side. This is a
-    # conservative subset — there are more entity-link fields in custom
-    # schemas, but these are the universal ones.
-    _entity_link_fields = {
-        "entity", "project", "task", "user", "asset", "shot",
-        "sequence", "version", "playlist", "step", "published_file",
-        "parent", "children", "linked_versions",
-    }
-
-    def _is_entity_dict(value: Any) -> bool:
-        return (
-            isinstance(value, dict)
-            and "type" in value
-            and "id" in value
-            and isinstance(value["id"], int)
-            and isinstance(value["type"], str)
-        )
-
-    for idx, f in enumerate(filters):
-        # Logical grouping: {"filter_operator": "all"|"any", "filters": [...]}
-        if isinstance(f, dict):
-            if "filter_operator" in f and "filters" in f:
-                op = f.get("filter_operator")
-                if op not in ("all", "any"):
-                    raise ValueError(
-                        f"filter[{idx}]: invalid filter_operator '{op}' "
-                        "(must be 'all' or 'any')"
-                    )
-                if not isinstance(f["filters"], list):
-                    raise ValueError(
-                        f"filter[{idx}]: 'filters' inside a logical group must be a list"
-                    )
-                _validate_filter_triples(f["filters"], _depth + 1)
-                continue
-            raise ValueError(
-                f"filter[{idx}]: dict filters must have 'filter_operator' "
-                "and 'filters' keys (logical grouping)"
-            )
-
-        # Triple: [field, operator, value]
-        if not isinstance(f, (list, tuple)) or len(f) != 3:
-            raise ValueError(
-                f"filter[{idx}]: each filter must be a 3-element list "
-                f"[field, operator, value], got {type(f).__name__} of length "
-                f"{len(f) if hasattr(f, '__len__') else 'n/a'}"
-            )
-        field, op, value = f[0], f[1], f[2]
-
-        if not isinstance(field, str):
-            raise ValueError(
-                f"filter[{idx}]: field name must be a string, got {type(field).__name__}"
-            )
-        if not isinstance(op, str):
-            raise ValueError(
-                f"filter[{idx}]: operator must be a string, got {type(op).__name__}"
-            )
-        if op not in _VALID_FILTER_OPERATORS:
-            raise ValueError(
-                f"filter[{idx}]: invalid operator '{op}'. "
-                f"Valid operators: {sorted(_VALID_FILTER_OPERATORS)}. "
-                "Common hallucinations: 'is_exactly', 'matches', 'like', "
-                "'before_date' — none of these exist in the ShotGrid API."
-            )
-
-        # Entity-link field validation: if the field looks like an entity
-        # link, the value must be a dict (or a list of dicts for 'in').
-        if field in _entity_link_fields and op in ("is", "is_not"):
-            if not _is_entity_dict(value):
-                raise ValueError(
-                    f"filter[{idx}]: field '{field}' is an entity link, "
-                    f"value must be {{'type': '...', 'id': N}}, got {value!r}. "
-                    "Bare integers and strings are not accepted by ShotGrid."
-                )
-        if field in _entity_link_fields and op in ("in", "not_in"):
-            if not isinstance(value, list) or not all(_is_entity_dict(v) for v in value):
-                raise ValueError(
-                    f"filter[{idx}]: field '{field}' with operator '{op}' "
-                    "requires a list of entity dicts, got "
-                    f"{value!r}."
-                )
-
-    return filters
-
-
-class SgFindInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="ShotGrid entity type: Asset, Shot, Sequence, Version, Task, Note, PublishedFile, HumanUser, Project, etc.")
-    filters: list = Field(default_factory=list, description="ShotGrid filter list. Examples: [['sg_status_list','is','ip']], [['id','is',1234]], [['code','contains','hero']], [['entity','is',{'type':'Asset','id':123}]]. Use [] for no filter.")
-    fields: list[str] = Field(default_factory=lambda: ["id", "code", "sg_status_list"], description="Fields to return. Use sg_schema to discover available fields.")
-    order: list[dict] = Field(default_factory=list, description="Sort order. Example: [{'field_name':'created_at','direction':'desc'}]")
-    limit: int = Field(default=50, description="Max results to return. 0 = unlimited.")
-    add_project_filter: bool = Field(default=True, description="Auto-add project filter from SHOTGRID_PROJECT_ID env var.")
-
-    @field_validator("filters")
-    @classmethod
-    def _validate_filters(cls, v: list) -> list:
-        return _validate_filter_triples(v)
-
-class SgCreateInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to create: Asset, Shot, Sequence, Task, Version, Note, PublishedFile, etc.")
-    data: dict[str, Any] = Field(description="Field values. Example: {'code':'HERO','sg_asset_type':'Character','description':'Main character'}. Project is auto-added if not specified.")
-
-class SgUpdateInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type: Asset, Shot, Version, Task, etc.")
-    entity_id: int = Field(description="ID of the entity to update.")
-    data: dict[str, Any] = Field(description="Fields to update. Example: {'sg_status_list':'cmpt','description':'Final version'}.")
-
-class SgDeleteInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to delete.")
-    entity_id: int = Field(description="ID of the entity to delete.")
-
-class SgSchemaInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to inspect: Asset, Shot, Task, Version, PublishedFile, etc.")
-    field_name: Optional[str] = Field(default=None, description="Specific field to inspect. Omit to get all fields.")
-
-class SgUploadInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to upload to.")
-    entity_id: int = Field(description="Entity ID.")
-    file_path: str = Field(description="Local path to the file to upload.")
-    field_name: str = Field(default="image", description="Target field: 'image' for thumbnail, 'sg_uploaded_movie' for movie, etc.")
-    display_name: Optional[str] = Field(default=None, description="Display name for the attachment.")
-
-class SgDownloadInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type.")
-    entity_id: int = Field(description="Entity ID.")
-    field_name: str = Field(default="image", description="Field containing the attachment: 'image', 'sg_uploaded_movie', etc.")
-    download_path: str = Field(description="Local path where to save the file.")
-
-class TkResolvePathInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="'Asset' or 'Shot'.")
-    entity_id: int = Field(description="Entity ID in ShotGrid. Used to auto-fetch entity context (code, asset_type, sequence).")
-    template_name: str = Field(
-        description=(
-            "Name of the template from the project's templates.yml "
-            "(e.g. 'maya_asset_publish', 'nuke_shot_publish'). "
-            "Use search_sg_docs to find available templates."
-        ),
-    )
-    step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
-    name: str = Field(default="main", description="Publish name (e.g. 'main', 'turntable', 'hero_robot').")
-    version: Optional[int] = Field(default=None, description="Version number. Auto-incremented if omitted.")
-    extension: Optional[str] = Field(default=None, description="File extension override (e.g. 'ma', 'mb'). Only needed for templates with extension tokens.")
-
-class TkPublishInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="'Asset' or 'Shot'.")
-    entity_id: int = Field(description="Entity ID in ShotGrid.")
-    publish_type: str = Field(
-        description=(
-            "PublishedFileType code in ShotGrid (e.g. 'Maya Scene', 'Nuke Script', "
-            "'Alembic Cache', 'Image'). Created automatically if it doesn't exist."
-        ),
-    )
-    step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
-    name: str = Field(default="main", description="Publish name.")
-    comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
-    local_path: Optional[str] = Field(default=None, description="Source file path. Copied to the resolved publish location if a PipelineConfiguration exists.")
-    publish_path: Optional[str] = Field(
-        default=None,
-        description=(
-            "Explicit publish path. Required when the project has no PipelineConfiguration. "
-            "The file at local_path (if provided) is copied here. "
-            "This path is stored in the PublishedFile entity."
-        ),
-    )
-    version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented from existing files if omitted (requires PipelineConfiguration).")
-    extension: Optional[str] = Field(default=None, description="File extension override.")
-
-
-# ---------------------------------------------------------------------------
-# Dispatch Models
-# ---------------------------------------------------------------------------
-
-class BulkAction(str, Enum):
-    """Actions available in the fpt_bulk dispatch tool."""
-    DELETE = "delete"
-    REVIVE = "revive"
-    BATCH = "batch"
-
-
-class BulkDispatchInput(BaseModel):
-    """Input for the fpt_bulk dispatch tool."""
-    model_config = _STRICT_CONFIG
-
-    action: BulkAction = Field(..., description="Which bulk action to run")
-    params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
-
-
-class ReportingAction(str, Enum):
-    """Actions available in the fpt_reporting dispatch tool."""
-    TEXT_SEARCH = "text_search"
-    SUMMARIZE = "summarize"
-    NOTE_THREAD = "note_thread"
-    ACTIVITY = "activity"
-
-
-class ReportingDispatchInput(BaseModel):
-    """Input for the fpt_reporting dispatch tool."""
-    model_config = _STRICT_CONFIG
-
-    action: ReportingAction = Field(..., description="Which reporting action to run")
-    params: Optional[dict] = Field(default=None, description="Parameters for the chosen action (see tool description)")
+# Filter validation + Pydantic input models live in fpt_mcp.filters and
+# fpt_mcp.models respectively (Bucket F Phase 2a). See the import block
+# near the top of this file. The symbols are re-imported here so grep-based
+# invariants continue to find them at this file path.
 
 
 # ---------------------------------------------------------------------------
@@ -1023,33 +759,6 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 # ---------------------------------------------------------------------------
 
 
-class FptLaunchAppInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    app: str = Field(
-        description=(
-            "App to launch, case-insensitive. Supported: 'maya'. "
-            "Other DCCs (nuke, houdini, flame) are resolvable but not "
-            "yet wired for context launch — they fall back to 'open'."
-        )
-    )
-    entity_type: str = Field(
-        description=(
-            "ShotGrid entity type the launch is scoped to. One of "
-            "'Asset', 'Shot', 'Sequence', 'Task'."
-        )
-    )
-    entity_id: int = Field(
-        description="ShotGrid entity id."
-    )
-    dry_run: bool = Field(
-        default=False,
-        description=(
-            "If true, resolve the app and return the launch plan WITHOUT "
-            "spawning the process. Useful for UI previews and tests."
-        ),
-    )
-
-
 def _project_id_for_entity(entity_type: str, entity_id: int) -> Optional[int]:
     """Resolve the Project id that owns a given entity.
 
@@ -1197,19 +906,6 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
 # note_thread, activity_stream
 # ---------------------------------------------------------------------------
 
-class SgBatchInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    requests: str = Field(
-        description=(
-            "JSON array of batch requests. Each request is an object with: "
-            "'request_type' ('create'|'update'|'delete'), 'entity_type', "
-            "and either 'data' (create/update) or 'entity_id' (update/delete). "
-            "Example: [{\"request_type\":\"create\",\"entity_type\":\"Shot\","
-            "\"data\":{\"code\":\"SH010\",\"project\":{\"type\":\"Project\",\"id\":123}}}]"
-        ),
-    )
-
-
 async def _do_sg_batch(params: dict) -> str:
     """Execute multiple ShotGrid operations in a single transactional call.
 
@@ -1240,18 +936,6 @@ async def _do_sg_batch(params: dict) -> str:
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
-
-
-class SgTextSearchInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    text: str = Field(description="Search text — searches across all text fields of the specified entity types.")
-    entity_types: str = Field(
-        description=(
-            "JSON object mapping entity type names to filter lists. "
-            "Example: {\"Asset\":[], \"Shot\":[[\"sg_status_list\",\"is\",\"ip\"]]}"
-        ),
-    )
-    limit: int = Field(default=10, description="Max results per entity type.")
 
 
 async def _do_sg_text_search(params: dict) -> str:
@@ -1286,26 +970,6 @@ async def _do_sg_text_search(params: dict) -> str:
     return out
 
 
-class SgSummarizeInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to aggregate (e.g. 'Task', 'TimeLog', 'Version').")
-    filters: str = Field(description="JSON array of ShotGrid filters. Same syntax as sg_find.")
-    summary_fields: str = Field(
-        description=(
-            "JSON array of aggregation specs. Each: {\"field\":\"field_name\",\"type\":\"agg_type\"}. "
-            "Types: 'count', 'sum', 'avg', 'min', 'max', 'count_distinct'. "
-            "Example: [{\"field\":\"id\",\"type\":\"count\"},{\"field\":\"duration\",\"type\":\"sum\"}]"
-        ),
-    )
-    grouping: Optional[str] = Field(
-        default=None,
-        description=(
-            "JSON array of grouping specs. Each: {\"field\":\"field_name\",\"type\":\"exact\",\"direction\":\"asc\"}. "
-            "Example: [{\"field\":\"sg_status_list\",\"type\":\"exact\",\"direction\":\"asc\"}]"
-        ),
-    )
-
-
 async def _do_sg_summarize(params: dict) -> str:
     """Server-side aggregation: count, sum, avg, min, max with optional grouping.
 
@@ -1329,12 +993,6 @@ async def _do_sg_summarize(params: dict) -> str:
     return out
 
 
-class SgReviveInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type to restore (e.g. 'Asset', 'Shot', 'Task').")
-    entity_id: int = Field(description="ID of the soft-deleted entity to restore.")
-
-
 async def _do_sg_revive(params: dict) -> str:
     """Restore a soft-deleted (retired) entity.
 
@@ -1355,11 +1013,6 @@ async def _do_sg_revive(params: dict) -> str:
     return out
 
 
-class SgNoteThreadInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    note_id: int = Field(description="ID of the Note entity to read the full reply thread for.")
-
-
 async def _do_sg_note_thread(params: dict) -> str:
     """Read the full reply thread of a Note, including all nested replies.
 
@@ -1378,13 +1031,6 @@ async def _do_sg_note_thread(params: dict) -> str:
     out = json.dumps(results, default=str)
     _stats["tokens_out"] += _tok(out)
     return out
-
-
-class SgActivityInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="Entity type (e.g. 'Asset', 'Shot', 'Version', 'Task').")
-    entity_id: int = Field(description="Entity ID to read activity stream for.")
-    limit: int = Field(default=20, description="Max number of activity entries to return.")
 
 
 async def _do_sg_activity(params: dict) -> str:
@@ -1460,22 +1106,6 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
 # RAG tools — search_sg_docs, learn_pattern, session_stats
 # ---------------------------------------------------------------------------
 
-class SearchSgDocsInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    query: str = Field(
-        description=(
-            "Natural language query about ShotGrid API, Toolkit, or REST API. "
-            "Examples: 'how to filter Assets by type', 'template tokens for Shot publish', "
-            "'entity reference format in filters', 'batch operation semantics'."
-        ),
-    )
-    n_results: int = Field(
-        default=5,
-        description="Number of documentation chunks to return (default: 5, max: 10).",
-        ge=1, le=10,
-    )
-
-
 @mcp.tool(name="search_sg_docs")
 async def search_sg_docs_tool(params: SearchSgDocsInput) -> str:
     """Search ShotGrid API documentation using hybrid RAG (semantic + BM25).
@@ -1518,20 +1148,6 @@ async def search_sg_docs_tool(params: SearchSgDocsInput) -> str:
         )
 
     return json.dumps(result, default=str)
-
-
-class LearnPatternInput(BaseModel):
-    model_config = _STRICT_CONFIG
-    description: str = Field(
-        description="Short description of what the pattern does (e.g. 'filter PublishedFiles by Shot and type').",
-    )
-    code: str = Field(
-        description="The working code/query pattern to remember (e.g. sg.find filter syntax, template fields).",
-    )
-    api: str = Field(
-        default="shotgun_api3",
-        description="Which API this pattern belongs to: 'shotgun_api3', 'toolkit', or 'rest_api'.",
-    )
 
 
 @mcp.tool(name="learn_pattern")
