@@ -757,27 +757,12 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
 # ---------------------------------------------------------------------------
 # Software launcher — locate DCC applications and launch them in context
 # ---------------------------------------------------------------------------
-
-
-def _project_id_for_entity(entity_type: str, entity_id: int) -> Optional[int]:
-    """Resolve the Project id that owns a given entity.
-
-    Project entities return their own id. For everything else, we look up
-    the ``project`` field. Returns ``None`` on SG errors so the caller can
-    degrade gracefully to a bare OS-scan result.
-    """
-    if entity_type == "Project":
-        return entity_id
-    try:
-        sg = get_sg()
-        row = sg.find_one(
-            entity_type, [["id", "is", entity_id]], ["project"]
-        )
-    except Exception:
-        return None
-    if not row or not row.get("project"):
-        return None
-    return row["project"].get("id")
+# Implementation lives in fpt_mcp.launcher (Bucket F Phase 2b). The decorator
+# stays here as a thin wrapper so install.sh ast-extraction still finds the
+# tool name, and the .concepts.yml mcp_tool_inventory invariant continues
+# to pass. `_project_id_for_entity` is re-exported here for tests that
+# pre-date the split.
+from fpt_mcp.launcher import _project_id_for_entity  # noqa: E402,F401
 
 
 @mcp.tool(name="fpt_launch_app")
@@ -811,92 +796,10 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
       ``~/Library/Caches/Shotgun/bundle_cache`` in the config's
       ``pipeline_configuration.yml``.
     """
-    import subprocess
-
+    from fpt_mcp.launcher import fpt_launch_app_impl
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(f"{params.app} {params.entity_type} {params.entity_id}")
-
-    sg = get_sg()
-    project_id = _project_id_for_entity(params.entity_type, params.entity_id)
-
-    result = resolve_app(
-        params.app,
-        project_id=project_id,
-        sg_find=sg.find,
-    )
-    if result is None:
-        return json.dumps({
-            "error": (
-                f"{params.app} is not installed on this machine; cannot "
-                f"launch. Install the app first and retry."
-            )
-        })
-
-    plan: dict[str, Any] = {
-        "app": result.app,
-        "binary": str(result.binary),
-        "version": result.version,
-        "engine": result.engine,
-        "launch_method": result.launch_method,
-        "tank_command": (
-            str(result.tank_command) if result.tank_command else None
-        ),
-        "pipeline_config_path": (
-            str(result.pipeline_config_path)
-            if result.pipeline_config_path
-            else None
-        ),
-        "entity_type": params.entity_type,
-        "entity_id": params.entity_id,
-        "project_id": project_id,
-        "source_layers": result.source_layers,
-        "warnings": list(result.warnings),
-    }
-
-    if result.launch_method == "tank" and result.tank_command is not None:
-        # tk-multi-launchapp registers its command under two common
-        # conventions depending on the pipeline:
-        #   1. launch_<app>      — default, single DCC version per config
-        #   2. <app>_<version>   — multi-version pipelines that register
-        #                          one launcher per installed version
-        # We prefer pattern 2 when we have a version string from the OS
-        # scan, since it is unambiguous across pipelines that expose both
-        # a specific Maya release and legacy generic launchers. Callers
-        # whose pipeline uses a non-standard convention should launch
-        # Maya via a wrapper that maps to the right tank command.
-        if result.version:
-            cmd_name = f"{result.app}_{result.version}"
-        else:
-            cmd_name = f"launch_{result.app}"
-        argv = [
-            str(result.tank_command),
-            params.entity_type,
-            str(params.entity_id),
-            cmd_name,
-        ]
-    else:
-        argv = ["open", "-a", str(result.binary)]
-        if result.launch_method != "tank":
-            plan["warnings"].append(
-                "launching without Toolkit context (no tank CLI); the app "
-                "will open but not in the selected entity context"
-            )
-
-    plan["argv"] = argv
-
-    if params.dry_run:
-        plan["dry_run"] = True
-        out = json.dumps(plan, default=str)
-        _stats["tokens_out"] += _tok(out)
-        return out
-
-    try:
-        proc = subprocess.Popen(argv, start_new_session=True)
-        plan["pid"] = proc.pid
-    except Exception as exc:
-        plan["error"] = f"launch failed: {exc}"
-
-    out = json.dumps(plan, default=str)
+    out = await fpt_launch_app_impl(params)
     _stats["tokens_out"] += _tok(out)
     return out
 
