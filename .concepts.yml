@@ -392,21 +392,17 @@ concepts:
       Every `## [X.Y.Z]` section in CHANGELOG.md must correspond to an
       annotated git tag `vX.Y.Z` (and vice versa). Catches mid-release
       inconsistent states and forgotten tags. "Unreleased" is excluded by
-      the regex.
+      the regex. The release-in-progress transient drift (CHANGELOG moved
+      but tag not yet created at pre-commit time) is tolerated iff the
+      drifting version matches env `CUT_RELEASE_VERSION` (set by
+      scripts/cut-release.sh) OR the version declared in pyproject.toml.
     source_of_truth:
       file: CHANGELOG.md
       plus: "git tag --list 'v*'"
     invariants:
       - id: changelog_sections_match_tags
-        type: subset
+        type: changelog_tag_sync
         direction: bidirectional
-        a_source:
-          type: file_regex_matches
-          file: CHANGELOG.md
-          pattern: '^## \[v?(\d+\.\d+\.\d+)\]'
-        b_source:
-          type: command_lines
-          cmd: "git tag --list 'v*' | sed 's/^v//'"
 
   anthropic_models_review:
     description: >
