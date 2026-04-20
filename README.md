@@ -166,10 +166,13 @@ You: "How do I filter Versions by review status using the ShotGrid Python API?"
 Claude → search_sg_docs (status filter operators, Version entity) → Returns verified filter syntax, valid operator names, and a working code example from the RAG knowledge base
 ```
 
+<!-- concept:mcp_tool_count start -->
 ## Tools (14 MCP tool registrations — dispatcher pattern)
+<!-- concept:mcp_tool_count end -->
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field. Bulk and reporting operations are consolidated behind two dispatcher tools to reduce tool-count overhead for the LLM.
 
+<!-- concept:mcp_tool_table start -->
 ### ShotGrid API — Direct Tools (6 tools)
 
 | Tool | Description |
@@ -183,20 +186,24 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 
 ### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 3 actions)
 
+<!-- concept:fpt_bulk_actions start -->
 | Action | Description |
 |--------|-------------|
 | `fpt_bulk(action="delete")` | Soft-delete (retire) any entity. Can be restored from trash |
 | `fpt_bulk(action="revive")` | Restore a previously retired entity |
 | `fpt_bulk(action="batch")` | Transactional bulk operations — all succeed or all fail |
+<!-- concept:fpt_bulk_actions end -->
 
 ### ShotGrid API — Reporting Dispatcher (`fpt_reporting` — 1 tool, 4 actions)
 
+<!-- concept:fpt_reporting_actions start -->
 | Action | Description |
 |--------|-------------|
 | `fpt_reporting(action="text_search")` | Full-text search across multiple entity types simultaneously |
 | `fpt_reporting(action="summarize")` | Server-side aggregation: count, sum, avg, min, max with grouping |
 | `fpt_reporting(action="note_thread")` | Read the full reply thread of a Note with all nested replies |
 | `fpt_reporting(action="activity")` | Read the activity stream (updates, status changes, notes) for an entity |
+<!-- concept:fpt_reporting_actions end -->
 
 ### Toolkit (2 tools)
 
@@ -218,6 +225,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `search_sg_docs` | Hybrid search across ShotGrid API documentation (ChromaDB + BM25 + HyDE + RRF). Returns relevant API patterns, correct filter syntax, and entity format examples. **Called automatically before complex queries** |
 | `learn_pattern` | Persist validated API patterns into the knowledge base. Model trust gates: Sonnet/Opus write directly, other models stage candidates for human review |
 | `session_stats` | Token usage statistics: calls, tokens in/out, RAG savings, cache hits, efficiency ratio |
+<!-- concept:mcp_tool_table end -->
 
 ## Approach
 

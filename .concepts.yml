@@ -1,0 +1,447 @@
+# Cross-cutting concept registry for fpt-mcp.
+#
+# Purpose: declare every load-bearing concept that is replicated across code,
+# docs, configs, or external systems, together with a machine-checkable
+# invariant. The invariant is evaluated by `python scripts/verify_concepts.py`
+# and enforced by the pre-commit hook.
+#
+# Soft-launch mode: while `strict: false`, drifts are reported but commits are
+# NOT blocked. Flip to `strict: true` after all known drifts are resolved.
+#
+# Schema reference:
+#   schema_version : int
+#   repo           : str
+#   strict         : bool
+#   concepts       : mapping of <concept_name> -> concept definition
+#
+# Concept definition:
+#   description    : short human explanation (1 line)
+#   source_of_truth: optional pointer to the canonical location
+#   mirrors        : optional list of doc/config locations that replicate it
+#   invariants     : list of checks (see scripts/invariant_types.py)
+#
+# Each invariant has:
+#   id    : stable identifier, shown in the report
+#   type  : one of {tool_count, subset, file_exists, version_match,
+#                   claim_verifies, review_expiry, commits_since_tag,
+#                   glob_count}
+#   plus the type-specific parameters documented in invariant_types.py.
+
+schema_version: 1
+repo: fpt-mcp
+
+# Soft-launch: report drift, do not block commits.
+# Ecosystem convention (Chat 44): NEVER flip strict: true on first rollout.
+strict: false
+
+concepts:
+
+  mcp_tool_inventory:
+    description: >
+      @mcp.tool()-decorated functions in server.py must match the count
+      declared in the README heading and every function name must appear in
+      the README tool table (bidirectional). The install.sh TOOLS list is
+      hand-maintained (not ast-generated) so it is cross-checked too.
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: "@mcp.tool decorators"
+    mirrors:
+      - file: README.md
+        section: "## Tools"
+        anchors: [mcp_tool_count, mcp_tool_table]
+      - file: install.sh
+        symbol: TOOLS
+    invariants:
+
+      - id: readme_tool_count_matches_code
+        type: tool_count
+        code_file: src/fpt_mcp/server.py
+        decorator: mcp.tool
+        doc_file: README.md
+        concept_id: mcp_tool_count
+
+      - id: readme_tool_names_bidirectional
+        type: subset
+        direction: bidirectional
+        a_source:
+          type: ast_decorator_functions
+          file: src/fpt_mcp/server.py
+          decorator: mcp.tool
+          name_kwarg: name   # @mcp.tool(name="sg_find") → "sg_find"
+        b_source:
+          type: anchor_list
+          file: README.md
+          concept_id: mcp_tool_table
+          # Tool-name cell is the FIRST backtick-wrapped identifier after a
+          # table pipe on the line. Direct tools: `tool_name`. Dispatchers:
+          # `fpt_bulk(action="delete")` etc.  Both shapes captured by this
+          # pattern; the description column's incidental backticks (argv,
+          # pid, tank, launch_method, warnings) are excluded.
+          item_pattern: '\|\s*`([a-z_][a-z0-9_]*)(?:\(action="[a-z_]+"\))?`'
+
+      - id: install_sh_tools_match_code
+        type: subset
+        direction: bidirectional
+        a_source:
+          type: ast_decorator_functions
+          file: src/fpt_mcp/server.py
+          decorator: mcp.tool
+          name_kwarg: name
+        b_source:
+          # install.sh is bash with a heredoc containing Python; the TOOLS =
+          # [...] list lives inside that heredoc. We can't ast.parse bash,
+          # so we grep the heredoc block framed by concept anchors and
+          # extract backtick-free quoted strings on bullet-style lines.
+          type: anchor_list
+          file: install.sh
+          concept_id: install_sh_tools_list
+          # Match any "bare-quoted" identifier inside the TOOLS list.
+          item_pattern: '"([a-z_][a-z0-9_]*)"'
+
+      - id: claudemd_tool_count_matches_code
+        type: tool_count
+        code_file: src/fpt_mcp/server.py
+        decorator: mcp.tool
+        doc_file: CLAUDE.md
+        concept_id: mcp_tool_count
+
+  bulk_dispatcher_actions:
+    description: >
+      fpt_bulk is a canonical dispatcher. The action names defined in the
+      BulkAction enum must match the exhaustive set documented in the README
+      table (bidirectional).
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: BulkAction enum
+    mirrors:
+      - file: README.md
+        anchors: [fpt_bulk_actions]
+    invariants:
+      - id: bulk_actions_readme_matches_code
+        type: subset
+        direction: bidirectional
+        a_source:
+          type: literal_set
+          values: [delete, revive, batch]
+        b_source:
+          type: anchor_list
+          file: README.md
+          concept_id: fpt_bulk_actions
+          item_pattern: 'action="([a-z_]+)"'
+
+  reporting_dispatcher_actions:
+    description: >
+      fpt_reporting is a canonical dispatcher. The action names defined in the
+      ReportingAction enum must match the exhaustive set documented in the
+      README table (bidirectional).
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: ReportingAction enum
+    mirrors:
+      - file: README.md
+        anchors: [fpt_reporting_actions]
+    invariants:
+      - id: reporting_actions_readme_matches_code
+        type: subset
+        direction: bidirectional
+        a_source:
+          type: literal_set
+          values: [text_search, summarize, note_thread, activity]
+        b_source:
+          type: anchor_list
+          file: README.md
+          concept_id: fpt_reporting_actions
+          item_pattern: 'action="([a-z_]+)"'
+
+  pydantic_strict_config:
+    description: >
+      fpt-mcp B.5 hardening: every input model declared at module level uses
+      _STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
+      to reject unknown keys from hallucinated tool calls. This regex guard
+      ensures the _STRICT_CONFIG declaration exists in server.py.
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: _STRICT_CONFIG
+    invariants:
+      - id: strict_config_declaration_present
+        type: claim_verifies
+        claim: "_STRICT_CONFIG = ConfigDict(extra='forbid', str_strip_whitespace=True) is declared in server.py"
+        code_grep:
+          regex: '_STRICT_CONFIG\s*=\s*ConfigDict\(extra="forbid"'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: found
+
+  filter_operator_whitelist:
+    description: >
+      C.3/C.4 — _validate_filter_triples rejects hallucinated filter operators.
+      Common hallucinations 'like' and 'matches' must NOT appear in the
+      _VALID_FILTER_OPERATORS whitelist (they are not real ShotGrid operators).
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: _VALID_FILTER_OPERATORS
+    invariants:
+      - id: valid_operators_reject_like
+        type: claim_verifies
+        claim: "hallucinated operator 'like' is NOT in the whitelist"
+        code_grep:
+          regex: '^\s*"like"'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: not_found
+
+      - id: valid_operators_reject_matches
+        type: claim_verifies
+        claim: "hallucinated operator 'matches' is NOT in the whitelist"
+        code_grep:
+          regex: '^\s*"matches"'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: not_found
+
+      - id: validate_filter_triples_present
+        type: claim_verifies
+        claim: "_validate_filter_triples() implementation exists"
+        code_grep:
+          regex: 'def _validate_filter_triples'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: found
+
+  project_scope_guard:
+    description: >
+      Chat 42 — _PROJECT_SCOPED_ENTITIES is the canonical set of entity types
+      that live inside a project and must carry an implicit/explicit project
+      filter. SHOTGRID_PROJECT_ID is the env var honored by sg_find and
+      text_search.
+    source_of_truth:
+      file: src/fpt_mcp/server.py
+      symbol: _PROJECT_SCOPED_ENTITIES
+    invariants:
+      - id: project_scoped_entities_declared
+        type: claim_verifies
+        claim: "_PROJECT_SCOPED_ENTITIES frozenset is declared"
+        code_grep:
+          regex: '_PROJECT_SCOPED_ENTITIES.*frozenset'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: found
+
+      - id: shotgrid_project_id_honored
+        type: claim_verifies
+        claim: "SHOTGRID_PROJECT_ID env var is referenced by sg_find / text_search"
+        code_grep:
+          regex: 'SHOTGRID_PROJECT_ID'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: found
+
+  vision3d_zero_persistence:
+    description: >
+      Vision3D URL policy — zero persistence. fpt-mcp must NEVER persist a
+      vision3d server URL: no `vision3d_servers` field in any config, no
+      hardcoded defaults, no whitelist. The user provides the URL in chat;
+      maya-mcp caches it in process memory only. GPU_API_URL env var is a
+      suggested default only, never auto-selected.
+    invariants:
+      - id: no_vision3d_servers_in_config
+        type: claim_verifies
+        claim: "No vision3d_servers field is persisted in fpt-mcp config"
+        code_grep:
+          regex: 'vision3d_servers'
+          file_pattern: 'src/fpt_mcp/config.example.json'
+        expected: not_found
+
+      - id: no_vision3d_servers_in_code
+        type: claim_verifies
+        claim: "No vision3d_servers persistence logic in fpt-mcp code"
+        code_grep:
+          regex: 'vision3d_servers'
+          file_pattern: 'src/fpt_mcp'
+        expected: not_found
+
+  reasoning_hardening:
+    description: >
+      Qt console injects CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 and
+      CLAUDE_CODE_EFFORT_LEVEL=max into the spawned claude subprocess env
+      via qt/claude_worker.py::build_backend_env so thinking is always on
+      and effort is always maximum, regardless of backend.
+    source_of_truth:
+      file: src/fpt_mcp/qt/claude_worker.py
+      symbol: build_backend_env
+    invariants:
+      - id: adaptive_thinking_disabled
+        type: claim_verifies
+        claim: "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 injected by build_backend_env"
+        code_grep:
+          regex: 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING.*1'
+          file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
+        expected: found
+
+      - id: effort_level_max
+        type: claim_verifies
+        claim: "CLAUDE_CODE_EFFORT_LEVEL=max injected by build_backend_env"
+        code_grep:
+          regex: 'CLAUDE_CODE_EFFORT_LEVEL.*max'
+          file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
+        expected: found
+
+  no_derived_templates:
+    description: >
+      Chat 43 — DERIVED_TEMPLATES was removed. tk_config.py is generic and
+      does NOT inject pipeline-specific templates from code. Publish templates
+      live in the project's templates.yml only.
+    invariants:
+      - id: no_derived_templates_in_code
+        type: claim_verifies
+        claim: "No DERIVED_TEMPLATES symbol in code (tk_config.py is generic, Chat 43)"
+        code_grep:
+          regex: 'DERIVED_TEMPLATES'
+          file_pattern: 'src/fpt_mcp'
+        expected: not_found
+
+      - id: no_derived_templates_in_tk_api
+        type: claim_verifies
+        claim: "TK_API.md does not reference DERIVED_TEMPLATES (stale doc check)"
+        code_grep:
+          regex: 'DERIVED_TEMPLATES'
+          file_pattern: 'src/fpt_mcp/docs/TK_API.md'
+        expected: not_found
+
+  no_hardcoded_ollama_host:
+    description: >
+      Chat 43 pending item #5 — config.example.json must NOT hardcode a
+      LAN hostname like `glorfindel` as the ollama_url. The example must
+      either be empty or use a neutral placeholder so fresh installs do not
+      try to connect to an unreachable host.
+    source_of_truth:
+      file: src/fpt_mcp/config.example.json
+    invariants:
+      - id: no_lan_host_in_config_example
+        type: claim_verifies
+        claim: "config.example.json does not hardcode 'glorfindel' as ollama_url"
+        code_grep:
+          regex: 'glorfindel'
+          file_pattern: 'src/fpt_mcp/config.example.json'
+        expected: not_found
+
+  tk_launchapp_command_naming:
+    description: >
+      Chat 40 — tk-multi-launchapp registers its launcher under two common
+      names: `<app>_<version>` for multi-version pipelines or `launch_<app>`
+      for single-version default. fpt_launch_app / software_resolver must
+      handle both conventions, and README must document both.
+    source_of_truth:
+      file: src/fpt_mcp/software_resolver.py
+    invariants:
+      - id: launch_app_convention_documented_readme
+        type: claim_verifies
+        claim: "README documents both `<app>_<version>` and `launch_<app>` conventions"
+        code_grep:
+          regex: 'launch_<app>'
+          file_pattern: 'README.md'
+        expected: found
+
+  pyproject_version:
+    description: >
+      pyproject.toml version field should match the latest annotated git tag.
+      Chat 43 saw code at v1.2.1 while pyproject stuck at v0.1.0; this guard
+      is reported (soft-launch) and will be closed in this rollout.
+    source_of_truth:
+      file: git
+      command: "git describe --tags --abbrev=0"
+    mirrors:
+      - file: pyproject.toml
+        field: '[project].version'
+    invariants:
+      - id: pyproject_matches_latest_tag
+        type: version_match
+        a:
+          source: file_regex
+          file: pyproject.toml
+          pattern: '^version\s*=\s*"([^"]+)"'
+        b:
+          source: command
+          cmd: "git describe --tags --abbrev=0 | sed 's/^v//'"
+
+  single_install_script_at_root:
+    description: >
+      Ecosystem rule (Chat 34 / 44): each MCP repo has exactly ONE install
+      script at the repo root. fpt-mcp ships install.sh + setup_venv.sh
+      (the latter is a helper for the Qt console launchd plist).
+    invariants:
+      - id: one_install_script_at_root
+        type: glob_count
+        patterns:
+          - "install*.sh"
+        expected: 1
+
+  release_cadence:
+    description: >
+      Ecosystem rule (Chat 44): work should be tagged as a release before
+      the backlog grows unbounded. Thresholds (ecosystem-wide): 10 commits
+      soft warning, 30 commits hard stop. Also flags tags older than 30 days
+      if any commits are pending.
+    invariants:
+      - id: commits_since_last_tag_under_threshold
+        type: commits_since_tag
+        warn_commits: 10
+        max_commits: 30
+        max_age_days: 30
+
+  changelog_tag_coherence:
+    description: >
+      Every `## [X.Y.Z]` section in CHANGELOG.md must correspond to an
+      annotated git tag `vX.Y.Z` (and vice versa). Catches mid-release
+      inconsistent states and forgotten tags. "Unreleased" is excluded by
+      the regex.
+    source_of_truth:
+      file: CHANGELOG.md
+      plus: "git tag --list 'v*'"
+    invariants:
+      - id: changelog_sections_match_tags
+        type: subset
+        direction: bidirectional
+        a_source:
+          type: file_regex_matches
+          file: CHANGELOG.md
+          pattern: '^## \[v?(\d+\.\d+\.\d+)\]'
+        b_source:
+          type: command_lines
+          cmd: "git tag --list 'v*' | sed 's/^v//'"
+
+  anthropic_models_review:
+    description: >
+      Ecosystem oracle at ~/Projects/.external_versions.yml tracks the
+      Anthropic model catalogue and must be reviewed every 14 days. fpt-mcp
+      references Anthropic model IDs in qt/claude_worker.py::AVAILABLE_MODELS.
+    source_of_truth:
+      file: ~/Projects/.external_versions.yml
+      key: anthropic_models
+    invariants:
+      - id: anthropic_model_review_fresh
+        type: review_expiry
+        file: .external_versions.yml
+        key: anthropic_models
+
+  ollama_local_models_review:
+    description: >
+      Ecosystem oracle tracks Ollama local models referenced across MCP panels
+      and must be reviewed every 30 days. fpt-mcp references them in
+      qt/claude_worker.py::AVAILABLE_MODELS.
+    source_of_truth:
+      file: ~/Projects/.external_versions.yml
+      key: ollama_local_models
+    invariants:
+      - id: ollama_local_models_review_fresh
+        type: review_expiry
+        file: .external_versions.yml
+        key: ollama_local_models
+
+  shotgrid_api_review:
+    description: >
+      Ecosystem oracle tracks the shotgun_api3 Python SDK version that
+      fpt-mcp consumes. 90-day cadence forces a periodic scan of deprecations
+      against `_VALID_FILTER_OPERATORS`.
+    source_of_truth:
+      file: ~/Projects/.external_versions.yml
+      key: shotgrid_api
+    invariants:
+      - id: shotgrid_api_review_fresh
+        type: review_expiry
+        file: .external_versions.yml
+        key: shotgrid_api

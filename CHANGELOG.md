@@ -7,11 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-20
+
+### Added
+- Cross-cutting concept registry (`.concepts.yml`) with 17 load-bearing
+  invariants covering: MCP tool inventory (code ↔ README ↔ install.sh ↔
+  CLAUDE.md), `fpt_bulk` / `fpt_reporting` dispatcher action sets, Pydantic
+  `_STRICT_CONFIG` extra=forbid guard, `_VALID_FILTER_OPERATORS` whitelist
+  rejecting hallucinated `like` / `matches`, `_PROJECT_SCOPED_ENTITIES` +
+  `SHOTGRID_PROJECT_ID` scoping, Vision3D zero-persistence policy (no
+  `vision3d_servers` field anywhere, no hardcoded defaults), Qt reasoning
+  hardening env injection (`CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`,
+  `CLAUDE_CODE_EFFORT_LEVEL=max`), `no DERIVED_TEMPLATES` (Chat 43),
+  tk-multi-launchapp command-naming docs (Chat 40), pyproject ↔ latest
+  tag coherence, single install script at root, release cadence
+  (`commits_since_tag`), CHANGELOG ↔ tag bidirectional, and ecosystem
+  `review_expiry` oracle against `~/Projects/.external_versions.yml`
+  (anthropic_models 14d, ollama_local_models 30d, shotgrid_api 90d).
+- `scripts/invariant_types.py` + `scripts/verify_concepts.py` (verbatim
+  copy from flame-mcp with a small `name_kwarg` extension for
+  `ast_decorator_functions` so `@mcp.tool(name="sg_find")` resolves to the
+  canonical public name instead of the `sg_find_tool` Python identifier).
+- `.pre-commit-config.yaml` invoking `verify_concepts.py` on every commit
+  (soft-launch `strict: false` — drifts reported but NOT blocking).
+- `install_sh_tools_list` anchor on the `TOOLS = [...]` block inside
+  `install.sh`, and `mcp_tool_count` + `mcp_tool_table` +
+  `fpt_bulk_actions` + `fpt_reporting_actions` anchors in `README.md` and
+  `CLAUDE.md` for machine-checkable bidirectional invariants.
+
 ### Changed
 - Updated CLAUDE.md section 6 permissions to match actual maya-mcp dispatcher tool names
 - Updated README to reflect dispatcher pattern and install.sh as primary installer
+- `src/fpt_mcp/config.example.json` — removed `glorfindel` hardcoded LAN host
+  and added an `_comment` field documenting that `ollama_url` is REQUIRED
+  when `backend="ollama"` (closes Chat 43 pending item #5).
+- `pyproject.toml` version bumped from the long-stale `0.1.0` placeholder
+  to `1.5.0` to match the release cadence documented in CHANGELOG / git
+  tags (closes a Chat 43 drift and a `pyproject_matches_latest_tag`
+  invariant simultaneously).
 
-### Added
+### Added (earlier, rolled into this release)
 - `install.sh --doctor` subcommand for environment health checks
 - Bucket E structural tests for tool labels, Pydantic models, and trust gates
 - This CHANGELOG.md

@@ -18,7 +18,9 @@ Claude Desktop / Claude Code / Terminal
         └── Qt console      → native chat app via fpt-mcp:// protocol handler
 ```
 
+<!-- concept:mcp_tool_count start -->
 ### MCP Server: fpt-mcp (14 @mcp.tool registrations — dispatcher pattern)
+<!-- concept:mcp_tool_count end -->
 
 **ShotGrid API tools** (6 direct tools, unrestricted access to any entity):
 - `sg_find` — query entities with filters and fields
