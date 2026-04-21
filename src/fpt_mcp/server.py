@@ -252,9 +252,11 @@ async def sg_find_tool(params: SgFindInput) -> str:
     greater_than, less_than, in, between, etc.
     """
     from fpt_mcp.shotgrid import sg_find_impl
+    from fpt_mcp.suggestions import maybe_annotate_with_suggestions
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(json.dumps({"filters": params.filters, "limit": params.limit}, default=str))
     out = await sg_find_impl(params)
+    out = maybe_annotate_with_suggestions("sg_find", out)
     _stats["tokens_out"] += _tok(out)
     return out
 
