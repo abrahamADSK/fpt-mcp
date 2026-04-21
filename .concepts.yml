@@ -512,4 +512,4 @@ concepts:
         b_source:
           type: file_regex_matches
           file: src/fpt_mcp/server.py
-          pattern: 'maybe_annotate_with_suggestions\("([a-z_]+)"'
+          pattern: 'maybe_annotate_with_suggestions\("([a-z0-9_]+)"'
