@@ -142,7 +142,7 @@ def main():
     print(f"  open '{app_path}'  # first launch registers the URL scheme")
     print()
     print("Test:")
-    print(f"  open 'fpt-mcp://chat?entity_type=Asset&selected_ids=123&project_id=456'")
+    print("  open 'fpt-mcp://chat?entity_type=Asset&selected_ids=123&project_id=456'")
 
     return str(app_path)
 

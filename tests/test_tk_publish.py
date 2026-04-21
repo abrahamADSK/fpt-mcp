@@ -18,15 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 from pathlib import Path
-from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from fpt_mcp.server import tk_publish_tool, TkPublishInput
-from fpt_mcp.tk_config import TkConfig, TkConfigError
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +91,6 @@ def mock_sg_find_one():
 
     Override per-test by replacing .side_effect.
     """
-    from tests.conftest import SAMPLE_ASSETS, SAMPLE_SHOTS, SAMPLE_TASKS
 
     async def _dispatcher(entity_type: str, filters: list, fields: list[str]):
         if entity_type == "PublishedFileType":

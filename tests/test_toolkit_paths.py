@@ -18,8 +18,7 @@ or real Toolkit installation required.
 
 import asyncio
 import platform
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -30,7 +29,6 @@ from fpt_mcp.tk_config import (
     discover_config,
     discover_or_fallback,
     clear_cache,
-    _build_from_config_path,
 )
 
 

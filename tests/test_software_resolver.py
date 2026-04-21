@@ -16,7 +16,6 @@ import pytest
 
 from fpt_mcp.software_resolver import (
     _APP_TO_ENGINE,
-    ResolvedApp,
     _os_scan_maya,
     _sg_software_enrichment,
     _toolkit_enrichment,

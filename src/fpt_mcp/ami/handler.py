@@ -151,7 +151,7 @@ def main():
 
     server = HTTPServer(("127.0.0.1", args.port), AMIHandler)
     print(f"FPT AMI Handler: http://127.0.0.1:{args.port}/ami")
-    print(f"  → Launches Qt console on AMI requests")
+    print("  → Launches Qt console on AMI requests")
     print(f"  → Python: {_VENV_PYTHON}")
 
     try:

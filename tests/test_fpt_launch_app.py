@@ -24,12 +24,12 @@ def _run(coro):
     """
     return asyncio.run(coro)
 
-from fpt_mcp.server import (
+from fpt_mcp.server import (  # noqa: E402 — _run helper above stays adjacent to the imports it enables
     FptLaunchAppInput,
     _project_id_for_entity,
     fpt_launch_app_tool,
 )
-from fpt_mcp.software_resolver import ResolvedApp
+from fpt_mcp.software_resolver import ResolvedApp  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

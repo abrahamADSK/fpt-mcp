@@ -503,7 +503,6 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
     """
-    from fpt_mcp.shotgrid import _do_sg_batch, _do_sg_delete, _do_sg_revive
     dispatch = {
         BulkAction.DELETE: _do_sg_delete,
         BulkAction.REVIVE: _do_sg_revive,
@@ -529,9 +528,6 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
     • note_thread — Read the full reply thread of a Note. Required params: {"note_id": 123}
     • activity — Read the activity stream for an entity. Required params: {"entity_type": "Shot", "entity_id": 456} Optional: {"limit": 20}
     """
-    from fpt_mcp.reporting import (
-        _do_sg_activity, _do_sg_note_thread, _do_sg_summarize, _do_sg_text_search,
-    )
     dispatch = {
         ReportingAction.TEXT_SEARCH: _do_sg_text_search,
         ReportingAction.SUMMARIZE: _do_sg_summarize,

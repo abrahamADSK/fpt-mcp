@@ -189,7 +189,7 @@ class TestTelemetryExecCalls:
         # Report findings
         if missing:
             pytest.fail(
-                f"Tools missing _stats['exec_calls'] += 1:\n"
+                "Tools missing _stats['exec_calls'] += 1:\n"
                 + "\n".join(f"  - {m}" for m in missing)
             )
 

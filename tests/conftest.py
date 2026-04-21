@@ -29,7 +29,7 @@ if _soft < 4096:
         f"Run: ulimit -n 4096",
         stacklevel=1,
     )
-import yaml
+import yaml  # noqa: E402 — grouped after the ulimit-warning block above
 
 # fpt-mcp/src  →  lets `import fpt_mcp` resolve correctly from tests/
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "src"))

@@ -20,7 +20,6 @@ All tests use unittest.mock — no live ShotGrid connection required.
 
 import asyncio
 import json
-from unittest.mock import patch
 
 import pytest
 
@@ -205,7 +204,7 @@ class TestSgFindSafetyBlock:
 #       - Entity-link fields with bare integer values must be rejected.
 # ---------------------------------------------------------------------------
 
-from pydantic import ValidationError
+from pydantic import ValidationError  # noqa: E402 — grouped with the filter-validation test section below
 
 
 class TestSgFindFilterValidator:

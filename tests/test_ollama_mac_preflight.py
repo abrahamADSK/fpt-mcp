@@ -30,7 +30,6 @@ from __future__ import annotations
 import json
 import urllib.request
 
-import pytest
 
 from fpt_mcp.qt.claude_worker import (
     OLLAMA_MAC_NUM_CTX,

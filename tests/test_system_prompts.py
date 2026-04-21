@@ -25,7 +25,6 @@ standalone prompt files under ``src/fpt_mcp/qt/system_prompts/``.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 

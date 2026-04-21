@@ -13,17 +13,15 @@ import random
 import re
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QPushButton,
-    QScrollArea,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -316,7 +314,7 @@ class ChatWindow(QMainWindow):
         )
         if self._progress_lines:
             visible = self._progress_lines[-12:]
-            lines_html = "<br>".join(html.escape(l) for l in visible)
+            lines_html = "<br>".join(html.escape(line) for line in visible)
             if len(self._progress_lines) > 12:
                 lines_html = (
                     f"<i style='color:#4a5568;'>... "

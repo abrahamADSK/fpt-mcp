@@ -32,3 +32,14 @@ dependencies = [
 fpt-mcp = "fpt_mcp.server:main"
 fpt-ami = "fpt_mcp.ami.handler:main"
 fpt-console = "fpt_mcp.qt.app:main"
+
+[tool.ruff.lint.per-file-ignores]
+# server.py is the re-export hub for tests (Bucket F refactor, Chat 45):
+# implementation moved to dedicated modules but tests import via
+# `from fpt_mcp.server import <name>`, so the module-level imports look
+# "unused" to ruff but are load-bearing.
+"src/fpt_mcp/server.py" = ["F401"]
+# conftest.py imports trigger stub installation as a side effect; the
+# `# noqa: F401` annotations in-line are the authoritative marker and
+# ruff still flags the stubbed imports themselves.
+"tests/conftest.py" = ["F401"]

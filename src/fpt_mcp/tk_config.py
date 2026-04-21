@@ -183,9 +183,8 @@ class TkConfig:
         if not parent.exists():
             return 1
 
-        # Extract version pattern from the filename
-        filename = path_v0.name  # e.g. "main.v000.ma"
-        # Find existing versions by scanning files matching the pattern
+        # Find existing versions by scanning files matching the
+        # template filename pattern (e.g. "main.v000.ma").
         max_ver = 0
         version_pattern = re.compile(r"\.v(\d{3,4})\.")
 
