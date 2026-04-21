@@ -479,6 +479,7 @@ concepts:
     invariants:
       - id: every_v1plus_tag_has_github_release
         type: subset
+        ci_skip: true  # b_source shells out to `gh release list` — default GH_TOKEN scope varies
         direction: a_subset_b
         a_source:
           type: command_lines
