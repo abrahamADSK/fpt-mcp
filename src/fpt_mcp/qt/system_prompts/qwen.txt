@@ -127,3 +127,4 @@ Rules:
 - Always use MCP tools, never ask the user to do it manually.
 - If Maya is unresponsive → `fpt_launch_app(app_name='maya')` (handles OS discovery + Toolkit tank routing).
 - Respond in the user's language. Execute, don't narrate.
+- If a response has `next_suggested_actions`, read it. After answering the user, optionally mention 1–3 as "Next you could also…". Never auto-chain, never name the field.

@@ -324,9 +324,11 @@ async def sg_upload_tool(params: SgUploadInput) -> str:
 async def sg_download_tool(params: SgDownloadInput) -> str:
     """Download an attachment from any entity field in ShotGrid."""
     from fpt_mcp.shotgrid import sg_download_impl
+    from fpt_mcp.suggestions import maybe_annotate_with_suggestions
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.field_name}")
     out = await sg_download_impl(params)
+    out = maybe_annotate_with_suggestions("sg_download", out)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -419,9 +421,11 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
       configured in ShotGrid, the file will be browsable from the web UI.
     """
     from fpt_mcp.toolkit_tools import tk_publish_impl
+    from fpt_mcp.suggestions import maybe_annotate_with_suggestions
     _stats["exec_calls"] += 1
     _stats["tokens_in"] += _tok(f"{params.entity_type} {params.entity_id} {params.publish_type}")
     out = await tk_publish_impl(params)
+    out = maybe_annotate_with_suggestions("tk_publish", out)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -505,6 +509,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
     """
+    from fpt_mcp.suggestions import maybe_annotate_with_suggestions
     dispatch = {
         BulkAction.DELETE: _do_sg_delete,
         BulkAction.REVIVE: _do_sg_revive,
@@ -515,6 +520,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     params_str = json.dumps(params.params or {}, default=str)
     _stats["tokens_in"] += _tok(params_str)
     out = await handler(params.params or {})
+    out = maybe_annotate_with_suggestions("fpt_bulk", out)
     _stats["tokens_out"] += _tok(out)
     return out
 
