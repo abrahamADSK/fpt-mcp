@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
+import yaml  # type: ignore[import-untyped]  # types-PyYAML isn't a runtime dep
 
 # ---------------------------------------------------------------------------
 # Cache (singleton per project)

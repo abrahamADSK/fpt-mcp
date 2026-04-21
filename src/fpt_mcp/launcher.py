@@ -47,7 +47,7 @@ def _project_id_for_entity(entity_type: str, entity_id: int) -> Optional[int]:
         return None
     if not row or not row.get("project"):
         return None
-    return row["project"].get("id")
+    return row["project"].get("id")  # type: ignore[typeddict-item]  # shotgun_api3 BaseEntity stubs are incomplete
 
 
 async def fpt_launch_app_impl(params: FptLaunchAppInput) -> str:

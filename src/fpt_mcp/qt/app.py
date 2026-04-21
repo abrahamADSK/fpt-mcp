@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from typing import Any
 import sys
 from urllib.parse import parse_qs, urlparse
 
@@ -72,7 +73,7 @@ def fetch_ami_payload(event_log_entry_id: int) -> dict:
             print(f"[ami_payload] EventLogEntry {event_log_entry_id} not found", flush=True)
             return {}
 
-        meta = entry["meta"]
+        meta = entry["meta"]  # type: ignore[typeddict-item]  # shotgun_api3 BaseEntity stubs are incomplete
         payload = meta.get("ami_payload", meta)
         print(f"[ami_payload] raw payload keys: {list(payload.keys())}", flush=True)
 
@@ -137,7 +138,8 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
     parsed = urlparse(url)
     qs = parse_qs(parsed.query)
 
-    result = {}
+    # Mixed value types (str + int after casting entity_id / project_id).
+    result: dict[str, Any] = {}
 
     if "entity_type" in qs:
         val = qs["entity_type"][0]

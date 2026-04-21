@@ -33,6 +33,18 @@ fpt-mcp = "fpt_mcp.server:main"
 fpt-ami = "fpt_mcp.ami.handler:main"
 fpt-console = "fpt_mcp.qt.app:main"
 
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_strict_optional = true
+
+[[tool.mypy.overrides]]
+# shotgun_api3 ships strict TypedDicts (BaseEntity) that don't describe
+# real-world payloads. Treating the library as Any lets mypy focus on
+# our own code without chasing library-stub false positives.
+module = "shotgun_api3.*"
+follow_imports = "skip"
+
 [tool.ruff.lint.per-file-ignores]
 # server.py is the re-export hub for tests (Bucket F refactor, Chat 45):
 # implementation moved to dedicated modules but tests import via
