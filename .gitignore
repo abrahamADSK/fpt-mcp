@@ -24,3 +24,6 @@ venv/
 # RAG build artifacts (regenerate with: python -m fpt_mcp.rag.build_index)
 src/fpt_mcp/rag/index/
 src/fpt_mcp/rag/corpus.json
+
+# Coverage artifact from pytest-cov
+.coverage
