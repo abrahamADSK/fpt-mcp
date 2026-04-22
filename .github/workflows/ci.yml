@@ -42,7 +42,18 @@ jobs:
           # Force Qt to use the offscreen platform (no display on CI runners).
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest tests/ -p no:warnings --cov=fpt_mcp --cov-report=term
+          python -m pytest tests/ -p no:warnings --cov=fpt_mcp --cov-report=term --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+          verbose: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     name: lint (ruff)
