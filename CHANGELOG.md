@@ -8,60 +8,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `.github/workflows/ci.yml` — GitHub Actions CI workflow. Three jobs:
-  pytest (3.10/3.11/3.12 matrix, Qt forced to `QT_QPA_PLATFORM=offscreen`),
-  ruff lint (non-blocking in v1), verify_concepts on every push + PR.
-  Closes Chat 45 P3 CI item.
+- `src/fpt_mcp/suggestions.py` — O3 `next_suggested_actions` Phase 1
+  (Chat 47). Stub module with empty `SUGGESTION_RULES` registry +
+  `maybe_annotate_with_suggestions` helper + kill switch
+  `FPT_MCP_DISABLE_SUGGESTIONS=1`. Cap of 3 suggestions per response.
+  Wired into `sg_find` as the first consumer.
+- `src/fpt_mcp/suggestions.py` — Phase 2 (Chat 47): 5 active rules
+  covering `sg_find` (Asset+image → sg_download + maya_vision3d;
+  Task/Version → fpt_reporting activity), `sg_download` (image-ext →
+  maya_vision3d generate_image), `tk_publish` (success → note_thread +
+  sibling Shot discovery), `fpt_bulk` (soft-delete → revive offer).
+  `default.txt` and `qwen.txt` prompts teach the LLM to surface hints
+  as a soft aside once the user's explicit request is satisfied.
+- `.concepts.yml` — Phase 3 (Chat 47): `next_suggested_actions_contract`
+  concept with `every_rule_is_wired` invariant (ast_dict_keys
+  `SUGGESTION_RULES` ⊂ regex capture of
+  `maybe_annotate_with_suggestions("<tool>", …)` call-sites).
+  Pre-commit fails if a rule is registered without wiring.
+- `docs/O3_NEXT_SUGGESTED_ACTIONS.md` — design doc for the feature
+  (Chat 46). Covers motivation, response schema, rules registry
+  (static Python dict v1 → YAML v2), candidate rules, invariant, and
+  4-phase implementation sequence.
+- `.github/workflows/ci.yml` — GitHub Actions CI workflow. Four
+  blocking jobs: pytest (3.10/3.11/3.12 matrix, Qt forced to
+  `QT_QPA_PLATFORM=offscreen`), ruff lint, mypy, verify_concepts.
+  Pytest coverage reported inline.
 - `.github/workflows/pr-review.yml` — automated Claude PR review
   (`anthropics/claude-code-action@v1`). Byte-identical across the 4
-  ecosystem repos. Requires repo secret `ANTHROPIC_API_KEY`. Closes
-  Chat 45 P3 PR-review item.
+  ecosystem repos. Uses `claude_code_oauth_token`. Requires the
+  Claude Code GitHub App installed on the repo + workflow permission
+  `id-token: write` + `--model claude-sonnet-4-6` pin so the OAuth
+  token (Sonnet-scoped on Max/Pro) works against the default-Opus
+  action.
+- `scripts/verify_concepts.py --write` — WRITER MODE (Chat 46).
+  Requires the triple flag `--accept-current-as-truth
+  --i-reviewed-diff --write`. Dispatches to per-type writers in
+  `invariant_types.py::WRITERS`. Currently supports `tool_count` and
+  `review_expiry`; other types report `WRITER UNSUPPORTED`. No
+  auto-commit.
+- `scripts/cut-release.sh` — ecosystem-shared release orchestrator.
+  Validates clean tree + semver arg + non-empty `[Unreleased]`, edits
+  CHANGELOG + `pyproject.toml`, commits with
+  `CUT_RELEASE_VERSION=X.Y.Z` so the `changelog_tag_sync` invariant
+  tolerates the transient pre-commit drift, tags, pushes, and creates
+  a GitHub release. Byte-identical across the 4 MCP-ecosystem repos.
+- `scripts/invariant_types.py` — `changelog_tag_sync` handler
+  replaces `changelog_tag_coherence`. Release-in-progress tolerance
+  anchored to env `CUT_RELEASE_VERSION` OR `pyproject.toml`'s
+  `version` field.
+- `scripts/invariant_types.py` — `version_match` canonical (Chat 48)
+  honors opt-in `tolerate_release_in_progress: true`. Lets
+  `cut-release.sh` commit a version bump before the matching git
+  tag exists under strict mode.
+- `scripts/verify_concepts.py` — `ci_skip: true` flag on individual
+  invariants + auto-skip of `review_expiry` under `GITHUB_ACTIONS`.
 
-### Documentation
-- `docs/O3_NEXT_SUGGESTED_ACTIONS.md` — design doc for the deferred O3
-  `next_suggested_actions` feature (not designed as of Chat 45). Covers
-  motivation, response schema, rules registry (static Python dict v1 →
-  YAML v2), candidate rules for 5 tools, concept-registry invariant to
-  prevent drift, and 4-phase implementation sequence. No code shipped;
-  the doc unblocks a future implementation session. Closes Chat 45 P2
-  "O3 not designed" deferral.
+### Changed
+- `.concepts.yml` — `strict: false → true`. The pre-commit hook now
+  blocks commits on any unresolved invariant drift instead of only
+  reporting it. Ecosystem-wide flip on 2026-04-20 (Chat 46).
+- CI pipeline cleanup (Chat 47): ruff baseline cleared with
+  `[tool.ruff.lint.per-file-ignores]` for server.py + conftest.py
+  (re-export hub pattern — ruff `--fix` was silently deleting used
+  re-exports until the ignore was added). mypy baseline cleared via
+  `[tool.mypy]` block with `shotgun_api3` `follow_imports=skip`
+  override to handle over-strict `BaseEntity` TypedDict stubs. Both
+  jobs flipped to blocking.
+- `.concepts.yml` — `every_rule_is_wired` regex widened `[a-z_]` →
+  `[a-z0-9_]` (Chat 48) so tool names with digits (none today but
+  future-proof) are captured.
 
 ### Fixed
 - `install.sh` — removed two unused-variable shellcheck warnings
-  (`exit_code` local that was never read, `MCP_ARGS` JSON string that was
-  not referenced by any register path). Zero behaviour change. Closes
-  SC2034 for this file (ecosystem shellcheck sweep Chat 46).
-
-### Changed
-- `.concepts.yml` — `strict: false → true`. The pre-commit hook now blocks
-  commits on any unresolved invariant drift instead of only reporting it.
-  Ecosystem-wide flip on 2026-04-20 (Chat 46), unblocked by the
-  `changelog_tag_sync` release-in-progress tolerance.
-
-### Added
-- `scripts/verify_concepts.py --write` — WRITER MODE (Chat 46). Requires
-  the triple flag `--accept-current-as-truth --i-reviewed-diff --write`.
-  Dispatches to per-type writers in `invariant_types.py::WRITERS`.
-  Currently supports `tool_count` (updates integers inside
-  `<!-- concept:<id> start/end -->` blocks) and `review_expiry` (bumps
-  `reviewed_at` timestamps to today). Other invariant types report
-  `WRITER UNSUPPORTED`. No auto-commit — user reviews `git diff` before
-  committing. Closes Chat 45 P3.15 deferral.
-- `scripts/cut-release.sh` — ecosystem-shared release orchestrator. Validates
-  clean tree + semver arg + non-empty `[Unreleased]`, edits CHANGELOG +
-  pyproject.toml, commits with `CUT_RELEASE_VERSION=X.Y.Z` so the
-  `changelog_tag_sync` invariant tolerates the transient pre-commit drift,
-  then tags, pushes, and creates a GitHub release with the CHANGELOG
-  section as notes. Ships with `--dry-run` for safe previews. Byte-identical
-  across the 4 MCP-ecosystem repos; canonical at
-  `~/Projects/cut-release-canonical.sh`. Resolves the Chat 45 P1 release-flow
-  tension that was blocking the ecosystem-wide `strict: true` flip.
-- `scripts/invariant_types.py` — new `changelog_tag_sync` handler replaces
-  the previous `subset`-based `changelog_tag_coherence` invariant. Adds
-  release-in-progress tolerance anchored to env `CUT_RELEASE_VERSION` (set
-  by `cut-release.sh` at commit time) OR `pyproject.toml`'s `version`
-  field. The tolerance only fires for exactly one drifting version that
-  matches the anchor — cannot be forged without bumping the real anchor.
+  (`exit_code` local, `MCP_ARGS` JSON) (Chat 46).
+- `.github/workflows/pr-review.yml` — added `id-token: write` workflow
+  permission (Chat 48). Without it the action errored with "Unable to
+  get ACTIONS_ID_TOKEN_REQUEST_URL env variable" in 3 retries.
+- `.github/workflows/pr-review.yml` — pinned `--model claude-sonnet-4-6`
+  via `claude_args` (Chat 48). OAuth tokens from `claude setup-token`
+  are scoped to Sonnet on Max/Pro; the action's default model (Opus
+  after v1.0.100) returned `401 Invalid bearer token` against those
+  credentials (see anthropics/claude-code-action#584).
 
 ## [1.6.0] - 2026-04-20
 
