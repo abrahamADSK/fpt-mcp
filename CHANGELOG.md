@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-04-22
+
 ### Added
 - `src/fpt_mcp/suggestions.py` — O3 `next_suggested_actions` Phase 1
   (Chat 47). Stub module with empty `SUGGESTION_RULES` registry +
