@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `scripts/invariant_types.py` — `_write_subset` handler registered in
+  WRITERS (Phase C + D, Chat 48). Covers two shapes:
+  - `b_source.type: anchor_list` (no `item_pattern`) → appends missing
+    items as bullets inside the concept block.
+  - `b_source.type: file_regex_matches` with YAML opt-in
+    `b_source.writer.line_template` → appends template-formatted
+    lines after the last existing regex match (default) or at
+    end_of_file.
+  Other shapes report `WRITER UNSUPPORTED`. Enables `/propagate-change`
+  Path A to auto-fix the common subset-drift pattern.
+- `.github/workflows/ci.yml` — Codecov coverage upload step
+  (`codecov/codecov-action@v4`), gated to `matrix.python-version ==
+  '3.12'` so the upload runs once per PR. `fail_ci_if_error: false`
+  so Codecov outages don't block merges.
+
+### Fixed
+- `scripts/invariant_types.py` — `version_match` handler now honors
+  opt-in `tolerate_release_in_progress: true`. When set, a drift of
+  the form `a == CUT_RELEASE_VERSION != b` is tolerated so
+  `cut-release.sh` can commit a pyproject bump before the matching
+  git tag exists. Also applied to `.concepts.yml` on the
+  `pyproject_matches_latest_tag` invariant to unblock the release
+  flow under strict mode (was blocking in Chat 48 until fixed).
+
 ## [1.7.0] — 2026-04-22
 
 ### Added
