@@ -29,12 +29,22 @@ from .chat_window import ChatWindow
 # ---------------------------------------------------------------------------
 
 def _load_sg_credentials() -> dict:
-    """Load ShotGrid credentials from .env file."""
-    env_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        ".env",
+    """Load ShotGrid credentials from .env file (repo root).
+
+    File layout: ``<repo>/src/fpt_mcp/qt/app.py`` → 4 ``dirname`` hops to
+    reach the repo root where ``.env`` lives. Falls back to the parent
+    process's environment so a launchd / shell that already exported
+    ``SHOTGRID_*`` keeps working even if ``.env`` is missing.
+    """
+    repo_root = os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))
+            )
+        )
     )
-    creds = {}
+    env_path = os.path.join(repo_root, ".env")
+    creds: dict[str, str] = {}
     if os.path.isfile(env_path):
         with open(env_path) as f:
             for line in f:
@@ -42,7 +52,56 @@ def _load_sg_credentials() -> dict:
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
                     creds[k.strip()] = v.strip().strip('"').strip("'")
+    # Environment overrides — keeps the function usable when the caller
+    # has already exported SG credentials at process level.
+    for key in ("SHOTGRID_URL", "SHOTGRID_SCRIPT_NAME", "SHOTGRID_SCRIPT_KEY", "SHOTGRID_PROJECT_ID"):
+        v = os.environ.get(key)
+        if v:
+            creds[key] = v
     return creds
+
+
+def _resolve_entity_code(entity_type: str, entity_id: int) -> str | None:
+    """Fetch the Asset/Shot/etc. ``code`` field from ShotGrid.
+
+    Used to enrich the [ShotGrid context: …] block that gets injected into
+    every Claude prompt. Without this, the LLM has to pay an extra
+    sg_find round-trip whenever it needs the entity name (e.g. to fill
+    Toolkit template tokens like ``{name}`` in ``maya_asset_work``).
+
+    Returns None on any failure — never raises. The caller falls back to
+    the LLM-side sg_find path. Cached implicitly via the singleton sg
+    instance the worker thread reuses.
+    """
+    try:
+        import shotgun_api3
+        creds = _load_sg_credentials()
+        if not all(k in creds for k in ("SHOTGRID_URL", "SHOTGRID_SCRIPT_NAME", "SHOTGRID_SCRIPT_KEY")):
+            return None
+        sg = shotgun_api3.Shotgun(
+            creds["SHOTGRID_URL"],
+            script_name=creds["SHOTGRID_SCRIPT_NAME"],
+            api_key=creds["SHOTGRID_SCRIPT_KEY"],
+        )
+        row = sg.find_one(entity_type, [["id", "is", int(entity_id)]], ["code"])
+        if row and row.get("code"):
+            return row["code"]
+    except Exception as e:
+        print(f"[entity_code] resolve failed for {entity_type}#{entity_id}: {e}", flush=True)
+    return None
+
+
+def _enrich_with_entity_code(ctx: dict) -> dict:
+    """Add ``entity_code`` to ctx if entity_type+entity_id are present and code is missing."""
+    if (
+        ctx.get("entity_type")
+        and ctx.get("entity_id")
+        and not ctx.get("entity_code")
+    ):
+        code = _resolve_entity_code(ctx["entity_type"], int(ctx["entity_id"]))
+        if code:
+            ctx["entity_code"] = code
+    return ctx
 
 
 def fetch_ami_payload(event_log_entry_id: int) -> dict:
@@ -95,6 +154,15 @@ def fetch_ami_payload(event_log_entry_id: int) -> dict:
             result["project_name"] = payload["project_name"]
         if "user_login" in payload:
             result["user_login"] = payload["user_login"]
+        # ShotGrid AMI payloads sometimes ship the entity name as
+        # `entity_name`, sometimes as `code`. Surface either.
+        for key in ("entity_code", "entity_name", "code", "name"):
+            if key in payload and payload[key]:
+                result["entity_code"] = str(payload[key])
+                break
+
+        # Enrich via SG API if we still don't know the code.
+        result = _enrich_with_entity_code(result)
 
         print(f"[ami_payload] resolved ctx: {result}", flush=True)
         return result
@@ -175,6 +243,15 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
         if not val.startswith("{"):
             result["user_login"] = val
 
+    # Entity name/code may travel under a few aliases depending on the
+    # AMI configuration. Accept the first non-placeholder one.
+    for key in ("entity_code", "entity_name", "code", "name"):
+        if key in qs:
+            val = qs[key][0]
+            if val and not val.startswith("{"):
+                result["entity_code"] = val
+                break
+
     return result, event_log_id
 
 
@@ -212,6 +289,7 @@ class FPTApplication(QApplication):
 
         if ctx.get("entity_type") and ctx.get("entity_id"):
             # Got real context from URL params (no Light Payload)
+            ctx = _enrich_with_entity_code(ctx)
             if self.window:
                 self.window.update_context(ctx)
         elif event_log_id:
@@ -239,6 +317,8 @@ def main():
     parser = argparse.ArgumentParser(description="FPT-MCP Qt Console")
     parser.add_argument("--entity-type", type=str, default=None)
     parser.add_argument("--entity-id", type=int, default=None)
+    parser.add_argument("--entity-code", type=str, default=None,
+                        help="Entity code/name (e.g. 'MRBONE2'). Auto-resolved from SG if omitted.")
     parser.add_argument("--project-id", type=int, default=None)
     parser.add_argument("--project-name", type=str, default=None)
     parser.add_argument("--user-login", type=str, default=None)
@@ -262,12 +342,19 @@ def main():
             ctx["entity_type"] = args.entity_type
         if args.entity_id:
             ctx["entity_id"] = args.entity_id
+        if args.entity_code:
+            ctx["entity_code"] = args.entity_code
         if args.project_id:
             ctx["project_id"] = args.project_id
         if args.project_name:
             ctx["project_name"] = args.project_name
         if args.user_login:
             ctx["user_login"] = args.user_login
+
+    # Always make sure the entity code is in the context before the
+    # window is built — Claude needs it to fill Toolkit template tokens
+    # without an extra sg_find round-trip.
+    ctx = _enrich_with_entity_code(ctx)
 
     app = FPTApplication(sys.argv)
     app.setApplicationName("FPT-MCP Console")
@@ -278,6 +365,7 @@ def main():
     window = ChatWindow(
         entity_type=ctx.get("entity_type"),
         entity_id=ctx.get("entity_id"),
+        entity_code=ctx.get("entity_code"),
         project_id=ctx.get("project_id"),
         project_name=ctx.get("project_name"),
         user_login=ctx.get("user_login"),

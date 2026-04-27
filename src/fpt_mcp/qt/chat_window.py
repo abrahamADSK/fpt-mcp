@@ -259,6 +259,7 @@ class ChatWindow(QMainWindow):
         self,
         entity_type: str | None = None,
         entity_id: int | None = None,
+        entity_code: str | None = None,
         project_id: int | None = None,
         project_name: str | None = None,
         user_login: str | None = None,
@@ -269,6 +270,8 @@ class ChatWindow(QMainWindow):
         if entity_type and entity_id:
             self._context["entity_type"] = entity_type
             self._context["entity_id"] = entity_id
+        if entity_code:
+            self._context["entity_code"] = entity_code
         if project_id:
             self._context["project_id"] = project_id
         if project_name:
@@ -277,7 +280,7 @@ class ChatWindow(QMainWindow):
             self._context["user_login"] = user_login
 
         self._worker: Optional[ClaudeWorker] = None
-        # Multi-backend: default to first model (anthropic)
+        # Multi-backend: default to first model (Claude Opus 4.7 / anthropic)
         self._selected_model_idx = 0
         # Whimsical thinking-bubble rotator state
         self._thinking_verb: str = ""
@@ -442,6 +445,13 @@ class ChatWindow(QMainWindow):
             self._context["entity_type"] = ctx["entity_type"]
         if ctx.get("entity_id"):
             self._context["entity_id"] = ctx["entity_id"]
+        if ctx.get("entity_code"):
+            self._context["entity_code"] = ctx["entity_code"]
+        elif ctx.get("entity_type") and ctx.get("entity_id"):
+            # Entity changed but caller did not include the code; drop the
+            # stale code so the next prompt does not reference the wrong
+            # asset name.
+            self._context.pop("entity_code", None)
         if ctx.get("project_id"):
             self._context["project_id"] = ctx["project_id"]
         if ctx.get("project_name"):

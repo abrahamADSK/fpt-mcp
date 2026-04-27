@@ -26,6 +26,7 @@ import yaml
 from fpt_mcp.tk_config import (
     TkConfig,
     TkConfigError,
+    context_from_path,
     discover_config,
     discover_or_fallback,
     clear_cache,
@@ -450,3 +451,52 @@ class TestTkFallbackNoConfig:
         call_args = sg_find.call_args
         filters = call_args[0][1]
         assert any("Secondary" in str(f) for f in filters)
+
+
+# ===========================================================================
+# context_from_path — path-based context derivation
+# ===========================================================================
+
+class TestContextFromPath:
+    """context_from_path extracts Toolkit token values from filesystem paths."""
+
+    def test_asset_work_path_extracted(self, tk_config):
+        """maya_asset_work path yields entity_type, entity_code, step, name, version."""
+        path = (
+            tk_config.project_root
+            / "assets" / "Character" / "MRBONE2" / "MDL" / "work" / "maya"
+            / "MRBONE2.v001.ma"
+        )
+        result = context_from_path(path, tk_config)
+
+        assert result is not None
+        assert result["entity_type"] == "Asset"
+        assert result["entity_code"] == "MRBONE2"
+        assert result["step"] == "MDL"
+        assert result["name"] == "MRBONE2"
+        assert result["version"] == 1
+        assert result.get("maya_extension") == "ma"
+
+    def test_returns_none_outside_project_root(self, tk_config):
+        """Paths outside project_root never match."""
+        result = context_from_path(tk_config.project_root.parent / "other" / "file.ma", tk_config)
+        assert result is None
+
+    def test_asset_type_extracted(self, tk_config):
+        """sg_asset_type token is extracted from path."""
+        path = (
+            tk_config.project_root
+            / "assets" / "Prop" / "sword" / "RIG" / "work" / "maya"
+            / "sword.v003.ma"
+        )
+        result = context_from_path(path, tk_config)
+
+        assert result is not None
+        assert result.get("sg_asset_type") == "Prop"
+        assert result["entity_code"] == "sword"
+        assert result["version"] == 3
+
+    def test_unrecognised_path_returns_none(self, tk_config):
+        """Paths that match no template return None."""
+        result = context_from_path(tk_config.project_root / "random" / "unknown.ma", tk_config)
+        assert result is None

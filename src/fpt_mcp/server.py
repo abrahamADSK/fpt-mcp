@@ -343,6 +343,43 @@ async def _get_tk_config():
     return await discover_or_fallback(PROJECT_ID, sg_find)
 
 
+async def _resolve_step_short_name(step_input: str, entity_type: str) -> str:
+    """Map a user-supplied step keyword to the project's canonical Step.short_name.
+
+    Toolkit's ``{Step}`` template token expects the Step entity's
+    ``short_name`` (e.g. ``MDL``), not the user-friendly code (``Model``)
+    or lowercased input (``model``). Without this resolution the resulting
+    path falls outside the project root and Toolkit's
+    ``sgtk_from_path`` raises TankInitError.
+
+    Probes ShotGrid for a Step matching the input under ``short_name`` or
+    ``code`` across common case variants. Returns the canonical
+    ``short_name`` on hit; returns ``step_input`` unchanged on miss so
+    legacy and tested behaviour is preserved when SG is mocked or the
+    Step does not exist in this site.
+    """
+    canon = (step_input or "").strip()
+    if not canon:
+        return canon
+    seen: set[str] = set()
+    for variant in (canon, canon.upper(), canon.lower(), canon.capitalize()):
+        if variant in seen:
+            continue
+        seen.add(variant)
+        for field in ("short_name", "code"):
+            row = await sg_find_one(
+                "Step",
+                [
+                    ["entity_type", "is", entity_type],
+                    [field, "is", variant],
+                ],
+                ["short_name"],
+            )
+            if row and row.get("short_name"):
+                return row["short_name"]
+    return canon
+
+
 async def _build_template_fields(
     entity_type: str,
     entity_id: int,
@@ -366,8 +403,10 @@ async def _build_template_fields(
     if not entity:
         raise TkConfigError(f"{entity_type} #{entity_id} not found in ShotGrid.")
 
+    step_token = await _resolve_step_short_name(step, entity_type)
+
     template_fields: dict[str, Any] = {
-        "Step": step,
+        "Step": step_token,
         "name": name,
         "version": version,
     }

@@ -66,6 +66,8 @@ async def tk_resolve_path_impl(params: TkResolvePathInput) -> str:
 
 async def tk_publish_impl(params: TkPublishInput) -> str:
     """Body of tk_publish_tool. See server.py for user-facing docstring."""
+    from pathlib import Path as _Path
+
     from fpt_mcp.server import (
         _get_tk_config,
         _build_template_fields,
@@ -73,6 +75,7 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         sg_create,
         PROJECT_ID,
     )
+    from fpt_mcp.tk_config import context_from_path
 
     try:
         tk_config = await _get_tk_config()
@@ -80,13 +83,58 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         version = params.version_number or 1
         template_name = None
 
+        # --- Path-based context derivation -----------------------------------
+        # When entity_type / entity_id / step are omitted, derive them from
+        # local_path by matching it against Toolkit templates.  This lets the
+        # LLM call  tk_publish(local_path=<saved_scene>, publish_type="Maya Scene")
+        # with zero prior sg_find round-trips — the path encodes all context.
+        effective_entity_type: str | None = params.entity_type
+        effective_entity_id: int | None = params.entity_id
+        effective_step: str | None = params.step
+        effective_name: str = params.name
+
+        if params.local_path and tk_config is not None:
+            if effective_entity_type is None or effective_entity_id is None or effective_step is None:
+                path_ctx = context_from_path(_Path(params.local_path), tk_config)
+                if path_ctx:
+                    effective_entity_type = effective_entity_type or path_ctx.get("entity_type")
+                    effective_step = effective_step or path_ctx.get("step")
+                    # Resolve entity_id from entity_code with a single sg_find
+                    if effective_entity_id is None and effective_entity_type and path_ctx.get("entity_code"):
+                        entity_rows = await sg_find_one(
+                            effective_entity_type,
+                            [["code", "is", path_ctx["entity_code"]]],
+                            ["id"],
+                        )
+                        if entity_rows:
+                            effective_entity_id = entity_rows["id"]
+                    # Use name from path if caller left it at the default
+                    if params.name == "main" and path_ctx.get("name"):
+                        effective_name = path_ctx["name"]
+                    if not params.extension and path_ctx.get("maya_extension"):
+                        params = params.model_copy(update={"extension": path_ctx["maya_extension"]})
+
+        # Validate that we have enough context to proceed
+        if effective_entity_type is None or effective_entity_id is None:
+            missing = []
+            if effective_entity_type is None:
+                missing.append("entity_type")
+            if effective_entity_id is None:
+                missing.append("entity_id")
+            return json.dumps({
+                "error": (
+                    f"Missing required fields: {missing}. "
+                    "Provide them explicitly, or pass local_path pointing to a "
+                    "Toolkit-managed file so they can be derived automatically."
+                )
+            })
+
+        effective_step = effective_step or "model"
+        # ---------------------------------------------------------------------
+
         if tk_config is not None and params.publish_path is None:
             # Mode 1: Resolve path from PipelineConfiguration templates
-            # Caller should provide a template_name-like approach, but for
-            # tk_publish we infer from publish_type + entity_type
-            # Try to find a matching template by convention
-            entity_key = "asset" if params.entity_type == "Asset" else "shot"
-            # Search templates for one matching the publish type
+            entity_key = "asset" if effective_entity_type == "Asset" else "shot"
             ptype_lower = params.publish_type.lower().replace(" ", "_")
             candidates = [
                 f"{ptype_lower}_{entity_key}_publish",
@@ -99,7 +147,6 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
                     break
 
             if template_name is None:
-                # Try listing templates for a partial match
                 all_templates = tk_config.list_templates(ptype_lower)
                 if all_templates:
                     template_name = next(iter(all_templates))
@@ -107,7 +154,7 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
             if template_name is None:
                 return json.dumps({
                     "error": f"No template found matching publish_type='{params.publish_type}' "
-                             f"for entity_type='{params.entity_type}'. "
+                             f"for entity_type='{effective_entity_type}'. "
                              f"Available templates: {list(tk_config.list_templates().keys())}. "
                              f"Provide an explicit publish_path instead."
                 })
@@ -115,23 +162,19 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
             ext = params.extension
             if version == 1 and params.version_number is None:
                 fields_probe = await _build_template_fields(
-                    params.entity_type, params.entity_id,
-                    params.step, params.name, 0, ext,
+                    effective_entity_type, effective_entity_id,
+                    effective_step, effective_name, 0, ext,
                 )
                 version = tk_config.next_version(template_name, fields_probe)
 
             fields = await _build_template_fields(
-                params.entity_type, params.entity_id,
-                params.step, params.name, version, ext,
+                effective_entity_type, effective_entity_id,
+                effective_step, effective_name, version, ext,
             )
             publish_path = tk_config.resolve_path(template_name, fields)
 
         elif params.publish_path is not None:
-            # Mode 2: Explicit path provided by user. Resolve to absolute
-            # so the existence check below and the error messages are not
-            # ambiguous when the LLM passes a relative path (which would
-            # otherwise be evaluated against the MCP server's cwd).
-            from pathlib import Path as _Path
+            # Mode 2: Explicit path provided by user.
             publish_path = _Path(params.publish_path).resolve()
 
         else:
@@ -140,10 +183,7 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
                          "Please provide an explicit publish_path where the file should be published."
             })
 
-        # Pre-flight: if local_path is provided, it must actually exist on
-        # disk before we resolve PublishedFileType / Task / etc. Catching
-        # this early avoids a partial publish where the SG record is created
-        # but the file copy fails halfway through.
+        # Pre-flight: local_path must exist before we create any SG records.
         if params.local_path and not os.path.isfile(params.local_path):
             return json.dumps({
                 "error": f"local_path does not exist: {params.local_path}. "
@@ -183,29 +223,29 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         if not pft:
             pft = await sg_create("PublishedFileType", {"code": params.publish_type})
 
-        # Fetch entity code for the publish name
+        # Fetch entity code for the publish name (skip if already known from path)
         entity = await sg_find_one(
-            params.entity_type,
-            [["id", "is", params.entity_id]],
+            effective_entity_type,
+            [["id", "is", effective_entity_id]],
             ["code"],
         )
-        entity_code = entity["code"] if entity else f"{params.entity_type}_{params.entity_id}"
+        entity_code = entity["code"] if entity else f"{effective_entity_type}_{effective_entity_id}"
 
         # Find linked Task (if exists)
         task = await sg_find_one(
             "Task",
             [
-                ["entity", "is", {"type": params.entity_type, "id": params.entity_id}],
-                ["step.Step.short_name", "is", params.step],
+                ["entity", "is", {"type": effective_entity_type, "id": effective_entity_id}],
+                ["step.Step.short_name", "is", effective_step],
             ],
             ["id", "content"],
         )
 
         # Create the PublishedFile
         data: dict[str, Any] = {
-            "code": f"{entity_code}_{params.step}_{params.publish_type.replace(' ', '_')}_v{version:03d}",
+            "code": f"{entity_code}_{effective_step}_{params.publish_type.replace(' ', '_')}_v{version:03d}",
             "published_file_type": {"type": "PublishedFileType", "id": pft["id"]},
-            "entity": {"type": params.entity_type, "id": params.entity_id},
+            "entity": {"type": effective_entity_type, "id": effective_entity_id},
             "path": {"local_path": str(publish_path)},
             "version_number": version,
             "sg_status_list": "wtg",
@@ -224,7 +264,7 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
             "code": data["code"],
             "path": str(publish_path),
             "version_number": version,
-            "entity": {"type": params.entity_type, "id": params.entity_id, "code": entity_code},
+            "entity": {"type": effective_entity_type, "id": effective_entity_id, "code": entity_code},
             "publish_type": params.publish_type,
             "task": task["content"] if task else None,
             "file_copied": params.local_path is not None,

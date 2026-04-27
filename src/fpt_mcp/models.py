@@ -126,15 +126,36 @@ class TkResolvePathInput(BaseModel):
 
 class TkPublishInput(BaseModel):
     model_config = _STRICT_CONFIG
-    entity_type: str = Field(description="'Asset' or 'Shot'.")
-    entity_id: int = Field(description="Entity ID in ShotGrid.")
+    entity_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "'Asset' or 'Shot'. Auto-derived from local_path via Toolkit template matching "
+            "when the project has a PipelineConfiguration. Required only if local_path is "
+            "absent or not a Toolkit-managed path."
+        ),
+    )
+    entity_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "Entity ID in ShotGrid. Auto-derived from local_path (one sg_find by entity code) "
+            "when entity_type can be inferred from the path. Required only if local_path is "
+            "absent or not a Toolkit-managed path."
+        ),
+    )
     publish_type: str = Field(
         description=(
             "PublishedFileType code in ShotGrid (e.g. 'Maya Scene', 'Nuke Script', "
             "'Alembic Cache', 'Image'). Created automatically if it doesn't exist."
         ),
     )
-    step: str = Field(default="model", description="Pipeline step: model, rig, texture, anim, light, comp, etc.")
+    step: Optional[str] = Field(
+        default=None,
+        description=(
+            "Pipeline step short_name (e.g. 'MDL', 'RIG'). "
+            "Auto-derived from local_path when the path encodes the step token. "
+            "Falls back to 'model' if neither provided nor derivable."
+        ),
+    )
     name: str = Field(default="main", description="Publish name.")
     comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
     local_path: Optional[str] = Field(default=None, description="Source file path. Copied to the resolved publish location if a PipelineConfiguration exists.")

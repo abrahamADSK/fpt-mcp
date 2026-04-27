@@ -49,8 +49,9 @@ TIMEOUT_SECONDS = 900
 # Each entry: (display_label, model_id, backend)
 AVAILABLE_MODELS = [
     # ── Anthropic cloud (default — needs internet + API key) ─────────
+    ("Claude Opus 4.7",       "claude-opus-4-7",           "anthropic"),
     ("Claude Sonnet 4.6",     "claude-sonnet-4-6",         "anthropic"),
-    ("Claude Opus 4.6",       "claude-opus-4-6",           "anthropic"),
+    ("Claude Haiku 4.5",      "claude-haiku-4-5",          "anthropic"),
     # ── Self-hosted Ollama (glorfindel RTX 3090, LAN) ────────────────
     ("Qwen3.5 9B 🖥",         "qwen3.5-mcp",               "ollama"),
     ("GLM-4.7 Flash 🖥",      "glm-4.7-flash",             "ollama"),

@@ -592,3 +592,93 @@ class TestPublishFileCopy:
         assert "error" not in result
         published = Path(result["path"])
         assert published.read_bytes() == content
+
+
+# ===========================================================================
+# 7. TestPublishPathDerivation
+# ===========================================================================
+
+class TestPublishPathDerivation:
+    """Path-based context derivation: entity_type/entity_id/step from local_path."""
+
+    def test_path_derivation_derives_entity_and_step(self, patch_publish_deps):
+        """When entity_type/entity_id/step are omitted, tk_publish derives them from local_path."""
+        tk_config, sg_find_one_mock, _ = patch_publish_deps
+
+        # Place the source file at the maya_asset_work path inside the fixture project_root
+        work_path = (
+            tk_config.project_root
+            / "assets" / "Character" / "hero_robot" / "model" / "work" / "maya"
+            / "hero_robot.v001.ma"
+        )
+        work_path.parent.mkdir(parents=True, exist_ok=True)
+        work_path.write_text("// Maya scene")
+
+        # Omit entity_type, entity_id, and step — let derivation fill them in
+        params = TkPublishInput(
+            publish_type="maya",
+            local_path=str(work_path),
+            name="hero_robot",
+            extension="ma",
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        # Derived entity should match the path tokens
+        assert result["entity"]["type"] == "Asset"
+        assert result["entity"]["code"] == "hero_robot"
+
+    def test_path_derivation_missing_entity_id_returns_error(self, patch_publish_deps):
+        """If path derivation finds entity_code but SG returns no match, error is returned."""
+        tk_config, sg_find_one_mock, _ = patch_publish_deps
+
+        # Make sg_find_one return None for Asset (simulates entity not in SG)
+        original_side_effect = sg_find_one_mock.side_effect
+
+        async def _no_asset(entity_type, filters, fields):
+            if entity_type == "Asset":
+                return None
+            return await original_side_effect(entity_type, filters, fields)
+
+        sg_find_one_mock.side_effect = _no_asset
+
+        work_path = (
+            tk_config.project_root
+            / "assets" / "Character" / "hero_robot" / "model" / "work" / "maya"
+            / "hero_robot.v001.ma"
+        )
+        work_path.parent.mkdir(parents=True, exist_ok=True)
+        work_path.write_text("// Maya scene")
+
+        params = TkPublishInput(
+            publish_type="maya",
+            local_path=str(work_path),
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" in result
+        assert "entity_id" in result["error"]
+
+    def test_explicit_entity_overrides_path_derivation(self, patch_publish_deps):
+        """Explicit entity_type/entity_id take precedence over path derivation."""
+        tk_config, _, _ = patch_publish_deps
+
+        work_path = (
+            tk_config.project_root
+            / "assets" / "Character" / "hero_robot" / "model" / "work" / "maya"
+            / "hero_robot.v001.ma"
+        )
+        work_path.parent.mkdir(parents=True, exist_ok=True)
+        work_path.write_text("// Maya scene")
+
+        # Provide entity_id=1001 explicitly (different from what path alone would give via SG)
+        params = _make_input(
+            entity_type="Asset",
+            entity_id=1001,
+            local_path=str(work_path),
+            extension="ma",
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result
+        assert result["entity"]["id"] == 1001

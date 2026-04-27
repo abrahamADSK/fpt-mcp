@@ -467,3 +467,105 @@ async def discover_or_fallback(
 def clear_cache() -> None:
     """Clear the config cache (useful after config changes)."""
     _config_cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Path → context derivation
+# ---------------------------------------------------------------------------
+
+def _match_template_path(rel_path: str, template_str: str) -> Optional[dict[str, Any]]:
+    """Extract token values by matching a relative path against a template string.
+
+    Returns a dict of {token_name: value} on match, or None on no match.
+    """
+    token_names: list[str] = []
+    parts = re.split(r"\{(\w[\w.]*)\}", template_str)
+
+    regex_parts = ["^"]
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            regex_parts.append(re.escape(part))
+        else:
+            token_name = part
+            token_names.append(token_name)
+            if token_name == "version":
+                regex_parts.append(r"(\d{3,4})")
+            elif token_name in ("SEQ", "flame.frame", "vred.frame"):
+                regex_parts.append(r"(\d{4,8})")
+            elif "." in token_name:
+                regex_parts.append(r"(\d+)")
+            else:
+                regex_parts.append(r"([^/]+)")
+    regex_parts.append("$")
+
+    try:
+        m = re.match("".join(regex_parts), rel_path)
+    except re.error:
+        return None
+
+    if m is None:
+        return None
+
+    return dict(zip(token_names, m.groups()))
+
+
+def context_from_path(path: Path, tk_config: "TkConfig") -> Optional[dict[str, Any]]:
+    """Derive Toolkit template token values from a filesystem path.
+
+    Matches *path* against every template in *tk_config* and returns the
+    extracted token dict on the first match.  The caller receives at minimum:
+
+        entity_type  – "Asset" or "Shot"
+        entity_code  – value of the {Asset} or {Shot} token
+        step         – value of {Step} (the canonical short_name, e.g. "MDL")
+        template_name – name of the matched template
+
+    Plus any additional tokens present (sg_asset_type, name, version,
+    maya_extension, Sequence, …).
+
+    Returns None if no template matches (path not under project_root or not
+    managed by this Toolkit config).
+    """
+    try:
+        rel = path.relative_to(tk_config.project_root)
+    except ValueError:
+        return None
+
+    rel_str = rel.as_posix()
+
+    # Prefer work/publish templates so we match meaningful context first.
+    sorted_templates = sorted(
+        tk_config.list_templates().items(),
+        key=lambda kv: (0 if ("work" in kv[0] or "publish" in kv[0]) else 1, kv[0]),
+    )
+
+    for template_name, template_str in sorted_templates:
+        tokens = _match_template_path(rel_str, template_str)
+        if tokens is None:
+            continue
+
+        result: dict[str, Any] = dict(tokens)
+        result["template_name"] = template_name
+
+        # Normalise entity type
+        if "Asset" in result:
+            result["entity_type"] = "Asset"
+            result["entity_code"] = result["Asset"]
+        elif "Shot" in result:
+            result["entity_type"] = "Shot"
+            result["entity_code"] = result["Shot"]
+
+        # Normalise step alias
+        if "Step" in result:
+            result["step"] = result["Step"]
+
+        # Normalise version to int
+        if "version" in result:
+            try:
+                result["version"] = int(result["version"])
+            except (ValueError, TypeError):
+                pass
+
+        return result
+
+    return None
