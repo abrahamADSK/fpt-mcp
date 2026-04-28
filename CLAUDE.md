@@ -167,12 +167,40 @@ Location: `src/fpt_mcp/qt/claude_worker.py` line 40
 
 The system prompt defines the complete workflow for 3D creation. Structure:
 
-### Step 1: Check Vision3D
+### Step 0: TARGET SELECTION (Chat 49 redesign — ask FIRST)
 ```
-Call maya_vision3d(action="health") BEFORE offering options
-- If available=true → offer both options
-- If available=false → inform and offer Maya only
+Before any sg_find / health / reference search, ask ONCE:
+"Where to create the 3D model?
+  • maya     — direct modeling, no AI, primitives only
+  • vision3d — AI generation on a Vision3D server"
+- If 'maya' → SKIP Step 0b and all Vision3D work. Run Step 2 only if
+  the user mentioned an asset/shot, then jump to Step 5 manual.
+- If 'vision3d' → continue to Step 0b.
+FAST PATH overrides this when the user's message already names the
+target (e.g. "manual cube", "vision3d on glorfindel ...").
 ```
+
+### Step 0b: SERVER SELECTION (only if vision3d)
+```
+Call maya_vision3d(action="health") ONCE.
+- Success payload → URL already selected from prior turn. Extract `device`
+  (mps/cuda/cpu) from the response and remember for Step 4.
+- vision3d_url_required → ask user for URL with hints:
+    • http://localhost:8000  → this Mac (Apple Silicon MPS — fast/full
+      only, no turbo)
+    • http://glorfindel:8000 → CUDA RTX 3090 (full incl. turbo)
+  Surface `suggested_default` from error payload as a hint, never
+  auto-select. Validate URL format. Call select_server, then health
+  again to verify AND learn `device`.
+- Other errors → "Vision3D <url> unreachable: <error>. Switch to maya
+  or retype URL?"
+```
+
+### Step 1 (legacy)
+The old "CHECK VISION3D probe BEFORE offering options" was merged into
+Step 0b in Chat 49. The `vision3d_url_required` policy from MASTER_HISTORY
+("never persist URL, ask the user, runtime-only") is unchanged — it
+just runs in Step 0b instead of Step 5 gate.
 
 ### Step 2-3: Identify entity and search references
 ```
@@ -189,13 +217,24 @@ Call maya_vision3d(action="health") BEFORE offering options
 - PRESENT EVERYTHING IN A SINGLE RESPONSE with mandatory quality block
 ```
 
-### Quality Block (MANDATORY — always show)
+### Quality Block (MANDATORY — always show, device-aware Chat 49)
+The labels are now picked from the `device` learned in Step 0b health.
+On CUDA/CPU servers (turbo available):
 ```
-AI Quality — Vision3D server (model, octree, steps and faces):
+AI Quality — Vision3D <url> on device <device>:
  • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
  • medium — turbo model, octree 384, 20 steps, 50k faces  (~2 min) ← default
  • high   — full model,  octree 384, 30 steps, 150k faces (~8 min)
  • ultra  — full model,  octree 512, 50 steps, no limit    (~12 min)
+```
+On MPS servers (Apple Silicon, turbo unavailable, auto-resolves to fast):
+```
+AI Quality — Vision3D <url> on device mps:
+ • low    — fast model, octree 256, 10 steps, 10k faces  (~2-3 min) ← default
+ • medium — fast model, octree 384, 20 steps, 50k faces  (~3-5 min)
+ • high   — full model, octree 384, 30 steps, 150k faces (~10 min)
+ • ultra  — full model, octree 512, 50 steps, no limit    (~15 min)
+ (turbo unavailable on Apple Silicon → server auto-resolves to 'fast')
 ```
 
 **RULES**:

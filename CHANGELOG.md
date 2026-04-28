@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **SYSTEM_PROMPT redesign — target/server selection FIRST** (Chat 49,
+  user-requested). The 3D-creation workflow now asks the user *where*
+  to generate BEFORE searching references or rendering the quality
+  block. Two new mandatory steps replace the old silent health probe:
+  - **Step 0 — Target selection**: ask "maya | vision3d?" once. If
+    `maya` → skip all Vision3D steps and the quality block entirely.
+    If `vision3d` → continue to Step 0b. FAST PATH still short-circuits
+    when the user's first message names the target.
+  - **Step 0b — Server selection**: only on `vision3d`. Probe
+    `maya_vision3d(action='health')`; on `vision3d_url_required`,
+    ask the user for the URL with labelled hints
+    (`http://localhost:8000` → MPS, `http://glorfindel:8000` → CUDA).
+    Validate format, call `select_server`, then `health` again to
+    verify AND learn `device` (mps/cuda/cpu) for Step 4.
+  Step 4's quality block is now device-aware: on CUDA/CPU the labels
+  show turbo for low/medium; on MPS they show fast (with an explicit
+  "turbo unavailable on Apple Silicon → auto-resolves to fast" note).
+  This stops the prior misleading flow where Mac users saw "low —
+  turbo model" labels but the server (vision3d v1.6.7+) silently
+  downgraded to fast. The legacy "Vision3D URL gate" inside Step 5 is
+  removed (the gate now runs once in Step 0b).
+- `tests/test_system_prompts.py` — three structural tests adapted to
+  the new contract:
+  - `test_quality_block_has_both_device_branches` (renamed from
+    `test_quality_block_identical_both_prompts`): both variants must
+    document both CUDA and MPS branches; byte-identical enforcement
+    relaxed because the device-conditional structure is intentional.
+  - `test_quality_block_contains_required_fields`: now scans the
+    whole prompt for required terms (turbo+fast+all octree/steps/faces
+    values) instead of one regex-captured 4-bullet block.
+  - `test_no_fabricated_urls_in_examples`: the protective intent
+    (no LLM-fabricated defaults) is now enforced via prose checks for
+    "never fabricate / never auto-select / always ask the user" rather
+    than a literal hostname blocklist; this allows Step 0b to surface
+    `localhost:8000` and `glorfindel:8000` as labeled examples while
+    preserving the never-auto-select contract.
+- `CLAUDE.md` — Section 4 (SYSTEM_PROMPT) updated with Step 0,
+  Step 0b, the device-aware quality block layout, and a "Step 1
+  (legacy)" note pointing readers to where the old probe moved.
+
 ## [1.8.0] — 2026-04-28
 
 ### Added

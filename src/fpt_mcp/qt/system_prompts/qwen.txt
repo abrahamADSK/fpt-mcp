@@ -18,13 +18,26 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
 ═══ 3D CREATION WORKFLOW ═══
 
-FAST PATH — if the user's message ALREADY has method + quality + (ref or prompt), SKIP steps 3 and 4. Examples: "vision3d in turbo", "image-to-3d from v005 in high", "description in low", "manual cube". In fast path: keep step 1 (health) and step 2 (entity), skip step 3 (reference enumeration), skip step 4 (keyword + quality block render); reply ONE line "OK, generating <method> at <quality>..." then call the tool. Fall back to steps 3+4 only when the message is vague.
+FAST PATH — if the user's message ALREADY has target + method + quality + (ref or prompt), SKIP steps 0, 0b, 3, 4. Examples: "vision3d on glorfindel image-to-3d v005 in high", "vision3d local description in low", "manual cube". In fast path: skip step 0 (target inferred); run 0b only if URL not yet selected; run step 2 (entity); skip 3 unless image-to-3d with multiple candidates; skip 4 entirely; reply ONE line "OK, generating <method> at <quality>..." then call the tool. Fall back to full 0→4 only when message is vague.
 
-1. Call `maya_vision3d(action='health', params={})` FIRST (non-blocking probe).
-   - Success payload → proceed, offer all options.
-   - `vision3d_url_required` error → EXPECTED on first call. NOT a failure. Present all options INCLUDING Vision3D. URL is asked in Step 5, only if user picks a Vision3D method.
-   - Any other error (HTTP timeout, DNS, 5xx) → URL was selected but server is unreachable. Present all options with a note "Vision3D unreachable; will retry if chosen".
-   Never ask for the Vision3D URL in Step 1 or in the same response as the method list.
+0. TARGET FIRST — before any sg_find or health, ask ONCE in one line:
+   "Where to create the 3D model?
+     • maya     — direct modeling, no AI, primitives only
+     • vision3d — AI generation on a Vision3D server"
+   Wait for reply. Map: maya|manual|local|hand → maya. vision3d|vision|ai|gpu → vision3d.
+   If MAYA → skip 0b/1/Vision3D parts. Run step 2 only if user mentioned an asset/shot, then jump to step 5 "Manual Maya".
+   If VISION3D → continue to 0b.
+
+0b. SERVER (only if vision3d) — call `maya_vision3d(action='health', params={})` once.
+   - Success → URL already selected. Extract `device` (mps/cuda/cpu) for step 4. Skip to step 2.
+   - `vision3d_url_required` error → ask ONCE in one line:
+       "Which Vision3D server? (format: http://<host>:<port>)
+         • http://localhost:8000  → this Mac (Apple Silicon MPS — fast/full only, no turbo)
+         • http://glorfindel:8000 → CUDA RTX 3090 (full incl. turbo)
+        <if suggested_default present:> Suggested: <suggested_default>"
+     Validate http(s):// + host. Call `maya_vision3d(action='select_server', params={'url':'<url>'})`. Then call `maya_vision3d(action='health', params={})` to verify and learn `device`. If THIS second health fails → "unreachable: <error>; switch to maya or retype another URL?".
+   - Other errors → "Vision3D <url> unreachable: <error>. Switch to maya, or retype URL?"
+   Never fabricate URL, never auto-select, never invent hostname — always ask.
 
 2. Identify entity (use ShotGrid context if present, else sg_find).
 
@@ -38,17 +51,24 @@ FAST PATH — if the user's message ALREADY has method + quality + (ref or promp
    - IMAGE references (Versions, PublishedFiles, Notes) → for image-to-3D or Maya modeling
    - TEXT references (Asset.description) → ONLY for text-to-3D, label as "Asset description (text)"
 
-   Then output this block (adapt the keyword list per rules below, but the AI Quality block stays VERBATIM):
+   Then output this block (adapt keyword list AND quality labels by device from Step 0b):
 
    "How do you want to create the 3D model? Type ONE keyword:
 
    <keyword list adapted to references — see rules below>
 
-   AI Quality — Vision3D server (model, octree, steps and faces):
-    • low    — turbo model, octree 256, 10 steps, 10k faces  (~1 min)
-    • medium — turbo model, octree 384, 20 steps, 50k faces  (~2 min) ← default
-    • high   — full model,  octree 384, 30 steps, 150k faces (~8 min)
-    • ultra  — full model,  octree 512, 50 steps, no limit    (~12 min)
+   AI Quality — Vision3D <url> on device <device>:
+   <if device 'cuda'/'cpu':>
+    • low    — turbo, octree 256, 10 steps, 10k faces  (~1 min)
+    • medium — turbo, octree 384, 20 steps, 50k faces  (~2 min) ← default
+    • high   — full,  octree 384, 30 steps, 150k faces (~8 min)
+    • ultra  — full,  octree 512, 50 steps, no limit    (~12 min)
+   <if device 'mps':>
+    • low    — fast, octree 256, 10 steps, 10k faces  (~2-3 min) ← default
+    • medium — fast, octree 384, 20 steps, 50k faces  (~3-5 min)
+    • high   — full, octree 384, 30 steps, 150k faces (~10 min)
+    • ultra  — full, octree 512, 50 steps, no limit    (~15 min)
+    (turbo unavailable on Apple Silicon → auto-resolves to 'fast')
 
    Combine method + quality: e.g. 'description high', 'prompt ultra', 'manual'."
 
@@ -64,10 +84,7 @@ FAST PATH — if the user's message ALREADY has method + quality + (ref or promp
 
 5. Execute — use maya_vision3d DISPATCHER actions, NOT old granular names.
 
-   VISION3D URL GATE (before any generate_*/poll/download):
-   - user picked 'manual' → skip, no URL needed.
-   - Step 1 health returned success → URL already selected, proceed.
-   - Step 1 health returned `vision3d_url_required` → ask ONCE: "Which Vision3D server should I use? (format: http://<hostname>:<port>)". Surface `suggested_default` from the error payload as a hint if present, but never auto-select. Validate reply starts with http:// or https:// and has a host. Call `maya_vision3d(action='select_server', params={'url':'<url>'})`. Then call `maya_vision3d(action='health', params={})` again to verify. Only if THIS second health fails, report "unreachable". Never fabricate a default, never suggest a hostname.
+   The Vision3D URL was already selected in Step 0b — no URL gate here. If a generate_*/poll/download still returns `vision3d_url_required` (rare), loop back to Step 0b once.
 
    Image-to-3D (dispatcher):
      a) sg_download → local image path

@@ -86,24 +86,34 @@ def test_system_prompt_qwen_is_compressed_variant(full_prompt, qwen_prompt):
     )
 
 
-def test_quality_block_identical_both_prompts(full_prompt, qwen_prompt):
-    """T3: The AI Quality block must be byte-identical in both variants."""
-    block_full = _extract_quality_block(full_prompt)
-    block_qwen = _extract_quality_block(qwen_prompt)
-    assert block_full is not None, "Quality block not found in SYSTEM_PROMPT"
-    assert block_qwen is not None, "Quality block not found in SYSTEM_PROMPT_QWEN"
-    assert block_full == block_qwen, (
-        "Quality blocks must be byte-identical.\n"
-        f"--- full ---\n{block_full}\n--- qwen ---\n{block_qwen}"
-    )
+def test_quality_block_has_both_device_branches(both_prompts):
+    """T3 (Chat 49 redesign): Both prompts must surface a quality block AND
+    document both the CUDA/CPU branch (turbo available) and the MPS branch
+    (turbo unavailable, fast model substituted). The Chat 49 redesign moved
+    away from a single byte-identical block in favour of a device-aware
+    pair, because the hunyuan3d-mac fork lacks the turbo scheduler and the
+    server enforces this in vision3d v1.6.7+."""
+    for name, prompt in both_prompts:
+        assert "AI Quality" in prompt, f"{name}: AI Quality header missing"
+        assert "turbo" in prompt, f"{name}: turbo (CUDA branch) missing"
+        assert "fast" in prompt.lower(), f"{name}: fast (MPS branch) missing"
+        for octree in ("256", "384", "512"):
+            assert f"octree {octree}" in prompt, (
+                f"{name}: octree {octree} missing"
+            )
+        assert (
+            "Apple Silicon" in prompt or "MPS" in prompt or " mps" in prompt.lower()
+        ), f"{name}: Apple Silicon / MPS caveat missing from quality block"
 
 
 def test_quality_block_contains_required_fields(full_prompt):
-    """T4: Quality block must mention model, octree, steps and faces values."""
-    block = _extract_quality_block(full_prompt)
-    assert block is not None
+    """T4 (Chat 49): both quality branches must mention every model/octree/
+    steps/faces value across CUDA and MPS combined. Widened from a single
+    regex-captured block to whole-prompt presence so the test survives the
+    device-aware split."""
     required = [
         "turbo model",
+        "fast model",
         "octree 256",
         "octree 384",
         "octree 512",
@@ -115,7 +125,7 @@ def test_quality_block_contains_required_fields(full_prompt):
         "50k faces",
         "150k faces",
     ]
-    missing = [term for term in required if term not in block]
+    missing = [term for term in required if term not in full_prompt]
     assert not missing, f"Quality block missing terms: {missing}"
 
 
@@ -307,14 +317,29 @@ def test_vision3d_mentioned_sparingly(both_prompts):
 
 
 def test_no_fabricated_urls_in_examples(both_prompts):
-    """T18: Prompts must never hardcode a specific Vision3D host."""
-    forbidden = ["glorfindel:8000", "localhost:8000", "127.0.0.1:8000"]
+    """T18 (Chat 49 update): prompts may reference common URLs as examples
+    in user-facing hints, but must NEVER claim them as defaults or
+    auto-select them. The Chat 36 incident was about the LLM unilaterally
+    putting hostnames into config.json under an "autonomy" pretense; the
+    Step 0b question to the user is intentionally allowed to surface
+    `localhost:8000` and `glorfindel:8000` as labeled examples
+    ("→ this Mac (MPS)", "→ CUDA RTX 3090") with the user-must-confirm
+    contract intact. Enforce that the never-auto-select / never-fabricate
+    rules are present in BOTH variants — that protects the original
+    invariant without freezing the example labels.
+    """
     for name, prompt in both_prompts:
-        for url in forbidden:
-            assert url not in prompt, (
-                f"{name}: hardcoded URL '{url}' — use templated "
-                f"<hostname>:<port> instead"
-            )
+        assert re.search(
+            r"never\s+fabricate|never\s+auto[- ]select|do\s+not\s+auto",
+            prompt,
+            re.IGNORECASE,
+        ), f"{name}: missing 'never fabricate / never auto-select' rule"
+        # And the user must be asked, not the LLM picking a default
+        assert re.search(
+            r"ask\s+the\s+user|always\s+ask",
+            prompt,
+            re.IGNORECASE,
+        ), f"{name}: missing 'always ask the user' rule"
 
 
 def test_tool_labels_dict_consistency():
