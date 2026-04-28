@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `qt/claude_worker.py` — Vision3D progress regression. Since the
+  March 2026 design (commits `80cc581` + `10e32dc`), the "thinking"
+  bubble's incremental progress lines depended on Claude **echoing**
+  the `new_log_lines` array from each `maya_vision3d(action='poll')`
+  result back as text. Newer Opus 4.7 + the Chat 40 reasoning-hardening
+  env vars (`CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1` +
+  `CLAUDE_CODE_EFFORT_LEVEL=max`) make the model reason silently
+  between poll calls, swallowing the lines. Result: only the dispatcher
+  action label "Polling Vision3D progress..." appeared, repeated
+  uninformatively, while the actual `[1/5] Loading shape pipeline...`
+  / `═══ PHASE 1/2: SHAPE GENERATION ═══` etc. were lost.
+  The worker now intercepts `user`-role stream-json events carrying
+  `tool_result` content, parses any JSON payload that includes a
+  `new_log_lines` field (the Vision3D poll contract), and emits each
+  line as a progress event directly — no dependency on the model
+  choosing to echo. Model-agnostic (works with Anthropic and Ollama
+  backends), strictly defensive (malformed JSON or missing field →
+  silent skip), additive (does not change the existing text_delta
+  path; if the model also echoes, both paths emit and the duplicate is
+  visually capped at 12 visible lines anyway).
+
 ## [1.9.1] — 2026-04-28
 
 ### Fixed

@@ -555,6 +555,40 @@ class ClaudeWorker(QThread):
                     if msg:
                         text_parts.append(msg)
 
+                # ── User event with tool_result (capture MCP tool progress) ──
+                # Claude Code CLI feeds tool results back as user-role messages
+                # before the next assistant turn. Without this branch, the
+                # only progress visible during a long-running maya_vision3d
+                # poll loop would be the dispatcher action label, repeated
+                # uninformatively on every tick. Here we look for any tool
+                # result whose JSON payload carries a `new_log_lines` array
+                # (the Vision3D poll contract) and emit each line as
+                # progress directly — no dependency on whether the model
+                # chooses to echo the lines as text. Strictly defensive:
+                # malformed JSON or missing field → silent skip.
+                elif ev_type == "user":
+                    msg = event.get("message", {}) or {}
+                    for block in msg.get("content", []) or []:
+                        if not isinstance(block, dict) or block.get("type") != "tool_result":
+                            continue
+                        content = block.get("content", "")
+                        if isinstance(content, list):
+                            content = "".join(
+                                b.get("text", "")
+                                for b in content
+                                if isinstance(b, dict) and b.get("type") == "text"
+                            )
+                        if not isinstance(content, str) or "new_log_lines" not in content:
+                            continue
+                        try:
+                            payload = json.loads(content)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                        for line in payload.get("new_log_lines") or []:
+                            line_clean = str(line).strip()
+                            if line_clean:
+                                self.progress.emit(line_clean)
+
             proc.wait(timeout=TIMEOUT_SECONDS)
 
             # Prefer result_text if available, else join text parts
