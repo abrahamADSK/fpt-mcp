@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-04-28
+
 ### Added
 - `tk_publish` — path-based context derivation. `entity_type`, `entity_id`,
   and `step` are now Optional when `local_path` points to a Toolkit-managed
