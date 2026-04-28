@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- SYSTEM_PROMPT — three corrections after in-vivo Chat 49 user feedback
+  on the v1.9.0 redesign:
+  - **Hardcoded Vision3D hostnames removed**. v1.9.0 introduced
+    `http://localhost:8000` and `http://glorfindel:8000` as labelled
+    examples in the Step 0b URL question. This violated the
+    MASTER_HISTORY policy ("Vision3D URL is per-session, runtime-only,
+    zero persistence; no hardcoded defaults, no whitelist"). v1.9.1
+    reverts to showing only the URL FORMAT (`http://<hostname>:<port>`)
+    plus the per-session `suggested_default` from the
+    `vision3d_url_required` error payload (only present when
+    `GPU_API_URL` is set in env). The
+    `test_no_fabricated_urls_in_examples` test reverted to the strict
+    hostname-blocklist enforcement.
+  - **Method menu is now filtered by target**. Picking `vision3d` in
+    Step 0 now hides the `manual` keyword from Step 4 (the user
+    already chose generative; offering manual again is contradictory).
+    Picking `maya` in Step 0 hides the version / texture / description
+    / prompt keywords AND the AI Quality block entirely — Maya goes
+    straight to a free-text "what do you want me to model?" prompt
+    with the references inline as visual guides.
+  - **Maya is no longer labelled "no AI"**. The Step 0 description now
+    reads "AI-assisted modeling (LLM builds geometry with primitives /
+    transforms / materials guided by references — NOT generative)".
+    The Step 5 bullet renamed from "Direct Maya modeling" to "Maya
+    assisted modeling" and the Step 4 maya branch is described as
+    "AI-ASSISTED, not 'no AI'".
+
+### Changed
+- `tests/test_system_prompts.py::test_no_fabricated_urls_in_examples`
+  re-tightened to the original strict contract (forbid
+  `glorfindel:8000`, `localhost:8000`, `127.0.0.1:8000` literals in
+  the prompt) AND keep the prose checks for "never fabricate / never
+  auto-select / always ask".
+
 ## [1.9.0] — 2026-04-28
 
 ### Changed

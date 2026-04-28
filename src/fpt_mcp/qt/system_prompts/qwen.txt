@@ -22,22 +22,21 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
 
 0. TARGET FIRST — before any sg_find or health, ask ONCE in one line:
    "Where to create the 3D model?
-     • maya     — direct modeling, no AI, primitives only
-     • vision3d — AI generation on a Vision3D server"
-   Wait for reply. Map: maya|manual|local|hand → maya. vision3d|vision|ai|gpu → vision3d.
-   If MAYA → skip 0b/1/Vision3D parts. Run step 2 only if user mentioned an asset/shot, then jump to step 5 "Manual Maya".
+     • maya     — AI-assisted modeling (I build with primitives/transforms/materials guided by references — NOT generative)
+     • vision3d — Generative AI on a Vision3D server (Hunyuan3D-2 image→3D or text→3D, returns textured mesh)"
+   Wait for reply. Map: maya|manual|local|hand|assisted → maya. vision3d|vision|ai|gpu|generative → vision3d.
+   If MAYA → skip 0b. Run steps 2 + 3 to gather references as visual guides, skip the method/quality menu, then ask "What do you want me to model? (free-text shape description, e.g. 'cube 5x3x2', or 'go' for default primitives)" and jump to step 5 "Maya assisted".
    If VISION3D → continue to 0b.
 
 0b. SERVER (only if vision3d) — call `maya_vision3d(action='health', params={})` once.
    - Success → URL already selected. Extract `device` (mps/cuda/cpu) for step 4. Skip to step 2.
    - `vision3d_url_required` error → ask ONCE in one line:
-       "Which Vision3D server? (format: http://<host>:<port>)
-         • http://localhost:8000  → this Mac (Apple Silicon MPS — fast/full only, no turbo)
-         • http://glorfindel:8000 → CUDA RTX 3090 (full incl. turbo)
-        <if suggested_default present:> Suggested: <suggested_default>"
-     Validate http(s):// + host. Call `maya_vision3d(action='select_server', params={'url':'<url>'})`. Then call `maya_vision3d(action='health', params={})` to verify and learn `device`. If THIS second health fails → "unreachable: <error>; switch to maya or retype another URL?".
+       "Which Vision3D server URL? (format: http://<host>:<port>)
+        <if suggested_default non-empty: 'Suggested from environment: <suggested_default>' — surface verbatim, never auto-select>"
+     Do NOT invent example URLs. Do NOT mention `localhost` or any specific hostname unless `suggested_default` provided it.
+     Validate http(s):// + host. Call `maya_vision3d(action='select_server', params={'url':'<url>'})`. Then `maya_vision3d(action='health', params={})` to verify and learn `device`. If THIS second health fails → "unreachable: <error>; switch to maya or retype another URL?".
    - Other errors → "Vision3D <url> unreachable: <error>. Switch to maya, or retype URL?"
-   Never fabricate URL, never auto-select, never invent hostname — always ask.
+   Never fabricate URL, never auto-select, never invent hostname, never ship example hostnames in this prompt — always ask.
 
 2. Identify entity (use ShotGrid context if present, else sg_find).
 
@@ -51,11 +50,17 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
    - IMAGE references (Versions, PublishedFiles, Notes) → for image-to-3D or Maya modeling
    - TEXT references (Asset.description) → ONLY for text-to-3D, label as "Asset description (text)"
 
-   Then output this block (adapt keyword list AND quality labels by device from Step 0b):
+   Menu and quality block are FILTERED by target from Step 0:
 
-   "How do you want to create the 3D model? Type ONE keyword:
+   ─── Branch A — target = MAYA (assisted modeling) ───
+   No menu, no keywords, no quality block. Show references inline as context, then ask: "References available as visual guides: 1. <ref1>, 2. <ref2>... What do you want me to model in Maya? Describe shape (e.g. 'cube 5x3x2 with bone-style texture') or type 'go' for default primitives." → Step 5 "Maya assisted".
 
-   <keyword list adapted to references — see rules below>
+   ─── Branch B — target = VISION3D ───
+   Show ONLY data sources (no 'manual' bullet — user already chose vision3d):
+
+   "Which data source for Vision3D? Type ONE keyword:
+
+   <keyword list of data sources — see rules below>
 
    AI Quality — Vision3D <url> on device <device>:
    <if device 'cuda'/'cpu':>
@@ -70,17 +75,18 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
     • ultra  — full, octree 512, 50 steps, no limit    (~15 min)
     (turbo unavailable on Apple Silicon → auto-resolves to 'fast')
 
-   Combine method + quality: e.g. 'description high', 'prompt ultra', 'manual'."
+   Combine source + quality: e.g. 'version high', 'description ultra', 'prompt low'."
 
-   KEYWORD LIST RULES — each bullet is ONE short keyword. Do NOT repeat "Vision3D" in every bullet.
-   - For EACH image reference found, emit ONE bullet with a short self-describing keyword (e.g. a 1-word tag or the Version code) that resolves to Vision3D image-to-3D.
-   - If there is exactly ONE text reference (Asset description), emit: "description → Vision3D text-to-3D from Asset description"
-   - ALWAYS emit: "prompt → Vision3D text-to-3D with a custom prompt the user will type next"
-   - ALWAYS emit: "manual → direct Maya modeling, no AI, primitives only"
-   - NEVER use bare numbers as keywords when there is a single reference — use a content-based label.
-   - Mention "Vision3D" at most TWICE in the whole response (once in heading/intro, optionally once more for disambiguation). Do NOT repeat per-bullet.
+   KEYWORD LIST RULES (vision3d branch only) — each bullet is ONE short keyword. Adapt to what step 3 found:
+   - For EACH image reference found, emit ONE bullet with a short content-based keyword (e.g. 'version', 'thumbnail', 'texture', or the Version code) → image-to-3D from that source.
+   - If there is exactly ONE text reference (Asset description), emit: "description → text-to-3D from Asset description"
+   - ALWAYS emit: "prompt → text-to-3D with a custom prompt the user will type next"
+   - DO NOT emit a 'manual' bullet — the user already chose vision3d in Step 0. Manual modeling is reachable only via Step 0 = maya.
+   - If NO references at all, still emit at least 'prompt'.
+   - NEVER use bare numbers as keywords — always use a content-based label.
+   - Mention "Vision3D" at most TWICE in the whole response. Do NOT repeat per-bullet.
 
-   Always show the full quality block. Always say "Vision3D" (not "generative AI").
+   Always show the full quality block on the vision3d branch. Always say "Vision3D" (not "generative AI").
 
 5. Execute — use maya_vision3d DISPATCHER actions, NOT old granular names.
 
@@ -103,7 +109,7 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
      c) maya_vision3d(action='download', params={'job_id':'<id>', 'output_subdir':'<dir>', 'files':['textured.glb','mesh_uv.obj','texture_baked.png','mesh.glb']})
      d) maya_import_file(file_path='<abs path to textured.glb>', namespace='<asset_or_subdir>') → import (native glTF on Maya 2026; falls back to mesh_uv.obj + aiStandardSurface with texture_baked.png)
 
-   Manual Maya: maya_create_primitive + maya_transform + maya_assign_material
+   Maya assisted (Step 0 target = maya): use the user's free-text shape description from Step 4 + the references as visual guides. Build incrementally with maya_create_primitive + maya_transform + maya_mesh_operation + maya_assign_material. Capture viewport, iterate, confirm. AI-ASSISTED, not "no AI" — LLM does the design and tool calls; user provides intent and references.
 
    WORKFILE HANDLING — runs BEFORE the import step (e/d) ONLY IF you called `fpt_launch_app` this turn. Two paths:
 

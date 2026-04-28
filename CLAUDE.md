@@ -171,27 +171,34 @@ The system prompt defines the complete workflow for 3D creation. Structure:
 ```
 Before any sg_find / health / reference search, ask ONCE:
 "Where to create the 3D model?
-  • maya     — direct modeling, no AI, primitives only
-  • vision3d — AI generation on a Vision3D server"
-- If 'maya' → SKIP Step 0b and all Vision3D work. Run Step 2 only if
-  the user mentioned an asset/shot, then jump to Step 5 manual.
+  • maya     — AI-assisted modeling (LLM builds geometry with
+              primitives/transforms/materials guided by references —
+              NOT generative)
+  • vision3d — Generative AI on a Vision3D server (Hunyuan3D-2 returns
+              a textured mesh from image or text prompt)"
+- If 'maya' → SKIP Step 0b. Run Step 2 + 3 to gather references as
+  visual guides, skip the method/quality menu, ask "What do you want
+  me to model? (free-text shape, e.g. 'cube 5x3x2', or 'go' for default
+  primitives)" and proceed with Maya tool calls.
 - If 'vision3d' → continue to Step 0b.
 FAST PATH overrides this when the user's message already names the
-target (e.g. "manual cube", "vision3d on glorfindel ...").
+target (e.g. "vision3d image-to-3d ...", "model a cube").
 ```
 
 ### Step 0b: SERVER SELECTION (only if vision3d)
 ```
 Call maya_vision3d(action="health") ONCE.
-- Success payload → URL already selected from prior turn. Extract `device`
-  (mps/cuda/cpu) from the response and remember for Step 4.
-- vision3d_url_required → ask user for URL with hints:
-    • http://localhost:8000  → this Mac (Apple Silicon MPS — fast/full
-      only, no turbo)
-    • http://glorfindel:8000 → CUDA RTX 3090 (full incl. turbo)
-  Surface `suggested_default` from error payload as a hint, never
-  auto-select. Validate URL format. Call select_server, then health
-  again to verify AND learn `device`.
+- Success payload → URL already selected from prior turn. Extract
+  `device` (mps/cuda/cpu) and remember for Step 4.
+- vision3d_url_required → ask the user ONCE:
+    "Which Vision3D server URL? (format: http://<hostname>:<port>)
+     <if suggested_default is non-empty: 'Suggested from environment:
+      <suggested_default>'>"
+  Do NOT invent example URLs. Do NOT mention `localhost`, `glorfindel`,
+  or any specific host unless the server's `suggested_default` provided
+  it. Per MASTER_HISTORY: zero persistence, no hardcoded defaults, no
+  whitelist. Validate URL format. Call select_server, then health to
+  verify AND learn `device`.
 - Other errors → "Vision3D <url> unreachable: <error>. Switch to maya
   or retype URL?"
 ```

@@ -317,24 +317,33 @@ def test_vision3d_mentioned_sparingly(both_prompts):
 
 
 def test_no_fabricated_urls_in_examples(both_prompts):
-    """T18 (Chat 49 update): prompts may reference common URLs as examples
-    in user-facing hints, but must NEVER claim them as defaults or
-    auto-select them. The Chat 36 incident was about the LLM unilaterally
-    putting hostnames into config.json under an "autonomy" pretense; the
-    Step 0b question to the user is intentionally allowed to surface
-    `localhost:8000` and `glorfindel:8000` as labeled examples
-    ("→ this Mac (MPS)", "→ CUDA RTX 3090") with the user-must-confirm
-    contract intact. Enforce that the never-auto-select / never-fabricate
-    rules are present in BOTH variants — that protects the original
-    invariant without freezing the example labels.
+    """T18: prompts must NEVER hardcode any specific Vision3D hostname.
+
+    The MASTER_HISTORY policy is unambiguous: "Vision3D URL is per-session,
+    runtime-only, zero persistence. No hardcoded defaults, no whitelist".
+    The v1.9.0 prompt redesign briefly violated this by surfacing
+    `http://localhost:8000` and `http://glorfindel:8000` as labelled
+    examples in Step 0b — user caught it immediately. v1.9.1 reverts to
+    the strict interpretation: the prompt may only show the URL FORMAT
+    (`http://<hostname>:<port>`) and may surface the per-session
+    `suggested_default` from the `vision3d_url_required` error payload
+    if the env var GPU_API_URL is set. Nothing else.
+
+    Enforce both: no hardcoded hostnames AND prose checks for
+    "never fabricate / never auto-select / always ask".
     """
+    forbidden = ["glorfindel:8000", "localhost:8000", "127.0.0.1:8000"]
     for name, prompt in both_prompts:
+        for url in forbidden:
+            assert url not in prompt, (
+                f"{name}: hardcoded URL '{url}' — prompt must only show "
+                f"the format and the per-session suggested_default"
+            )
         assert re.search(
             r"never\s+fabricate|never\s+auto[- ]select|do\s+not\s+auto",
             prompt,
             re.IGNORECASE,
         ), f"{name}: missing 'never fabricate / never auto-select' rule"
-        # And the user must be asked, not the LLM picking a default
         assert re.search(
             r"ask\s+the\s+user|always\s+ask",
             prompt,
