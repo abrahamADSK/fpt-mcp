@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `qt/app.py` — AMI URL parser took the WRONG entity ID. ShotGrid AMI
+  URLs ship two ID fields with very different semantics:
+    - `selected_ids` — the entity (or entities) the user actually clicked
+    - `ids` — every entity visible in the column / page (often dozens)
+  The loop in `parse_protocol_url` and the dict access in
+  `fetch_ami_payload` both probed `ids` first and `break`-ed before
+  reaching `selected_ids`. Result: the badge showed `Asset #ids[0]`
+  instead of `Asset #selected_ids[0]`. Reproduced from
+  `/tmp/fpt-console.log`: user clicked Asset 1480 (URL had
+  `selected_ids=1480` and `ids=1479,1480,1481,1482,1511,1512,1545`),
+  the badge showed Asset #1479 (the first element of `ids`). Both
+  parsers now prefer `selected_ids` and only fall back to `ids` when
+  `selected_ids` is missing.
+- `tests/test_qt_protocol_url.py` — new file, 7 tests pinning the
+  parser contract: `selected_ids` wins over `ids`, multi-value
+  selected_ids takes the first, fallback to `ids` when selected_ids
+  is absent, URL-encoded commas decode correctly, ShotGrid placeholder
+  braces (`{selected_ids}`) are skipped, `event_log_entry_id` is
+  captured for Light Payload mode, and the full real-world URL from
+  the Chat 49 reproduction returns Asset 1480.
+
 ## [1.9.2] — 2026-04-28
 
 ### Fixed

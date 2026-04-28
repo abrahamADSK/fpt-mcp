@@ -139,8 +139,10 @@ def fetch_ami_payload(event_log_entry_id: int) -> dict:
         result = {}
         if "entity_type" in payload:
             result["entity_type"] = payload["entity_type"]
-        # ids can be a list or comma-separated string
-        ids = payload.get("ids") or payload.get("selected_ids")
+        # ids can be a list or comma-separated string. selected_ids holds
+        # the user's actual click; ids is the full page enumeration. Always
+        # prefer selected_ids (Chat 49 incident).
+        ids = payload.get("selected_ids") or payload.get("ids")
         if ids:
             if isinstance(ids, list):
                 result["entity_id"] = int(ids[0])
@@ -215,7 +217,14 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
         if not val.startswith("{"):
             result["entity_type"] = val
 
-    for key in ("ids", "selected_ids"):
+    # ShotGrid AMI URLs ship two ID fields with different semantics:
+    #   • selected_ids  — the entity (or entities) the user actually clicked
+    #   • ids           — every entity visible in the column / page (much larger)
+    # We MUST prefer selected_ids; reading `ids[0]` gives a cosmetically
+    # plausible-looking ID that has nothing to do with the user's intent
+    # (Chat 49 incident: clicked Asset 1480, badge showed Asset 1479 because
+    # ids=1479,1480,1481,... and we took ids[0]).
+    for key in ("selected_ids", "ids"):
         if key in qs:
             try:
                 val = qs[key][0].split(",")[0]
