@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tk_publish` — path-based context derivation. `entity_type`, `entity_id`,
+  and `step` are now Optional when `local_path` points to a Toolkit-managed
+  file. New `context_from_path()` (in `tk_config.py`) reverse-matches the
+  path against `templates.yml` to extract Asset/Shot/Step tokens, then
+  resolves `entity_id` via a single `sg_find` by code. Zero `sg_find`
+  round-trips needed before calling `tk_publish` from a saved workfile.
+  (commit `223250d`)
+- `src/fpt_mcp/tk_config.py` — `context_from_path()` and `_match_template_path()`
+  for reverse template matching (Toolkit token extraction).
+- `src/fpt_mcp/server.py` — `_resolve_step_short_name()` canonicalises
+  Step names (e.g. `model → MDL`).
+- `src/fpt_mcp/qt/app.py` — `--entity-code` CLI argument, `_resolve_entity_code`
+  + `_enrich_with_entity_code` helpers, 4-hop dirname fix.
+- `src/fpt_mcp/qt/chat_window.py` — `entity_code` parameter and
+  `update_context` propagation.
+- `src/fpt_mcp/qt/system_prompts/` — FAST PATH and WORKFILE HANDLING
+  PATH X/Y instructions for path-based publish.
+- `tests/` — 7 new tests (`context_from_path` ×4, path-derived publish ×3).
+  Total: 402 passed, 3 skipped.
+
+### Changed
+- `src/fpt_mcp/qt/claude_worker.py` — default model bumped to
+  Opus 4.7; alternates: Sonnet 4.6, Haiku 4.5.
+- `src/fpt_mcp/models.py` — `TkPublishInput.entity_type/entity_id/step`
+  made Optional with auto-derivation documented in field descriptors.
+- `src/fpt_mcp/toolkit_tools.py` — path derivation block at the start
+  of `tk_publish_impl`; uses `effective_*` variables throughout to
+  preserve precedence (explicit param > derived value).
+
 ## [1.7.1] — 2026-04-22
 
 ### Added
