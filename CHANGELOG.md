@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.3] — 2026-04-28
+
 ### Fixed
 - `qt/app.py` — AMI URL parser took the WRONG entity ID. ShotGrid AMI
   URLs ship two ID fields with very different semantics:
