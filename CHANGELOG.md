@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-04-28
+
 ### Changed
 - **SYSTEM_PROMPT redesign — target/server selection FIRST** (Chat 49,
   user-requested). The 3D-creation workflow now asks the user *where*
