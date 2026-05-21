@@ -385,13 +385,7 @@ All three repos are on the local Mac (see dual install paths in global CLAUDE.md
 
 ## 9. Development Notes
 
-### Reinstallation after changes
-
-After modifying `claude_worker.py` or `chat_window.py`:
-```bash
-cd /path/to/fpt-mcp
-pip install -e .
-```
+For reinstall recipes and deploy workflow, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ### User environment (Abraham)
 
@@ -417,7 +411,7 @@ Before committing changes in this project:
 - [ ] Change in streaming/progress logic? → Describe in section 3
 - [ ] Change in tk_config.py or templates? → Update section 2
 - [ ] New tool or integration? → Mention in sections 1 and 8
-- [ ] Reinstall: `cd fpt-mcp && pip install -e .`
+- [ ] Reinstall after Qt changes: see [`docs/DEPLOY.md`](docs/DEPLOY.md)
 - [ ] Test with ConsoleKit if Qt change
 
 ---
@@ -480,19 +474,9 @@ read-only — they can search docs but cannot persist new patterns. Configured v
 `write_allowed_models` in `config.json` (default: `["claude-opus", "claude-sonnet"]`).
 
 ### Prerequisites for local models
-```bash
-# Install Ollama (macOS)
-brew install ollama
-brew services start ollama
 
-# Pull the model
-ollama pull qwen3.5:9b
-# On Mac 24GB (fallback):
-ollama pull qwen3.5:4b
-```
-
-### Configuration
-Copy `src/fpt_mcp/config.example.json` to `src/fpt_mcp/config.json` and adjust URLs.
+Operator-only setup. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for
+Ollama install and `qwen3.5-mcp` Modelfile setup.
 
 ### Full LLM strategy
 See `MODEL_STRATEGY.md` in the ecosystem root for hardware configs, VRAM management,
