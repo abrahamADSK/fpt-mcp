@@ -40,14 +40,19 @@ import sys
 import tempfile
 import types
 import urllib.request
-from pathlib import Path
 
 
 # ── PySide6 stub ──────────────────────────────────────────────────────────────
 # claude_worker imports PySide6 at the module level. Stub it out before the
 # first import so tests run headless (CI / no Qt install). The preflight
 # helper and resolve_keep_alive are pure-Python and never touch Qt at runtime.
-if "PySide6" not in sys.modules and "PySide2" not in sys.modules:
+try:
+    import PySide6.QtCore  # noqa: F401 — prefer the REAL Qt when present (CI installs it) so other Qt tests keep QEvent etc.
+    _HAS_REAL_QT = True
+except Exception:
+    _HAS_REAL_QT = False
+
+if not _HAS_REAL_QT and "PySide6" not in sys.modules and "PySide2" not in sys.modules:
     _pyside6 = types.ModuleType("PySide6")
     _qtcore = types.ModuleType("PySide6.QtCore")
     _qtwidgets = types.ModuleType("PySide6.QtWidgets")
@@ -76,6 +81,13 @@ from fpt_mcp.qt.claude_worker import (  # noqa: E402
     _preload_ollama_mac_model,
     resolve_keep_alive,
 )
+
+# If we faked PySide6 only to import claude_worker, drop it from sys.modules so
+# other test modules' pytest.importorskip("PySide6") still skips correctly
+# (the stub must not leak into the rest of the session — that broke QEvent).
+if not _HAS_REAL_QT:
+    for _stub_mod in ("PySide6", "PySide6.QtCore", "PySide6.QtWidgets", "PySide6.QtGui"):
+        sys.modules.pop(_stub_mod, None)
 
 
 # ---------------------------------------------------------------------------
