@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **F0 session-stats telemetry (3C Wave 2)** — new `src/fpt_mcp/_session_stats.py`
+  module: `persist_timing`/`persist_turn` JSONL streams with 5 MB rotation,
+  30-minute idle auto-reset, and the `turns_total`/`failed_turns` counters that
+  drive `p_fallo = failed_turns / turns_total` over the `fpt_bulk`/`fpt_reporting`
+  dispatchers (the error-prone batch/mutation/reporting path). `session_stats`
+  now reports `p_fallo`; new `reset_session_stats` tool (tool inventory 14 → 15).
+  Cross-session timing baselines persist to `logs/timings.jsonl`. New
+  `stats_keys_schema_shared` concept invariant locks `_stats` to
+  `make_empty_stats()`. Ported from flame-mcp for ecosystem parity.
+- **Golden RAG regression dataset (3C Wave 3)** — `tests/golden/fpt_queries.jsonl`
+  (40 queries, 16 adversarial) + `tests/test_golden.py`.
+- **Ollama `keep_alive` 30 m + `config.json` knob (3C Wave 1)**.
+
+### Changed
+- **Trimmed `CLAUDE.md` operator sections → `docs/DEPLOY.md` (3C Wave 5)** so the
+  LLM system prompt no longer carries install/deploy shell recipes.
+- **server.py line budget 700 → 800** — F0 telemetry is a new architectural
+  concern; all pure logic lives in `_session_stats.py`, only the irreducible
+  global-mutating glue + the `reset_session_stats` tool stay in server.py.
+
 ## [1.9.3] — 2026-04-28
 
 ### Fixed
