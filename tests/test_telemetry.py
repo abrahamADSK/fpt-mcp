@@ -123,9 +123,9 @@ def _find_dispatched_handler_names(node: ast.AST) -> list[str]:
 
 _DISPATCHER_TOOLS = {"fpt_bulk", "fpt_reporting"}
 
-# RAG tools have different telemetry patterns (rag_calls, tokens_saved)
-# rather than exec_calls/tokens_in/tokens_out.
-_RAG_TOOLS = {"search_sg_docs", "learn_pattern", "session_stats"}
+# RAG / meta tools have different telemetry patterns (rag_calls, tokens_saved,
+# or stats bookkeeping) rather than exec_calls/tokens_in/tokens_out.
+_RAG_TOOLS = {"search_sg_docs", "learn_pattern", "session_stats", "reset_session_stats"}
 
 
 class TestTelemetryExecCalls:

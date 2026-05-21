@@ -632,7 +632,7 @@ TOOLS = [
     "fpt_bulk", "fpt_reporting",
     "tk_resolve_path", "tk_publish",
     "fpt_launch_app",
-    "search_sg_docs", "learn_pattern", "session_stats",
+    "search_sg_docs", "learn_pattern", "session_stats", "reset_session_stats",
 ]
 # concept:install_sh_tools_list end
 PREFIX = "mcp__fpt-mcp__"

@@ -106,6 +106,27 @@ concepts:
         doc_file: CLAUDE.md
         concept_id: mcp_tool_count
 
+  stats_keys_schema_shared:
+    description: >
+      server.py::_stats is initialised via fpt_mcp._session_stats.make_empty_stats()
+      so the key schema cannot drift between the helper and the server. Prevents
+      a new counter (e.g. the F0 turns_total / failed_turns pair) from being added
+      to only one side. Ported from flame-mcp in 3C Wave 2.
+    source_of_truth:
+      file: src/fpt_mcp/_session_stats.py
+      symbol: make_empty_stats
+    mirrors:
+      - file: src/fpt_mcp/server.py
+        symbol: "_stats (module-level dict)"
+    invariants:
+      - id: stats_initialised_via_helper
+        type: claim_verifies
+        claim: "server.py initialises _stats via make_empty_stats()"
+        code_grep:
+          regex: '_stats\s*=\s*make_empty_stats\(\)'
+          file_pattern: 'src/fpt_mcp/server.py'
+        expected: found
+
   bulk_dispatcher_actions:
     description: >
       fpt_bulk is a canonical dispatcher. The action names defined in the
