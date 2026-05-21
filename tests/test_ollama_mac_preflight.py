@@ -1,4 +1,4 @@
-"""Regression tests for the ollama_mac num_ctx preflight.
+"""Regression tests for the ollama_mac num_ctx preflight (F1b keep_alive knob).
 
 Context
 -------
@@ -8,8 +8,14 @@ preflight against ``/api/generate``, every Mac-local inference spawned
 from the Qt console would be truncated to 4096 tokens — wrecking multi-
 turn 3D-creation workflows whose system prompt alone uses ~1,400 tokens.
 
-These tests pin three behaviours of
-``fpt_mcp.qt.claude_worker._preload_ollama_mac_model``:
+F1b extends the preflight: ``keep_alive`` is now a config knob
+(``ollama_keep_alive`` in ``config.json``) defaulting to ``"30m"`` so
+5–15 min reading/typing gaps don't trigger a cold model reload. The
+old hard-coded ``"10m"`` is retired.
+
+These tests pin four behaviours of
+``fpt_mcp.qt.claude_worker._preload_ollama_mac_model`` and
+``fpt_mcp.qt.claude_worker.resolve_keep_alive``:
 
 1. The constant ``OLLAMA_MAC_NUM_CTX`` stays at 8192 (tuned for 4B/9B
    models on Mac 24 GB unified memory).
@@ -20,6 +26,8 @@ These tests pin three behaviours of
    ``urlopen`` is swallowed (logged only) so the Qt worker can still
    spawn ``claude -p`` — the main call may succeed, just capped at the
    Ollama default 4096 ceiling.
+4. ``resolve_keep_alive`` reads ``ollama_keep_alive`` from config.json,
+   defaults to ``"30m"``, and rejects non-str/int types.
 
 No Qt, no subprocess, no network. Pure monkeypatching of
 ``urllib.request.urlopen``.
@@ -28,13 +36,58 @@ No Qt, no subprocess, no network. Pure monkeypatching of
 from __future__ import annotations
 
 import json
+import sys
+import tempfile
+import types
 import urllib.request
 
 
-from fpt_mcp.qt.claude_worker import (
+# ── PySide6 stub ──────────────────────────────────────────────────────────────
+# claude_worker imports PySide6 at the module level. Stub it out before the
+# first import so tests run headless (CI / no Qt install). The preflight
+# helper and resolve_keep_alive are pure-Python and never touch Qt at runtime.
+try:
+    import PySide6.QtCore  # noqa: F401 — prefer the REAL Qt when present (CI installs it) so other Qt tests keep QEvent etc.
+    _HAS_REAL_QT = True
+except Exception:
+    _HAS_REAL_QT = False
+
+if not _HAS_REAL_QT and "PySide6" not in sys.modules and "PySide2" not in sys.modules:
+    _pyside6 = types.ModuleType("PySide6")
+    _qtcore = types.ModuleType("PySide6.QtCore")
+    _qtwidgets = types.ModuleType("PySide6.QtWidgets")
+    _qtgui = types.ModuleType("PySide6.QtGui")
+
+    class _QThreadStub:
+        def __init__(self, *a, **kw): ...
+        def start(self) -> None: ...
+
+    class _SignalStub:
+        def __init__(self, *a, **kw): ...
+        def connect(self, *a, **kw): ...
+        def emit(self, *a, **kw): ...
+
+    _qtcore.QThread = _QThreadStub
+    _qtcore.Signal = _SignalStub
+    _pyside6.QtCore = _qtcore
+    sys.modules["PySide6"] = _pyside6
+    sys.modules["PySide6.QtCore"] = _qtcore
+    sys.modules["PySide6.QtWidgets"] = _qtwidgets
+    sys.modules["PySide6.QtGui"] = _qtgui
+
+
+from fpt_mcp.qt.claude_worker import (  # noqa: E402
     OLLAMA_MAC_NUM_CTX,
     _preload_ollama_mac_model,
+    resolve_keep_alive,
 )
+
+# If we faked PySide6 only to import claude_worker, drop it from sys.modules so
+# other test modules' pytest.importorskip("PySide6") still skips correctly
+# (the stub must not leak into the rest of the session — that broke QEvent).
+if not _HAS_REAL_QT:
+    for _stub_mod in ("PySide6", "PySide6.QtCore", "PySide6.QtWidgets", "PySide6.QtGui"):
+        sys.modules.pop(_stub_mod, None)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +135,7 @@ def test_preflight_posts_generate_with_num_ctx(monkeypatch) -> None:
         model="qwen3.5:4b",
         url="http://localhost:11434",
         num_ctx=OLLAMA_MAC_NUM_CTX,
+        keep_alive="30m",  # F1b: pass resolved value (default "30m")
     )
 
     # URL: <url>/api/generate (NOT /v1/messages — that endpoint ignores num_ctx)
@@ -100,7 +154,9 @@ def test_preflight_posts_generate_with_num_ctx(monkeypatch) -> None:
     assert body["model"] == "qwen3.5:4b"
     assert body["prompt"] == ""
     assert body["options"]["num_ctx"] == OLLAMA_MAC_NUM_CTX
-    assert body["keep_alive"] == "10m"
+    # keep_alive is now a caller-supplied parameter (F1b); the test passes
+    # the default value explicitly to verify it flows through correctly.
+    assert body["keep_alive"] == "30m"
     assert body["stream"] is False
 
 
@@ -158,3 +214,85 @@ def test_preflight_swallows_timeout(monkeypatch) -> None:
         url="http://localhost:11434",
         num_ctx=OLLAMA_MAC_NUM_CTX,
     )
+
+
+# ---------------------------------------------------------------------------
+# F1b: resolve_keep_alive knob behaviour
+# ---------------------------------------------------------------------------
+
+def test_resolve_keep_alive_default_when_no_config() -> None:
+    """When config.json does not exist, resolve_keep_alive returns '30m'."""
+    result = resolve_keep_alive(config_path="/nonexistent/path/config.json")
+    assert result == "30m"
+
+
+def test_resolve_keep_alive_reads_string_from_config() -> None:
+    """A string value in config.json is returned as-is."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False
+    ) as tmp:
+        json.dump({"ollama_keep_alive": "1h"}, tmp)
+        tmp_path = tmp.name
+    assert resolve_keep_alive(config_path=tmp_path) == "1h"
+
+
+def test_resolve_keep_alive_reads_int_from_config() -> None:
+    """An integer value (seconds) in config.json is returned as int."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False
+    ) as tmp:
+        json.dump({"ollama_keep_alive": 3600}, tmp)
+        tmp_path = tmp.name
+    assert resolve_keep_alive(config_path=tmp_path) == 3600
+
+
+def test_resolve_keep_alive_rejects_invalid_types() -> None:
+    """Non-str/int types (dict, list, None, bool) collapse to the default."""
+    for bad_value in [None, True, False, [], {"k": "v"}]:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as tmp:
+            json.dump({"ollama_keep_alive": bad_value}, tmp)
+            tmp_path = tmp.name
+        result = resolve_keep_alive(config_path=tmp_path)
+        assert result == "30m", f"Expected '30m' for bad_value={bad_value!r}, got {result!r}"
+
+
+def test_resolve_keep_alive_absent_key_returns_default() -> None:
+    """When ollama_keep_alive key is absent, '30m' is returned."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False
+    ) as tmp:
+        json.dump({"backend": "anthropic"}, tmp)
+        tmp_path = tmp.name
+    assert resolve_keep_alive(config_path=tmp_path) == "30m"
+
+
+def test_preload_keep_alive_flows_into_payload(monkeypatch) -> None:
+    """The keep_alive parameter supplied to _preload_ollama_mac_model
+    reaches the /api/generate request body unchanged (F1b wire test).
+    """
+    captured: dict = {}
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return b"{}"
+        def __enter__(self) -> "_FakeResp":
+            return self
+        def __exit__(self, *_) -> None:
+            return None
+
+    def fake_urlopen(req, timeout=None):  # noqa: ARG001
+        captured["body"] = json.loads(req.data.decode())
+        return _FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    _preload_ollama_mac_model(
+        model="qwen3.5-mcp",
+        url="http://localhost:11434",
+        num_ctx=8192,
+        keep_alive="45m",  # non-default to verify the parameter flows through
+    )
+
+    assert captured["body"]["keep_alive"] == "45m"
