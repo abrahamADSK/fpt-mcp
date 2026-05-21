@@ -8,7 +8,7 @@ Features:
     - 8 Tier-1 ShotGrid/Toolkit tools (always visible)
     - 3 bulk tools (behind fpt_bulk dispatch: delete, revive, batch)
     - 4 reporting tools (behind fpt_reporting dispatch: text_search, summarize, note_thread, activity)
-    - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
+    - 4 RAG tools (search_sg_docs, learn_pattern, session_stats, reset_session_stats)
     - Dangerous pattern detection (safety.py)
     - Hybrid search: ChromaDB + BM25 + HyDE + RRF fusion
     - Token tracking with RAG savings measurement
@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -51,6 +52,13 @@ from fpt_mcp.client import (
 from fpt_mcp.tk_config import discover_or_fallback, TkConfigError
 from fpt_mcp.safety import check_dangerous
 from fpt_mcp.software_resolver import resolve_app
+from fpt_mcp._session_stats import (
+    apply_idle_reset,
+    classify_result_error as _result_is_error,
+    make_empty_stats,
+    persist_timing as _persist_timing,
+    reset_stats as _reset_stats_helper,
+)
 
 # Bucket F Phase 2a — filter validation + Pydantic input models live in
 # dedicated modules. server.py keeps the @mcp.tool decorators so install.sh
@@ -90,20 +98,20 @@ _SERVER_DIR = Path(__file__).parent
 
 _FULL_DOC_TOKENS = 13000  # combined size of all indexed docs
 
-_stats = {
-    "exec_calls": 0,       # total tool calls
-    "tokens_in": 0,        # tokens in parameters
-    "tokens_out": 0,       # tokens in responses
-    "rag_calls": 0,        # search_sg_docs calls
-    "rag_skipped": 0,      # tools called without prior search_sg_docs (soft warning)
-    "tokens_saved": 0,     # tokens saved by RAG vs loading full doc
-    "patterns_learned": 0, # patterns added to docs
-    "patterns_staged": 0,  # candidates staged by non-trusted models
-    "safety_blocks": 0,    # dangerous pattern detections
-    # Note: cache_hits is now tracked inside rag.search and surfaced via
-    # session_stats_tool by importing get_cache_stats(). See C.1 fix.
-}
+# Canonical stats dict. Schema lives in fpt_mcp._session_stats.make_empty_stats
+# so the initialiser and the reset path cannot drift (invariant: stats_keys_schema_shared).
+# Note: cache_hits is tracked inside rag.search and surfaced via session_stats_tool
+# by importing get_cache_stats() (see C.1 fix), so it is NOT a _stats key.
+_stats = make_empty_stats()
+# Records when _stats was last reset (server start, idle-gap auto-reset, or explicit reset).
 _stats_reset_at = datetime.datetime.now()
+# Timestamp of the previous MCP tool call — drives the idle-gap auto-reset.
+_last_call_at: Optional[datetime.datetime] = None
+
+# F0 baseline telemetry: persistent JSONL stream that survives server restarts
+# (the in-memory ring buffer in _stats['timings'] holds only the last 20 entries).
+# Written best-effort; failures never propagate.
+_TIMINGS_LOG = _SERVER_DIR / "logs" / "timings.jsonl"
 
 # RAG state
 _last_rag_score: int = 100
@@ -196,6 +204,51 @@ def _model_can_write() -> bool:
     if cfg_list:
         return any(allowed.lower() in model for allowed in cfg_list)
     return any(allowed in model for allowed in WRITE_ALLOWED_MODELS)
+
+
+# Idle window (seconds) after which _stats is auto-zeroed on the next call.
+# Overridable via config.json -> stats_idle_reset_seconds (default 30 min).
+_STATS_IDLE_RESET_SECONDS = int(
+    _get_config().get("stats_idle_reset_seconds", 30 * 60)
+)
+
+
+def _track_call() -> None:
+    """Idle-gap auto-reset of _stats. Called at dispatcher + RAG/stats entry."""
+    global _last_call_at, _stats_reset_at
+    now = datetime.datetime.now()
+    did_reset, reset_at = apply_idle_reset(
+        _stats, now, _last_call_at, idle_reset_seconds=_STATS_IDLE_RESET_SECONDS,
+    )
+    if did_reset:
+        _stats_reset_at = reset_at
+    _last_call_at = now
+
+
+def _track_timing(entry: dict) -> None:
+    """F0: ring-buffer (max 20) + best-effort enriched JSONL append for
+    cross-session baselines. Persistence failures never propagate."""
+    _stats["timings"].append(entry)
+    if len(_stats["timings"]) > 20:
+        _stats["timings"].pop(0)
+    cfg = _get_config()
+    _persist_timing(_TIMINGS_LOG, {
+        "ts":        datetime.datetime.now().isoformat(timespec="seconds"),
+        "model":     _get_current_model(),
+        "backend":   cfg.get("backend", "anthropic"),
+        "tool_name": entry.get("op", "unknown"),
+        **entry,
+    })
+
+
+def _count_turn(out: str, op: str, t0: float) -> None:
+    """F0: record one dispatcher turn — increment turns_total, classify the raw
+    handler output, bump failed_turns on error, and persist the timing."""
+    _stats["turns_total"] += 1
+    is_error = _result_is_error(out)
+    if is_error:
+        _stats["failed_turns"] += 1
+    _track_timing({"op": op, "total_ms": round((time.monotonic() - t0) * 1000), "error": is_error})
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +602,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
     """
     from fpt_mcp.suggestions import maybe_annotate_with_suggestions
+    _track_call()
     dispatch = {
         BulkAction.DELETE: _do_sg_delete,
         BulkAction.REVIVE: _do_sg_revive,
@@ -558,7 +612,11 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     _stats["exec_calls"] += 1
     params_str = json.dumps(params.params or {}, default=str)
     _stats["tokens_in"] += _tok(params_str)
+    _t0 = time.monotonic()
     out = await handler(params.params or {})
+    # F0: count the turn on the RAW handler output (before annotation) so an
+    # appended next_suggested_actions block cannot mask the error key.
+    _count_turn(out, "fpt_bulk", _t0)
     out = maybe_annotate_with_suggestions("fpt_bulk", out)
     _stats["tokens_out"] += _tok(out)
     return out
@@ -575,6 +633,7 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
     • note_thread — Read the full reply thread of a Note. Required params: {"note_id": 123}
     • activity — Read the activity stream for an entity. Required params: {"entity_type": "Shot", "entity_id": 456} Optional: {"limit": 20}
     """
+    _track_call()
     dispatch = {
         ReportingAction.TEXT_SEARCH: _do_sg_text_search,
         ReportingAction.SUMMARIZE: _do_sg_summarize,
@@ -585,7 +644,9 @@ async def fpt_reporting(params: ReportingDispatchInput) -> str:
     _stats["exec_calls"] += 1
     params_str = json.dumps(params.params or {}, default=str)
     _stats["tokens_in"] += _tok(params_str)
+    _t0 = time.monotonic()
     out = await handler(params.params or {})
+    _count_turn(out, "fpt_reporting", _t0)
     _stats["tokens_out"] += _tok(out)
     return out
 
@@ -631,6 +692,7 @@ async def session_stats_tool() -> str:
     Call at the end of multi-step tasks or when asked about efficiency.
     Shows how much context was saved by RAG vs loading full documentation.
     """
+    _track_call()
     used = _stats["tokens_in"] + _stats["tokens_out"]
     saved = _stats["tokens_saved"]
     total = used + saved
@@ -647,6 +709,11 @@ async def session_stats_tool() -> str:
     except ImportError:
         pass
 
+    # F0: p_fallo = failed_turns / turns_total over the dispatcher operations.
+    turns = _stats["turns_total"]
+    failed = _stats["failed_turns"]
+    p_fallo = f"{failed / turns * 100:.0f}%" if turns > 0 else "—"
+
     return json.dumps({
         "session_duration": uptime,
         "tool_calls": _stats["exec_calls"],
@@ -661,7 +728,29 @@ async def session_stats_tool() -> str:
         "cache_hits": cache_stats.get("cache_hits", 0),
         "cache_misses": cache_stats.get("cache_misses", 0),
         "cache_size": cache_stats.get("cache_size", 0),
+        "dispatcher_turns": turns,
+        "failed_turns": failed,
+        "p_fallo": p_fallo,
         "full_doc_baseline": _FULL_DOC_TOKENS,
+    }, indent=2)
+
+
+@mcp.tool(name="reset_session_stats")
+async def reset_session_stats_tool() -> str:
+    """Zero the session stats counters immediately.
+
+    Use at the start of a new Claude session (or a fresh debugging run) when
+    the idle-based auto-reset has not fired — for example when two sessions
+    happen back-to-back. Returns a confirmation line with the new reset
+    timestamp.
+    """
+    global _stats_reset_at
+    _track_call()
+    now = datetime.datetime.now()
+    _stats_reset_at = _reset_stats_helper(_stats, now)
+    return json.dumps({
+        "status": "reset",
+        "reset_at": now.strftime("%H:%M:%S"),
     }, indent=2)
 
 

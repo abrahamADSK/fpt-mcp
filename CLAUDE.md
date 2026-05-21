@@ -19,7 +19,7 @@ Claude Desktop / Claude Code / Terminal
 ```
 
 <!-- concept:mcp_tool_count start -->
-### MCP Server: fpt-mcp (14 @mcp.tool registrations — dispatcher pattern)
+### MCP Server: fpt-mcp (15 @mcp.tool registrations — dispatcher pattern)
 <!-- concept:mcp_tool_count end -->
 
 **ShotGrid API tools** (6 direct tools, unrestricted access to any entity):
@@ -48,10 +48,11 @@ Claude Desktop / Claude Code / Terminal
 **Launcher** (1 direct tool):
 - `fpt_launch_app` — launch a DCC scoped to a ShotGrid entity (OS-first discovery, Toolkit tank routing)
 
-**RAG tools** (3 direct tools — Retrieval-Augmented Generation):
+**RAG tools** (4 direct tools — Retrieval-Augmented Generation):
 - `search_sg_docs` — hybrid search (ChromaDB semantic + BM25 lexical + HyDE + RRF fusion) across all 3 ShotGrid API docs. **MANDATORY** before complex or unknown queries.
 - `learn_pattern` — persist validated patterns in the knowledge base. Model trust gates: only Sonnet/Opus write directly; other models stage candidates.
-- `session_stats` — session statistics: tokens used, tokens saved by RAG, learned patterns, safety blocks.
+- `session_stats` — session statistics: tokens used, tokens saved by RAG, learned patterns, safety blocks, p_fallo.
+- `reset_session_stats` — zero the session counters immediately (manual companion to the 30-min idle auto-reset).
 
 **Safety module** (`safety.py`):
 - 12+ regex patterns detecting dangerous operations before execution
@@ -313,12 +314,12 @@ In `~/.claude/settings.json`, enable all these tools:
 - Dispatchers (2): `mcp__maya-mcp__maya_session` (9 actions: ping, launch, list_scene, new_scene, save_scene, execute_python, delete, get_attribute, set_attribute), `mcp__maya-mcp__maya_vision3d` (7 actions: select_server, health, generate_image, generate_text, texture, poll, download)
 - RAG (3): `mcp__maya-mcp__search_maya_docs`, `mcp__maya-mcp__learn_pattern`, `mcp__maya-mcp__session_stats`
 
-**fpt-mcp** (14 tools — dispatcher pattern):
+**fpt-mcp** (15 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
 - Dispatchers: fpt_bulk (delete/revive/batch), fpt_reporting (text_search/summarize/note_thread/activity)
 - Toolkit: tk_resolve_path, tk_publish
 - Launcher: fpt_launch_app
-- RAG: search_sg_docs, learn_pattern, session_stats
+- RAG: search_sg_docs, learn_pattern, session_stats, reset_session_stats
 
 ---
 
@@ -359,13 +360,13 @@ All three repos are on the local Mac (see dual install paths in global CLAUDE.md
   - Returns job_id for polling
 
 - **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
-  - 14 @mcp.tool registrations using dispatcher pattern:
+  - 15 @mcp.tool registrations using dispatcher pattern:
     - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
     - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch)
     - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
     - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery
     - 1 launcher tool (fpt_launch_app)
-    - 3 RAG tools (search_sg_docs, learn_pattern, session_stats)
+    - 4 RAG tools (search_sg_docs, learn_pattern, session_stats, reset_session_stats)
   - Native Qt console running Claude Code CLI
 
 ### Typical cross-MCP flow (full pipeline)
