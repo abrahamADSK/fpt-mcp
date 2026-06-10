@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`WRITE_ALLOWED_MODELS`, `config.json` default + example, README/CLAUDE.md
   updated in lockstep). `config.json` default model bumped 4.7 → 4.8.
 
+### Fixed
+- **README "Project Structure" drift** — the section listed two launchd plists
+  (`com.abrahamadsk.fpt-mcp.plist`, `com.abrahamadsk.fpt-ami.plist`) that do not
+  exist in the repo, plus `paths.py` (removed long ago) and a `tools/` package
+  that does not exist; the real module list and `scripts/` were missing. The
+  section now mirrors the actual tree and documents that the launchd plist
+  (`com.fpt-mcp.server`) is generated machine-locally by `setup_venv.sh` at
+  install time — no machine-specific names or paths are tracked in the repo.
+
 ## [1.10.0] — 2026-05-21
 
 ### Added

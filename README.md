@@ -578,43 +578,56 @@ ShotGrid AMI click
 ```
 fpt-mcp/
 ├── pyproject.toml                        # Package metadata and dependencies
-├── install.sh                            # One-step installation script
-├── setup_venv.sh                         # Virtual environment setup
-├── com.abrahamadsk.fpt-mcp.plist         # launchd plist for MCP server daemon
-├── com.abrahamadsk.fpt-ami.plist         # launchd plist for AMI URL handler
+├── install.sh                            # One-step installation script (venv, .env, RAG index, launchd, MCP registration)
+├── setup_venv.sh                         # Venv setup; generates and loads the launchd plist at install time
 ├── .env.example                          # Environment variables template
+├── .concepts.yml                         # Concept registry (cross-cutting invariants, strict mode)
+├── .pre-commit-config.yaml               # Pre-commit hooks (verify_concepts, verify_templates)
+├── CHANGELOG.md                          # Keep a Changelog + SemVer
+├── CLAUDE.md                             # Project context for Claude sessions
+├── MODEL_STRATEGY.md                     # LLM backend strategy (cloud + local models)
+├── LICENSE / NOTICE.md                   # License and third-party notices
+├── docs/
+│   ├── DEPLOY.md                         # Reinstall recipes and deploy workflow
+│   ├── BUCKET_F_PLAN.md                  # server.py refactor plan (Bucket F)
+│   └── O3_NEXT_SUGGESTED_ACTIONS.md      # Chaining-hints design (next_suggested_actions)
+├── scripts/
+│   ├── cut-release.sh                    # Canonical release script (the only supported release path)
+│   ├── verify_concepts.py                # Concept-registry drift checker (pre-commit)
+│   ├── verify_templates.py               # Toolkit templates vs TK_API.md checker (pre-commit)
+│   ├── check_adversarial_count.py        # F3b precondition gate (adversarial test count)
+│   └── invariant_types.py                # Shared invariant engine types
 ├── src/
 │   └── fpt_mcp/
 │       ├── __init__.py
-│       ├── server.py                     # MCP server entry point (FastMCP)
+│       ├── server.py                     # MCP server entry point (FastMCP) — tool registrations
+│       ├── shotgrid.py                   # Bodies of the direct SG tools + fpt_bulk dispatcher handlers
+│       ├── reporting.py                  # fpt_reporting dispatcher handlers
+│       ├── toolkit_tools.py              # Bodies of tk_resolve_path and tk_publish
+│       ├── launcher.py                   # Body of the fpt_launch_app tool
+│       ├── rag_tools.py                  # Bodies of search_sg_docs and learn_pattern
 │       ├── client.py                     # ShotGrid API client wrapper
+│       ├── filters.py                    # ShotGrid filter validation and safety constants
+│       ├── models.py                     # Pydantic input models for every MCP tool (extra="forbid")
 │       ├── safety.py                     # Safety module — blocks dangerous write patterns
-│       ├── paths.py                      # Path resolution utilities
-│       ├── tk_config.py                  # Toolkit (ShotGrid Toolkit) config loader
+│       ├── software_resolver.py          # DCC discovery for fpt_launch_app (OS-first cascade)
+│       ├── suggestions.py                # Per-tool chaining hints (next_suggested_actions)
+│       ├── tk_config.py                  # Toolkit config loader (PipelineConfiguration discovery)
+│       ├── _session_stats.py             # Session reset + F0 telemetry
 │       ├── ami/
-│       │   ├── __init__.py
 │       │   ├── handler.py                # AMI URL protocol handler (fpt-mcp://)
-│       │   └── console.html             # AMI console HTML template
+│       │   └── console.html              # AMI console HTML template
 │       ├── qt/
-│       │   ├── __init__.py
 │       │   ├── app.py                    # Qt application entry point
 │       │   ├── chat_window.py            # Chat window widget
-│       │   ├── claude_worker.py          # Async Claude subprocess worker thread
-│       │   └── build_app_bundle.py       # macOS .app bundle builder script
+│       │   ├── claude_worker.py          # Claude subprocess worker (visible-progress streaming, canonical)
+│       │   └── build_app_bundle.py       # macOS .app bundle builder (registers the fpt-mcp:// URL scheme)
 │       ├── rag/
-│       │   ├── __init__.py
 │       │   ├── build_index.py            # RAG index builder (run to rebuild)
 │       │   ├── config.py                 # RAG configuration (chunk size, model)
 │       │   ├── corpus.json               # Parsed documentation corpus
-│       │   ├── search.py                 # Semantic search over RAG index
+│       │   ├── search.py                 # Hybrid search (ChromaDB semantic + BM25 + HyDE + RRF)
 │       │   └── index/                    # auto-generated (ChromaDB vector store)
-│       ├── tools/
-│       │   ├── __init__.py
-│       │   ├── assets.py                 # Asset management MCP tools
-│       │   ├── publish.py                # Publish MCP tools (tk_publish)
-│       │   ├── sequences.py              # Sequence MCP tools
-│       │   ├── shots.py                  # Shot MCP tools
-│       │   └── versions.py               # Version MCP tools
 │       ├── docs/
 │       │   ├── REST_API.md               # ShotGrid REST API documentation corpus
 │       │   ├── SG_API.md                 # ShotGrid Python API documentation corpus
@@ -622,16 +635,20 @@ fpt-mcp/
 │       └── skills/
 │           └── asset-creation/
 │               └── SKILL.md              # Claude skill for asset creation workflows
-└── tests/
+└── tests/                                # Mock suites + golden transcripts + real-index guards
     ├── conftest.py
-    ├── fixtures/
-    │   └── templates.yml                 # Mock Toolkit templates for tests
-    ├── test_rag_search.py
-    ├── test_safety.py
-    ├── test_sg_operations.py
-    ├── test_tk_publish.py
-    └── test_toolkit_paths.py
+    ├── fixtures/                         # Mock Toolkit templates and fixtures
+    └── golden/                           # Golden transcripts (determinism guards)
 ```
+
+> **No machine-specific files in the repo.** The launchd plist is **not** a
+> tracked file: `setup_venv.sh` writes
+> `~/Library/LaunchAgents/com.fpt-mcp.server.plist` at install time, deriving
+> every path from wherever the repo was cloned (`$FPT_DIR` auto-detected,
+> `$HOME` expanded by the shell). launchd requires absolute paths, so the
+> *installed* plist is machine-local by design — it never enters version
+> control. The `fpt-mcp://` AMI URL handler is registered by the Qt `.app`
+> bundle (`qt/build_app_bundle.py`), not via launchd.
 
 ## Troubleshooting
 
