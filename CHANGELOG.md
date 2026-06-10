@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-06-10
+
 ### Added
 - **`scripts/verify_templates.py`** — validates the pipeline's Toolkit
   templates (fixture/config) against the RAG doc `TK_API.md` (7 checks); wired
