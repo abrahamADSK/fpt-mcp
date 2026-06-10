@@ -1,4 +1,4 @@
-# Pre-commit hooks for flame-mcp.
+# Pre-commit hooks for fpt-mcp.
 #
 # First-time setup on each clone (runs inside the repo venv):
 #   ./install.sh                  # creates .venv/ and installs deps
@@ -23,6 +23,13 @@ repos:
       - id: verify-concepts
         name: Verify cross-cutting concepts
         entry: .venv/bin/python scripts/verify_concepts.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        always_run: true
+      - id: verify-templates
+        name: Verify Toolkit pipeline templates
+        entry: .venv/bin/python scripts/verify_templates.py --strict
         language: system
         pass_filenames: false
         stages: [pre-commit]
