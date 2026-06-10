@@ -295,6 +295,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `motionbuilder_asset_work`: `@asset_root/work/mobu/{name}.v{version}.fbx`
 - `alias_asset_work`: `@asset_root/work/alias/{name}.v{version}.wire`
 - `vred_asset_work`: `@asset_root/work/vred/{name}.v{version}.vpb`
+- `asset_work_area_maya`: `@asset_root/work/maya` (Maya work **folder/area** template — directory only, no file token)
 
 ### Asset publish templates
 
@@ -308,6 +309,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `mobu_asset_publish`: `@asset_root/publish/mobu/{name}.v{version}.fbx`
 - `alias_asset_publish`: `@asset_root/publish/alias/{name}.v{version}.wire`
 - `vred_asset_publish`: `@asset_root/publish/vred/{name}.v{version}.vpb`
+- `asset_publish_area_maya`: `@asset_root/publish/maya` (Maya publish **folder/area** template — directory only, no file token)
 
 ### Asset snapshot/backup templates
 
@@ -321,6 +323,11 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `asset_alembic_cache`: `@asset_root/publish/caches/{name}.v{version}.abc`
 - `photoshop_asset_jpg_publish`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
 
+### Editorial templates
+
+- `hiero_project_work`: `editorial/work/{name}_v{version}.hrox` (Hiero / Nuke Studio project work file)
+- `hiero_project_publish`: `editorial/publish/{name}_v{version}.hrox` (Hiero / Nuke Studio project publish file)
+
 ### Shot work templates
 
 - `maya_shot_work`: `@shot_root/work/maya/{name}.v{version}.{maya_extension}`
@@ -332,6 +339,8 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `3dsmax_shot_work`: `@shot_root/work/3dsmax/{name}.v{version}.max`
 - `motionbuilder_shot_work`: `@shot_root/work/mobu/{name}.v{version}.fbx`
 - `flame_shot_work`: `@shot_root/work/flame/{name}.v{version}.clip`
+- `shot_work_area_maya`: `@shot_root/work/maya` (Maya work **folder/area** template — directory only, no file token)
+- `flame_shot_batch`: `sequences/{Sequence}/{Shot}/finishing/batch/{Shot}.v{version}.batch` (Flame finishing batch setup; uses `{Sequence}`/`{Shot}` tokens, not `@shot_root`)
 
 ### Shot publish templates
 
@@ -344,6 +353,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `max_shot_publish`: `@shot_root/publish/3dsmax/{name}.v{version}.max`
 - `mobu_shot_publish`: `@shot_root/publish/mobu/{name}.v{version}.fbx`
 - `flame_shot_render_exr`: `@shot_root/publish/flame/{name}.v{version}.clip`
+- `shot_publish_area_maya`: `@shot_root/publish/maya` (Maya publish **folder/area** template — directory only, no file token)
 
 ### Shot snapshot templates
 

@@ -51,11 +51,19 @@ class TestWriteAllowedModels:
             f"expected set or frozenset"
         )
 
-    def test_contains_claude_sonnet(self):
-        """Sonnet must be in the write-allowed set."""
+    def test_contains_claude_fable(self):
+        """Fable must be in the write-allowed set (self-learning = Opus + Fable)."""
+        has_fable = any("fable" in m for m in WRITE_ALLOWED_MODELS)
+        assert has_fable, (
+            f"No fable model in WRITE_ALLOWED_MODELS: {WRITE_ALLOWED_MODELS}"
+        )
+
+    def test_does_not_contain_sonnet(self):
+        """Sonnet is read-only now — self-learning is reserved for Opus + Fable."""
         has_sonnet = any("sonnet" in m for m in WRITE_ALLOWED_MODELS)
-        assert has_sonnet, (
-            f"No sonnet model in WRITE_ALLOWED_MODELS: {WRITE_ALLOWED_MODELS}"
+        assert not has_sonnet, (
+            f"Sonnet found in WRITE_ALLOWED_MODELS — self-learning is Opus + "
+            f"Fable only: {WRITE_ALLOWED_MODELS}"
         )
 
     def test_contains_claude_opus(self):
@@ -90,10 +98,17 @@ class TestWriteAllowedModels:
 class TestModelCanWrite:
     """Verify _model_can_write() correctly gates based on model identity."""
 
-    def test_claude_sonnet_can_write(self):
-        """A Claude Sonnet model should be allowed to write."""
-        with patch("fpt_mcp.server._get_current_model", return_value="claude-sonnet-4"):
-            assert _model_can_write() is True
+    def test_claude_sonnet_cannot_write(self):
+        """Claude Sonnet is no longer write-trusted (self-learning = Opus + Fable)."""
+        with patch("fpt_mcp.server._get_current_model", return_value="claude-sonnet-4-6"):
+            with patch("fpt_mcp.server._get_config", return_value={}):
+                assert _model_can_write() is False
+
+    def test_claude_fable_can_write(self):
+        """A Claude Fable model should be allowed to write."""
+        with patch("fpt_mcp.server._get_current_model", return_value="claude-fable-5"):
+            with patch("fpt_mcp.server._get_config", return_value={}):
+                assert _model_can_write() is True
 
     def test_claude_opus_can_write(self):
         """A Claude Opus model should be allowed to write."""
