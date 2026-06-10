@@ -50,7 +50,7 @@ Claude Desktop / Claude Code / Terminal
 
 **RAG tools** (4 direct tools — Retrieval-Augmented Generation):
 - `search_sg_docs` — hybrid search (ChromaDB semantic + BM25 lexical + HyDE + RRF fusion) across all 3 ShotGrid API docs. **MANDATORY** before complex or unknown queries.
-- `learn_pattern` — persist validated patterns in the knowledge base. Model trust gates: only Sonnet/Opus write directly; other models stage candidates.
+- `learn_pattern` — persist validated patterns in the knowledge base. Model trust gates: only Opus/Fable write directly; other models stage candidates.
 - `session_stats` — session statistics: tokens used, tokens saved by RAG, learned patterns, safety blocks, p_fallo.
 - `reset_session_stats` — zero the session counters immediately (manual companion to the 30-min idle auto-reset).
 
@@ -472,7 +472,7 @@ SDK is redirected to the Ollama Messages-compatible endpoint (Ollama v0.14+).
 ### Write-allowed models (RAG trust gates)
 Only Claude models can write patterns via `learn_pattern`. Local models (Ollama) are
 read-only — they can search docs but cannot persist new patterns. Configured via
-`write_allowed_models` in `config.json` (default: `["claude-opus", "claude-sonnet"]`).
+`write_allowed_models` in `config.json` (default: `["claude-opus", "claude-fable"]`). Self-learning is reserved for the two top cloud tiers; Sonnet and local models are read-only.
 
 ### Prerequisites for local models
 

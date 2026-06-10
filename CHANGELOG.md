@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scripts/verify_templates.py`** — validates the pipeline's Toolkit
+  templates (fixture/config) against the RAG doc `TK_API.md` (7 checks); wired
+  as a `--strict` pre-commit hook. Documents 7 previously-undocumented templates
+  in `TK_API.md`. Adds 52 tests.
+
+### Changed
+- **Cloud model selector refreshed** — the Qt console now offers Claude Fable 5
+  (`claude-fable-5`), Claude Opus 4.8 (`claude-opus-4-8`) and Claude Sonnet 4.6
+  (Opus 4.7 and Haiku 4.5 removed). Self-learning (`learn_pattern` write-trust)
+  is now reserved for **Opus + Fable** — Sonnet and local models are read-only
+  (`WRITE_ALLOWED_MODELS`, `config.json` default + example, README/CLAUDE.md
+  updated in lockstep). `config.json` default model bumped 4.7 → 4.8.
+
 ## [1.10.0] — 2026-05-21
 
 ### Added

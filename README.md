@@ -230,7 +230,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | Tool | Description |
 |------|-------------|
 | `search_sg_docs` | Hybrid search across ShotGrid API documentation (ChromaDB + BM25 + HyDE + RRF). Returns relevant API patterns, correct filter syntax, and entity format examples. **Called automatically before complex queries** |
-| `learn_pattern` | Persist validated API patterns into the knowledge base. Model trust gates: Sonnet/Opus write directly, other models stage candidates for human review |
+| `learn_pattern` | Persist validated API patterns into the knowledge base. Model trust gates: Opus/Fable write directly, other models stage candidates for human review |
 | `session_stats` | Token usage statistics: calls, tokens in/out, RAG savings, cache hits, efficiency ratio, p_fallo |
 | `reset_session_stats` | Zero the session counters immediately (manual companion to the 30-min idle auto-reset) |
 <!-- concept:mcp_tool_table end -->
