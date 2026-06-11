@@ -394,7 +394,7 @@ whatever templates the project config defines.
 - `fbx_asset_publish`: `@asset_root/publish/fbx/{name}.v{version}.fbx`
 - `glb_asset_publish`: `@asset_root/publish/glb/{name}.v{version}.glb`
 - `obj_asset_publish`: `@asset_root/publish/obj/{name}.v{version}.obj`
-- `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.png`
+- `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.{texture_extension}` (png default, exr/tif supported)
 
 **Shot templates:**
 - `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`

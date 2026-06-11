@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **TK_API.md: `texture_asset_publish` now documents the multi-format
+  definition** — the pipeline config (toolkit_config_custom_template
+  `e1fe35e`) replaced the hard-coded `.png` with the `texture_extension`
+  template key (png default, exr/tif). RAG index rebuilt;
+  `verify_templates` 55/55 against the live config.
+
 ## [1.11.0] — 2026-06-10
 
 ### Added
