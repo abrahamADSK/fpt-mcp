@@ -352,8 +352,23 @@ def search(query: str, n_results: int = 5) -> tuple[str, int]:
 
 
 def clear_cache() -> None:
-    """Clear the in-session search cache and reset the hit/miss counters."""
-    global _search_cache_hits, _search_cache_misses
+    """Clear the in-session search cache and drop the lazy index singletons.
+
+    Resets the hit/miss counters AND the BM25 singletons (``_bm25`` /
+    ``_bm25_docs``) so the next ``search()`` rebuilds BM25 from the current
+    ``corpus.json`` on disk. Without this, ``learn_pattern`` could append to
+    the docs but the in-process BM25 index would keep serving the stale corpus
+    for the rest of the server's lifetime.
+
+    Note: a fresh BM25 still only reflects what ``build_index`` has written to
+    ``corpus.json``; appending to ``docs/*.md`` alone does not make a pattern
+    retrievable until ``build_index`` regenerates the corpus and ChromaDB
+    index. learn_pattern therefore reports ``appended_pending_index`` rather
+    than implying the pattern is immediately searchable.
+    """
+    global _search_cache_hits, _search_cache_misses, _bm25, _bm25_docs
     _search_cache.clear()
     _search_cache_hits = 0
     _search_cache_misses = 0
+    _bm25 = None
+    _bm25_docs = []

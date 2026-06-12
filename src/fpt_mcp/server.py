@@ -96,7 +96,7 @@ _SERVER_DIR = Path(__file__).parent
 # Token tracking (REC-001 — from flame-mcp proven architecture)
 # ---------------------------------------------------------------------------
 
-_FULL_DOC_TOKENS = 13000  # combined size of all indexed docs
+_FULL_DOC_TOKENS = 34000  # combined size of all indexed docs (~34k via _tok: SG_API+TK_API+REST_API ≈ 103k chars / 3)
 
 # Canonical stats dict. Schema lives in fpt_mcp._session_stats.make_empty_stats
 # so the initialiser and the reset path cannot drift (invariant: stats_keys_schema_shared).

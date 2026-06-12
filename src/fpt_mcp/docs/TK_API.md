@@ -370,7 +370,6 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `nuke_shot_render_stereo`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `houdini_shot_render`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
 - `photoshop_shot_jpg_publish`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
 
 ### Review templates (Quicktime/MOV for dailies)

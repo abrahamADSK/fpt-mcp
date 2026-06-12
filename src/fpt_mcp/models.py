@@ -27,8 +27,9 @@ Layering rule (Bucket F Phase 2a):
 
 from __future__ import annotations
 
+import json
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -40,6 +41,28 @@ from fpt_mcp.filters import _validate_filter_triples
 # accepting them and forwarding garbage to ShotGrid). str_strip_whitespace
 # normalises accidental leading/trailing whitespace from LLM output.
 _STRICT_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+def _coerce_to_json_str(v: Any) -> Any:
+    """Normalise a JSON-as-string field that may arrive as a native value.
+
+    Several dispatcher sub-models (SgBatchInput.requests,
+    SgSummarizeInput.filters/summary_fields/grouping,
+    SgTextSearchInput.entity_types) are typed as ``str`` because the handler
+    immediately ``json.loads`` them. LLMs frequently pass the *native* Python
+    list/dict instead of the documented serialized string; without this
+    coercion the strict ``str`` field rejects it with an opaque
+    "Input should be a valid string" error that surfaces as a silent error
+    payload. Used as a ``mode="before"`` validator so the value is normalised
+    to a JSON string before type validation runs.
+
+    A native ``list``/``dict`` is serialized with ``json.dumps``; anything
+    else (an already-serialized string, or ``None`` for optional fields) is
+    returned untouched so existing string inputs keep working verbatim.
+    """
+    if isinstance(v, (list, dict)):
+        return json.dumps(v)
+    return v
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +313,11 @@ class SgBatchInput(BaseModel):
         ),
     )
 
+    @field_validator("requests", mode="before")
+    @classmethod
+    def _accept_native(cls, v: Any) -> Any:
+        return _coerce_to_json_str(v)
+
 
 class SgReviveInput(BaseModel):
     model_config = _STRICT_CONFIG
@@ -312,6 +340,11 @@ class SgTextSearchInput(BaseModel):
     )
     limit: int = Field(default=10, description="Max results per entity type.")
 
+    @field_validator("entity_types", mode="before")
+    @classmethod
+    def _accept_native(cls, v: Any) -> Any:
+        return _coerce_to_json_str(v)
+
 
 class SgSummarizeInput(BaseModel):
     model_config = _STRICT_CONFIG
@@ -331,6 +364,11 @@ class SgSummarizeInput(BaseModel):
             "Example: [{\"field\":\"sg_status_list\",\"type\":\"exact\",\"direction\":\"asc\"}]"
         ),
     )
+
+    @field_validator("filters", "summary_fields", "grouping", mode="before")
+    @classmethod
+    def _accept_native(cls, v: Any) -> Any:
+        return _coerce_to_json_str(v)
 
 
 class SgNoteThreadInput(BaseModel):
@@ -373,7 +411,7 @@ class LearnPatternInput(BaseModel):
     code: str = Field(
         description="The working code/query pattern to remember (e.g. sg.find filter syntax, template fields).",
     )
-    api: str = Field(
+    api: Literal["shotgun_api3", "toolkit", "rest_api"] = Field(
         default="shotgun_api3",
         description="Which API this pattern belongs to: 'shotgun_api3', 'toolkit', or 'rest_api'.",
     )

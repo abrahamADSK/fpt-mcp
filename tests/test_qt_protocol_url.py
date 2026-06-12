@@ -26,7 +26,7 @@ from fpt_mcp.qt.app import parse_protocol_url  # noqa: E402
 def test_selected_ids_wins_over_ids():
     """Both fields present: selected_ids wins, ids is ignored."""
     url = (
-        "fpt-mcp://chat?entity_type=Asset&project_id=1244"
+        "fpt-mcp://chat?entity_type=Asset&project_id=4242"
         "&ids=1479,1480,1481,1482,1511,1512,1545"
         "&selected_ids=1480"
     )
@@ -36,7 +36,7 @@ def test_selected_ids_wins_over_ids():
         f"Got entity_id={ctx['entity_id']}"
     )
     assert ctx["entity_type"] == "Asset"
-    assert ctx["project_id"] == 1244
+    assert ctx["project_id"] == 4242
     assert event_log_id is None
 
 
@@ -85,17 +85,22 @@ def test_event_log_entry_id_extracted():
 
 
 def test_real_world_shotgrid_url():
-    """Full real URL from /tmp/fpt-console.log (Chat 49 reproduction).
+    """Full-shape AMI URL (Chat 49 reproduction, synthetic identifiers).
+
+    Mirrors the real ShotGrid AMI URL structure that triggered the Chat 49
+    regression, but the instance hostname, project name/id, and user login are
+    SYNTHETIC — never embed a production ShotGrid instance URL or admin login
+    in a public repo (OPSEC).
 
     Asset 1480 was clicked; before the fix, parser returned 1479
     (ids[0]). After the fix, it must return 1480 (selected_ids[0]).
     """
     url = (
-        "fpt-mcp://chat?user_id=24&user_login=shotgun_admin&title="
-        "&entity_type=Asset&server_hostname=ableviadsk.shotgrid.autodesk.com"
+        "fpt-mcp://chat?user_id=24&user_login=demo_user&title="
+        "&entity_type=Asset&server_hostname=demo-studio.shotgrid.autodesk.com"
         "&referrer_path=%2Fdetail%2FHumanUser%2F24&page_id=10414"
         "&session_uuid=dcceddd4-4307-11f1-97d5-0a58a9feac02"
-        "&project_name=MCP_project_Abraham&project_id=1244"
+        "&project_name=Demo_Project&project_id=4242"
         "&target_column=sg_published_files"
         "&ids=1479%2C1480%2C1481%2C1482%2C1511%2C1512%2C1545"
         "&selected_ids=1480"
@@ -103,7 +108,7 @@ def test_real_world_shotgrid_url():
     ctx, event_log_id = parse_protocol_url(url)
     assert ctx["entity_id"] == 1480
     assert ctx["entity_type"] == "Asset"
-    assert ctx["project_id"] == 1244
-    assert ctx["project_name"] == "MCP_project_Abraham"
-    assert ctx["user_login"] == "shotgun_admin"
+    assert ctx["project_id"] == 4242
+    assert ctx["project_name"] == "Demo_Project"
+    assert ctx["user_login"] == "demo_user"
     assert event_log_id is None

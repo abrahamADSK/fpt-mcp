@@ -366,3 +366,86 @@ class TestAll12Patterns:
         assert "Safety check" in result or "⚠️" in result, (
             f"Pattern {pattern_num} warning message has unexpected format:\n{result}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Audit regression — tool-name-prefixed patterns must fire on the REAL
+# serialized payloads produced by the call sites.
+#
+# The call sites (shotgrid.py) serialize PARAMS ONLY, never the tool name.
+# Several patterns are keyed on a tool-name prefix (sg_update.*, sg_delete.*,
+# sg_find.*); before the fix those patterns were dead code and destructive
+# ops passed silently against production data. The fix threads the tool name
+# into check_dangerous(payload, tool_name=...). These tests pin BOTH halves of
+# the contract:
+#   1. the exact serialized payload + tool_name → BLOCKED (regex now fires)
+#   2. the exact serialized payload WITHOUT tool_name → SAFE (proves the
+#      pattern was dead, i.e. that the prefix is genuinely load-bearing).
+# ---------------------------------------------------------------------------
+
+class TestRealSerializedPayloads:
+    """Feed each formerly-dead pattern the literal json.dumps() payload that
+    its real caller in shotgrid.py builds."""
+
+    # (tool_name, serialized params, fragment expected in the warning)
+    DEAD_PATTERN_CASES = [
+        (
+            "sg_find",
+            '{"filters": [], "limit": 0}',
+            "Unfiltered search",
+        ),
+        (
+            "sg_update",
+            '{"entity_type": "Asset", "entity_id": 5, "data": {"project": null}}',
+            "unlink",
+        ),
+        (
+            "sg_update",
+            '{"entity_type": "Shot", "entity_id": 5, "data": {"sg_status_list": "omt"}}',
+            "omitted",
+        ),
+        (
+            "sg_delete",
+            '{"entity_type": "PublishedFile", "entity_id": 42}',
+            "PublishedFile",
+        ),
+        (
+            "sg_update",
+            '{"entity_type": "PublishedFile", "entity_id": 5, "data": {"path": "/new/p.ma"}}',
+            "PublishedFile",
+        ),
+    ]
+
+    @pytest.mark.parametrize(
+        "tool_name,payload,fragment", DEAD_PATTERN_CASES,
+        ids=["find_unfiltered", "update_project_null", "update_status_omt",
+             "delete_published_file", "update_published_file_path"],
+    )
+    def test_blocked_with_tool_name(self, tool_name, payload, fragment):
+        """The real serialized payload + tool_name trips the safety check."""
+        result = check_dangerous(payload, tool_name=tool_name)
+        assert result is not None, (
+            f"Pattern for {tool_name} did NOT fire on real payload {payload!r}"
+        )
+        assert fragment in result
+
+    @pytest.mark.parametrize(
+        "tool_name,payload,fragment", DEAD_PATTERN_CASES,
+        ids=["find_unfiltered", "update_project_null", "update_status_omt",
+             "delete_published_file", "update_published_file_path"],
+    )
+    def test_dead_without_tool_name(self, tool_name, payload, fragment):
+        """Same payload WITHOUT the tool name slips through — this is exactly
+        the production bug the audit caught (the prefix is load-bearing)."""
+        assert check_dangerous(payload) is None, (
+            f"Payload {payload!r} should be invisible without a tool_name "
+            f"(documents the dead-pattern bug)."
+        )
+
+    def test_safe_payload_with_tool_name_still_passes(self):
+        """A legitimate sg_update payload must not be blocked by the prefix."""
+        payload = (
+            '{"entity_type": "Asset", "entity_id": 1001, '
+            '"data": {"sg_status_list": "cmpt", "description": "Final"}}'
+        )
+        assert check_dangerous(payload, tool_name="sg_update") is None

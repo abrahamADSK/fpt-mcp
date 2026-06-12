@@ -621,6 +621,12 @@ fi
 # =============================================================================
 info "Step 6/6 — Pre-approving fpt-mcp tools in ~/.claude/settings.json..."
 
+# The Python heredoc writes len(TOOLS) here so the summary count below is
+# derived from the single source of truth (the TOOLS list) instead of a
+# hand-maintained literal that drifts when a tool is added/removed.
+FPT_TOOL_COUNT_FILE="$(mktemp)"
+export FPT_TOOL_COUNT_FILE
+
 "${VENV_PYTHON}" - <<'PYEOF'
 import json, os
 from pathlib import Path
@@ -659,12 +665,20 @@ with open(tmp, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
 os.replace(tmp, str(settings_path))
+# Publish the canonical tool count for the bash summary below.
+count_file = os.environ.get("FPT_TOOL_COUNT_FILE")
+if count_file:
+    Path(count_file).write_text(str(len(TOOLS)))
 print(f"[fpt-mcp] {new_count} new tools pre-approved ({len(merged)} total in ~/.claude/settings.json)")
 PYEOF
+PREAPPROVE_RC=$?
 
-if [[ $? -eq 0 ]]; then
-    success "14 fpt-mcp tools pre-approved in ~/.claude/settings.json"
-    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (14 tools)")
+FPT_TOOL_COUNT="$(cat "${FPT_TOOL_COUNT_FILE}" 2>/dev/null || echo '?')"
+rm -f "${FPT_TOOL_COUNT_FILE}"
+
+if [[ ${PREAPPROVE_RC} -eq 0 ]]; then
+    success "${FPT_TOOL_COUNT} fpt-mcp tools pre-approved in ~/.claude/settings.json"
+    STEPS_OK+=("MCP tools pre-approved in ~/.claude/settings.json (${FPT_TOOL_COUNT} tools)")
 else
     warn "Tool pre-approval failed — you may see permission prompts on first use"
     STEPS_WARN+=("MCP tool pre-approval failed — run manually or approve at first prompt")

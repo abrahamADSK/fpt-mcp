@@ -24,9 +24,10 @@ EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
 BM25_CANDIDATES = 20
 RRF_K = 60
 
-# ── Collections ───────────────────────────────────────────────────────────────
-# Three separate collections for the three ShotGrid APIs.
-# Metadata includes 'api' field to identify the source.
+# ── Collection ────────────────────────────────────────────────────────────────
+# A SINGLE ChromaDB collection holds chunks from all three ShotGrid API docs.
+# The originating API is distinguished by the per-chunk 'api' metadata field
+# (shotgun_api3 / toolkit / rest_api), not by separate collections.
 COLLECTION_NAME = "sg_docs"
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
@@ -37,5 +38,8 @@ MIN_CHUNK_CHARS = 80        # skip chunks shorter than this
 
 # ── Token tracking ────────────────────────────────────────────────────────────
 # Combined size of all indexed docs in tokens (baseline for RAG savings display).
-# SG_API.md ~5000 + TK_API.md ~4500 + REST_API.md ~2000 + anti-patterns ~1500 = ~13000
-FULL_DOC_TOKENS = 13000
+# Measured at _tok's 3-chars-per-token estimate over the real corpus:
+#   SG_API.md ~38.7k chars (~12.9k tok) + TK_API.md ~31.7k chars (~10.6k tok)
+#   + REST_API.md ~32.5k chars (~10.8k tok) ≈ 103k chars ≈ 34k tokens.
+# Must stay in sync with server.py::_FULL_DOC_TOKENS.
+FULL_DOC_TOKENS = 34000
