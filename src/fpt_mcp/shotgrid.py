@@ -48,7 +48,7 @@ async def sg_find_impl(params: SgFindInput) -> str:
     )
 
     params_str = json.dumps({"filters": params.filters, "limit": params.limit}, default=str)
-    warning = check_dangerous(params_str)
+    warning = check_dangerous(params_str, tool_name="sg_find")
     if warning:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": warning})
@@ -97,7 +97,7 @@ async def sg_create_impl(params: SgCreateInput) -> str:
         data["project"] = {"type": "Project", "id": PROJECT_ID}
 
     params_str = json.dumps({"entity_type": params.entity_type, "data": data}, default=str)
-    safety_warning = check_dangerous(params_str)
+    safety_warning = check_dangerous(params_str, tool_name="sg_create")
     if safety_warning:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": safety_warning})
@@ -120,7 +120,7 @@ async def sg_update_impl(params: SgUpdateInput) -> str:
         {"entity_type": params.entity_type, "entity_id": params.entity_id, "data": params.data},
         default=str,
     )
-    safety_warning = check_dangerous(params_str)
+    safety_warning = check_dangerous(params_str, tool_name="sg_update")
     if safety_warning:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": safety_warning})
@@ -202,13 +202,14 @@ async def _do_sg_delete(params: dict) -> str:
         return json.dumps({"error": f"Invalid params for delete: {e}"})
 
     params_str = json.dumps({"entity_type": validated.entity_type, "entity_id": validated.entity_id})
-    safety_warning = check_dangerous(params_str)
+    safety_warning = check_dangerous(params_str, tool_name="sg_delete")
     if safety_warning:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": safety_warning})
 
+    from fpt_mcp.client import _sg_call
     sg = get_sg()
-    result = await asyncio.to_thread(sg.delete, validated.entity_type, validated.entity_id)
+    result = await asyncio.to_thread(_sg_call, "delete", sg.delete, validated.entity_type, validated.entity_id)
     payload: dict[str, Any] = {
         "deleted": result,
         "entity_type": validated.entity_type,
@@ -230,12 +231,26 @@ async def _do_sg_batch(params: dict) -> str:
     except ValidationError as e:
         return json.dumps({"error": f"Invalid params for batch: {e}"})
 
-    safety_warning = check_dangerous(validated.requests)
+    batch_data = json.loads(validated.requests)
+    # Prefix each sub-request with its ``sg_<request_type>`` form so the
+    # content-keyed safety patterns (which are scoped by an sg_update /
+    # sg_delete prefix) also fire on batch sub-operations — a batch is just
+    # as capable of unlinking a project, soft-deleting, or rewriting a
+    # PublishedFile path as the direct tools.
+    scan_target = "\n".join(
+        f"sg_{req.get('request_type', '')} {json.dumps(req, default=str)}"
+        for req in batch_data
+        if isinstance(req, dict)
+    ) or validated.requests
+    safety_warning = check_dangerous(scan_target)
     if safety_warning:
         _stats["safety_blocks"] += 1
-        return safety_warning
+        # Wrap in the same {"safety_warning": ...} JSON envelope every other
+        # handler uses. Returning the raw string broke the JSON contract and
+        # made _result_is_error() miss the block, so a safety-blocked batch was
+        # not counted as a failed turn (artificially deflating p_fallo).
+        return json.dumps({"safety_warning": safety_warning})
 
-    batch_data = json.loads(validated.requests)
     results = await sg_batch(batch_data)
     return json.dumps(results, default=str)
 

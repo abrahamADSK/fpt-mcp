@@ -566,3 +566,61 @@ class TestSgDeleteSafety:
         assert result["entity_id"] == 4099
 
         mock_sg.delete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 11. test_sg_batch_safety
+#     Verifies the batch dispatcher's safety scan fires on dangerous
+#     sub-operations. Before the audit fix, _do_sg_batch scanned the raw
+#     requests JSON, so the content-keyed patterns (sg_update.* PublishedFile
+#     "path", etc.) could never match — a batch could rewrite a PublishedFile
+#     path or unlink a project silently. The fix prefixes each sub-request
+#     with its sg_<request_type> form before scanning.
+# ---------------------------------------------------------------------------
+
+class TestSgBatchSafety:
+
+    def test_batch_published_file_path_rewrite_blocked(self, patch_sg_client):
+        """A batch update rewriting a PublishedFile path must be blocked."""
+        mock_sg = patch_sg_client
+        batch_requests = [
+            {"request_type": "update", "entity_type": "PublishedFile",
+             "entity_id": 7, "data": {"path": "/new/location/file.ma"}},
+        ]
+        params = SgBatchInput(requests=json.dumps(batch_requests))
+        result = run_async(_do_sg_batch(params.model_dump()))
+
+        # JSON {"safety_warning": ...} envelope (same contract as every other
+        # handler) so _result_is_error() counts the block as a failed turn.
+        assert json.loads(result).get("safety_warning")
+        assert "Safety check" in result or "PublishedFile" in result
+        # The transactional SG call must NOT have run.
+        mock_sg.batch.assert_not_called()
+
+    def test_batch_unlink_project_blocked(self, patch_sg_client):
+        """A batch update setting project to null must be blocked."""
+        mock_sg = patch_sg_client
+        batch_requests = [
+            {"request_type": "update", "entity_type": "Shot",
+             "entity_id": 2001, "data": {"project": None}},
+        ]
+        params = SgBatchInput(requests=json.dumps(batch_requests))
+        result = run_async(_do_sg_batch(params.model_dump()))
+
+        assert "Safety check" in result or "unlink" in result.lower()
+        mock_sg.batch.assert_not_called()
+
+    def test_batch_safe_requests_pass(self, patch_sg_client):
+        """A benign batch (valid statuses) is not blocked and reaches SG."""
+        mock_sg = patch_sg_client
+        mock_sg.batch.side_effect = None
+        mock_sg.batch.return_value = [{"type": "Shot", "id": 7003, "code": "SH070"}]
+        batch_requests = [
+            {"request_type": "create", "entity_type": "Shot",
+             "data": {"code": "SH070", "project": {"type": "Project", "id": 123}}},
+        ]
+        params = SgBatchInput(requests=json.dumps(batch_requests))
+        result = parse_result(run_async(_do_sg_batch(params.model_dump())))
+
+        assert result[0]["code"] == "SH070"
+        mock_sg.batch.assert_called_once()

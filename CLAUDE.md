@@ -72,7 +72,7 @@ Claude Desktop / Claude Code / Terminal
 | Self-learning | learn_pattern + model gates | Accumulates validated patterns across sessions |
 | Cache | In-session dict (A12) | Avoids repeated ChromaDB lookups |
 
-### Indexed corpus (3 collections, ~311 chunks)
+### Indexed corpus (1 collection, ~311 chunks)
 
 - `docs/SG_API.md` — shotgun_api3 Python SDK: methods, filters, operators, anti-patterns
 - `docs/TK_API.md` — Toolkit sgtk: templates, tokens, PipelineConfiguration, environments
@@ -345,16 +345,16 @@ In `~/.claude/settings.json`, enable all these tools:
 
 ## 8. Relationship with Other Projects
 
-All three repos are on the local Mac (see dual install paths in global CLAUDE.md):
+All three repos are on the local Mac (M4 Pro):
 
 - **maya-mcp**: MCP server used by the console for Maya + Vision3D
-  - Repo: `~/Projects/maya-mcp/` (M4 Pro) or `~/Claude_projects/maya-mcp/` (M5 Pro)
+  - Repo: `~/Projects/maya-mcp/` (M4 Pro)
   - 14 tools (dispatcher pattern): 9 direct + `maya_session` (9 actions) + `maya_vision3d` (7 actions) + 3 RAG
   - Internally calls vision3d (remote GPU server) via HTTP REST (port 8000)
   - Includes `maya_vision3d(action="health")` to check availability before offering options
 
 - **vision3d**: remote GPU server accessible via maya-mcp
-  - Repo: `~/Projects/vision3d/` (M4 Pro) or `~/Claude_projects/vision3d/` (M5 Pro) / `/home/flame/ai-studio/vision3d/` (glorfindel)
+  - Repo: `~/Projects/vision3d/` (M4 Pro) / `/home/flame/ai-studio/vision3d/` (glorfindel)
   - Handles generate_image, generate_text, texture (accessed via `maya_vision3d` dispatcher)
   - Text-to-3D: 3-phase pipeline (HunyuanDiT → rembg → shape → paint → textured.glb)
   - Returns job_id for polling
@@ -428,7 +428,7 @@ fpt-mcp supports multiple LLM backends via the model selector in the Qt Console 
 - **Modelfile**: `qwen3.5-mcp` is a custom Modelfile derived from `qwen3.5:9b` with
   `num_ctx 16384` (bumped from 8192 in Bucket D for headroom on multi-turn 3D
   workflows), `temperature 0.7`, `top_p 0.8`, `top_k 20`.
-  Available on glorfindel and Mac M5 Pro. See `MODEL_STRATEGY.md` for the
+  Available on glorfindel and the Mac (M4 Pro). See `MODEL_STRATEGY.md` for the
   full ollama create command and rationale for the bump.
 - **Mac 24GB fallback**: `qwen3.5:4b` (direct, no custom Modelfile)
 - **Ollama API note**: requires `"think": false` in each request to disable thinking mode.

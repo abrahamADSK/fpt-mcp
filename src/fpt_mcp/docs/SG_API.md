@@ -277,6 +277,25 @@ Operators: `is`, `is_not`, `less_than`, `greater_than`, `between`
 - `serializable` — store as JSON in text field
 - `addressing/url_template/uuid` — limited operators (is/is_not only)
 
+#### Complete Operator Whitelist
+
+These are the only operators fpt-mcp accepts. The MCP layer
+(`filters.py::_VALID_FILTER_OPERATORS`) rejects anything else *before* it
+reaches ShotGrid, so this list is the single source of truth:
+
+- Equality / containment: `is`, `is_not`, `in`, `not_in`
+- String matching: `contains`, `not_contains`, `starts_with`, `ends_with`
+- Numeric / date comparison: `less_than`, `greater_than`, `between`,
+  `not_between`, `in_last`, `not_in_last`, `in_next`, `not_in_next`,
+  `in_calendar_day`, `in_calendar_week`, `in_calendar_month`,
+  `in_calendar_year`
+- Type-aware (multi-entity fields): `type_is`, `type_is_not`
+- Name matching (multi-entity fields): `name_contains`, `name_not_contains`,
+  `name_starts_with`, `name_ends_with`, `name_is`
+
+Common hallucinations that do NOT exist (and are rejected): `is_exactly`,
+`matches`, `like`, `regex`, `before_date`, `in_range` (use `between`).
+
 ### Deep-Link Filtering (Dot Notation)
 
 Access linked entity fields using dot notation:

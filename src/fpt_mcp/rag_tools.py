@@ -92,7 +92,11 @@ async def learn_pattern_impl(params: LearnPatternInput) -> str:
                 pass
 
             return json.dumps({
-                "status": "learned",
+                # Honest status: the pattern is appended to the doc but is NOT
+                # yet retrievable. It only enters the RAG corpus once
+                # build_index regenerates corpus.json + the ChromaDB index and
+                # the server reloads. "learned" implied immediate availability.
+                "status": "appended_pending_index",
                 "description": params.description,
                 "file": doc_file,
                 "note": "Pattern appended to docs. Run build_index to include in RAG.",

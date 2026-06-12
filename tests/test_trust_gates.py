@@ -9,7 +9,7 @@ This test verifies:
   - The trust gate mechanism exists and is correctly wired.
   - WRITE_ALLOWED_MODELS contains the expected models.
   - _model_can_write() respects environment variables and config.
-  - learn_pattern_tool routes to "learned" vs "staged" based on trust.
+  - learn_pattern_tool routes to "appended_pending_index" vs "staged" based on trust.
 
 No ShotGrid connection required. Uses mocks for filesystem and config.
 """
@@ -157,7 +157,7 @@ class TestModelCanWrite:
 
 
 class TestLearnPatternRouting:
-    """Verify learn_pattern_tool routes to 'learned' or 'staged' based on trust."""
+    """Verify learn_pattern_tool routes to 'appended_pending_index' or 'staged' based on trust."""
 
     @pytest.fixture
     def pattern_params(self):
@@ -178,7 +178,10 @@ class TestLearnPatternRouting:
              patch("fpt_mcp.server._SERVER_DIR", tmp_path):
             result = json.loads(run_async(learn_pattern_tool(pattern_params)))
 
-        assert result["status"] == "learned"
+        # "appended_pending_index" — the pattern is written to the doc but is
+        # NOT retrievable until build_index regenerates the corpus (honest
+        # status; the old "learned" implied immediate availability).
+        assert result["status"] == "appended_pending_index"
         assert "Pattern appended" in result.get("note", "")
 
         # Verify the pattern was actually written to the file

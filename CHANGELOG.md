@@ -30,6 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FPT-selected one is missing locally. Flame OS scan added
   (`/opt/Autodesk/flame_*/bin/startApplication`, full-version sort,
   version-symlink dedup).
+- **Rotating file logger at the ShotGrid client boundary**
+  (`logging_config.py`) — captures the op + sanitized args before each call
+  and the full traceback on failure, so an AuthenticationFault / connection
+  timeout is reconstructable instead of vanishing into the `to_thread`
+  worker. Idempotent, falls back to `NullHandler` on a read-only FS, and sets
+  `propagate=False` so the stdio MCP transport stays clean.
+- **Per-call socket/request timeout** on the shared ShotGrid connection via
+  `sg.config.timeout_secs` (`SHOTGRID_TIMEOUT_SECS`, default 30s) so a
+  non-responding server can no longer hang a worker thread forever.
+- **Dispatcher sub-models accept native and serialized forms** —
+  `SgBatchInput.requests`, `SgSummarizeInput.filters/summary_fields/grouping`
+  and `SgTextSearchInput.entity_types` now take either a JSON string or a
+  native list/dict (a `mode="before"` validator normalises to the string the
+  handler `json.loads`), removing the opaque "must be a valid string" error.
+- **Test coverage**: `tests/test_reporting.py` (100% of the four
+  `fpt_reporting` handlers), real-serialized-payload safety tests, and batch
+  safety tests.
+- **CI**: Python 3.13 added to the matrix (3.14 documented, pending a stable
+  setup-python image) and a `--cov-fail-under=50` floor so a regression that
+  zeroes a module's coverage fails CI.
 
 ### Changed
 - **TK_API.md: `texture_asset_publish` now documents the multi-format
@@ -37,6 +57,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `e1fe35e`) replaced the hard-coded `.png` with the `texture_extension`
   template key (png default, exr/tif). RAG index rebuilt;
   `verify_templates` 55/55 against the live config.
+- **Safety scanner is no longer partly dead** — `check_dangerous()` takes the
+  originating tool name and prepends it to the scanned payload, so the
+  tool-name-prefixed dangerous patterns (`sg_update.*"project":null`,
+  `sg_delete.*PublishedFile`, `sg_update.*PublishedFile.*"path"`, …) can fire
+  for the first time. Batch sub-operations are scanned per sub-request.
+- **Shared ShotGrid connection is thread-safe** — every SDK call routes
+  through one locked chokepoint (`client._sg_call`) that serializes use of the
+  single httplib2 socket (no more interleaved reads/writes under concurrent
+  dispatch) and logs each op; args/exceptions pass through unchanged so batch
+  all-or-nothing semantics are preserved.
+- **`learn_pattern` status `learned` → `appended_pending_index`** — honest
+  reporting that an appended pattern is not retrievable until `build_index`
+  regenerates the corpus; `rag.search.clear_cache()` now also drops the BM25
+  singletons.
+- **`LearnPatternInput.api` is now `Literal["shotgun_api3","toolkit","rest_api"]`**
+  (was free-form `str`) so an invalid value is rejected instead of silently
+  misrouting the pattern into `SG_API.md`.
+- **RAG savings baseline corrected** — `_FULL_DOC_TOKENS` / `FULL_DOC_TOKENS`
+  13000 → 34000 to match the real ~103k-char corpus
+  (SG_API + TK_API + REST_API), so `session_stats` no longer understates
+  tokens saved by ~2.6×.
+- **install.sh** derives the pre-approved tool-count summary from
+  `len(TOOLS)` instead of a hardcoded `14` (15 tools are registered).
+- **Docs** — README self-learning section corrected (Opus/Fable write, not
+  Sonnet; removed the non-existent `rag/failed.json` feature) and
+  `reset_session_stats` added to the permissions block; CLAUDE.md corpus
+  "3 collections" → "1 collection" and retired M5 Pro references removed;
+  SG_API.md gains a complete operator whitelist (adds `not_between`,
+  `name_starts_with`, `name_ends_with`, `name_is`); TK_API.md duplicate
+  `nuke_shot_render_pub_stereo` line removed; CHANGELOG compare-link footer
+  refreshed to v1.11.0.
+
+### Fixed
+- **`_do_sg_batch` JSON contract** — a safety-blocked batch now returns the
+  standard `{"safety_warning": ...}` envelope instead of a raw string, so
+  `_result_is_error()` counts the block as a failed turn (it was deflating
+  `p_fallo`).
+
+### Security
+- **OPSEC** — `tests/test_qt_protocol_url.py` fixture scrubbed to synthetic
+  values (no real instance URL, admin login, or project metadata);
+  `src/fpt_mcp/config.json` and `src/fpt_mcp/rag/candidates.json` added to
+  `.gitignore`. (Untracking the already-committed `config.json` and any git
+  history scrub are index/history operations performed outside the working
+  tree.)
 
 ## [1.11.0] — 2026-06-10
 
@@ -620,7 +685,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial MCP server for Autodesk Flow Production Tracking (ShotGrid) with 8 tools
 - stdio transport for Claude Desktop and Claude Code
 
-[Unreleased]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.9.3...v1.10.0
+[1.9.3]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.9.2...v1.9.3
+[1.9.2]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.9.1...v1.9.2
+[1.9.1]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.9.0...v1.9.1
+[1.9.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.7.1...v1.8.0
+[1.7.1]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.5.2...v1.6.0
+[1.5.2]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.4.2...v1.5.0
 [1.4.2]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/abrahamADSK/fpt-mcp/compare/v1.3.0...v1.4.0

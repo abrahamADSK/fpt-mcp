@@ -15,6 +15,7 @@ No ShotGrid connection or MCP SDK required.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -214,3 +215,79 @@ class TestStrictConfigSourceLevel:
             f"Models with inline ConfigDict (should use _STRICT_CONFIG): "
             f"{inline_configs}"
         )
+
+
+class TestDispatcherNativeInputCoercion:
+    """The dispatcher sub-models type several fields as JSON-as-string because
+    the handler immediately json.loads them. An LLM frequently passes the
+    native list/dict instead; a mode='before' validator normalises it to the
+    serialized form so the strict `str` field no longer rejects it with an
+    opaque 'must be a valid string' error.
+
+    No ShotGrid connection required — pure model validation.
+    """
+
+    def test_batch_requests_accepts_native_list(self):
+        native = [
+            {"request_type": "create", "entity_type": "Shot",
+             "data": {"code": "SH010"}},
+        ]
+        m = server.SgBatchInput(requests=native)
+        # Normalised to a JSON string that round-trips to the original list.
+        assert isinstance(m.requests, str)
+        assert json.loads(m.requests) == native
+
+    def test_batch_requests_accepts_serialized_string(self):
+        native = [{"request_type": "delete", "entity_type": "Asset", "entity_id": 1}]
+        m = server.SgBatchInput(requests=json.dumps(native))
+        assert json.loads(m.requests) == native
+
+    def test_summarize_accepts_native_filters_and_fields(self):
+        m = server.SgSummarizeInput(
+            entity_type="Task",
+            filters=[["sg_status_list", "is", "ip"]],
+            summary_fields=[{"field": "id", "type": "count"}],
+            grouping=[{"field": "sg_status_list", "type": "exact", "direction": "asc"}],
+        )
+        assert json.loads(m.filters) == [["sg_status_list", "is", "ip"]]
+        assert json.loads(m.summary_fields) == [{"field": "id", "type": "count"}]
+        assert json.loads(m.grouping) == [
+            {"field": "sg_status_list", "type": "exact", "direction": "asc"}
+        ]
+
+    def test_summarize_grouping_none_passes_through(self):
+        m = server.SgSummarizeInput(
+            entity_type="Task",
+            filters="[]",
+            summary_fields='[{"field":"id","type":"count"}]',
+        )
+        assert m.grouping is None
+
+    def test_text_search_accepts_native_entity_types(self):
+        m = server.SgTextSearchInput(
+            text="hero",
+            entity_types={"Asset": [], "Shot": [["sg_status_list", "is", "ip"]]},
+        )
+        assert json.loads(m.entity_types) == {
+            "Asset": [], "Shot": [["sg_status_list", "is", "ip"]]
+        }
+
+
+class TestLearnPatternApiLiteral:
+    """LearnPatternInput.api is constrained to a Literal so an invalid value
+    is rejected at validation time instead of silently misrouting the pattern
+    into SG_API.md via the .get(api, 'SG_API.md') fallback."""
+
+    @pytest.mark.parametrize("api", ["shotgun_api3", "toolkit", "rest_api"])
+    def test_valid_api_accepted(self, api):
+        m = server.LearnPatternInput(description="d", code="c", api=api)
+        assert m.api == api
+
+    def test_default_api_is_shotgun_api3(self):
+        m = server.LearnPatternInput(description="d", code="c")
+        assert m.api == "shotgun_api3"
+
+    @pytest.mark.parametrize("bad", ["toolkit_sgtk", "shotgrid", "SG_API", ""])
+    def test_invalid_api_rejected(self, bad):
+        with pytest.raises(ValidationError):
+            server.LearnPatternInput(description="d", code="c", api=bad)

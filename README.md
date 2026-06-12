@@ -399,7 +399,7 @@ This creates the persistent ChromaDB database and BM25 corpus.json. The first ru
 
 ## Self-Learning
 
-When `search_sg_docs` returns a low-relevance score (below 60%) but the operation succeeds, Claude can call `learn_pattern` to persist the working pattern into the knowledge base for future sessions. **Model trust gates** control who can write directly: Sonnet and Opus write immediately to the corpus; other models stage candidates in `rag/candidates.json` for human review before promotion. Failed operations with low RAG scores are logged to `rag/failed.json` as knowledge gaps, making it easy to identify which API areas need better documentation coverage.
+When `search_sg_docs` returns a low-relevance score (below 60%) but the operation succeeds, Claude can call `learn_pattern` to persist the working pattern into the knowledge base for future sessions. **Model trust gates** control who can write directly: only the two top cloud tiers — Opus and Fable — append the pattern to the docs (status `appended_pending_index`; it becomes retrievable on the next `build_index`). Every other model, including Sonnet and local Ollama models, is read-only and stages candidates in `rag/candidates.json` for human review before promotion. The allow-list lives in `write_allowed_models` in `config.json` (default `["claude-opus", "claude-fable"]`).
 
 ## Token Tracking
 
@@ -538,7 +538,8 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "mcp__fpt-mcp__tk_publish",
       "mcp__fpt-mcp__search_sg_docs",
       "mcp__fpt-mcp__learn_pattern",
-      "mcp__fpt-mcp__session_stats"
+      "mcp__fpt-mcp__session_stats",
+      "mcp__fpt-mcp__reset_session_stats"
     ]
   }
 }

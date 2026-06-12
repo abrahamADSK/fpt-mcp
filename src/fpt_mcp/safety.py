@@ -145,19 +145,31 @@ _DANGEROUS_PATTERNS = [
 ]
 
 
-def check_dangerous(params_str: str) -> Optional[str]:
+def check_dangerous(params_str: str, tool_name: Optional[str] = None) -> Optional[str]:
     """
     Scan serialized tool parameters for dangerous patterns.
 
     Args:
         params_str: JSON-serialized string of tool parameters.
+        tool_name:  Optional originating tool name (e.g. ``"sg_update"``,
+            ``"sg_delete"``, ``"sg_find"``). When provided it is prepended to
+            the scanned string so the tool-name-prefixed patterns can match.
+
+            This is load-bearing: the call sites serialize *params only*, never
+            the tool name (see ``shotgrid.py`` serializers). Without this
+            argument every ``sg_update.*`` / ``sg_delete.*`` / ``sg_find.*``
+            pattern was dead code — destructive ops (unlink project, set status
+            to ``omt``, PublishedFile delete / path-rewrite) passed silently.
+            The patterns keep their tool-name prefixes (which scope them and
+            prevent cross-tool false positives); the prefix is supplied here.
 
     Returns:
         Formatted warning string if patterns found, None if safe.
     """
+    scan_target = f"{tool_name} {params_str}" if tool_name else params_str
     hits = []
     for pattern, reason, alternative in _DANGEROUS_PATTERNS:
-        if re.search(pattern, params_str, re.IGNORECASE):
+        if re.search(pattern, scan_target, re.IGNORECASE):
             hits.append(f"  • {reason}\n    ✅ Instead: {alternative}")
 
     if not hits:

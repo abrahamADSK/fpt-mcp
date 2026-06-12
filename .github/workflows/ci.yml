@@ -42,7 +42,10 @@ jobs:
           # Force Qt to use the offscreen platform (no display on CI runners).
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest tests/ -p no:warnings --cov=fpt_mcp --cov-report=term --cov-report=xml
+          # --cov-fail-under floors total coverage so a regression that drops a
+          # whole module to 0% fails CI instead of passing silently. Current
+          # total ~57%; floor set conservatively below that.
+          python -m pytest tests/ -p no:warnings --cov=fpt_mcp --cov-report=term --cov-report=xml --cov-fail-under=50
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'

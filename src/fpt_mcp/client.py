@@ -8,10 +8,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+import threading
+from typing import Any, Callable
 
 import shotgun_api3
 from dotenv import load_dotenv
+
+from fpt_mcp.logging_config import configure_logging, get_logger, sanitize_for_log
+
+# Install the rotating file handler as early as possible so the very first
+# ShotGrid call (and any auth/connection fault it raises) is captured.
+configure_logging()
+_logger = get_logger("fpt_mcp.client")
 
 # override=True: values from .env must win over any stale env var
 # inherited from the parent process. Without override, a long-lived
@@ -28,6 +36,12 @@ SHOTGRID_URL: str = os.getenv("SHOTGRID_URL", "")
 SCRIPT_NAME: str = os.getenv("SHOTGRID_SCRIPT_NAME", "")
 SCRIPT_KEY: str = os.getenv("SHOTGRID_SCRIPT_KEY", "")
 PROJECT_ID: int = int(os.getenv("SHOTGRID_PROJECT_ID", "0"))
+
+# Socket/request timeout (seconds) applied to the shared connection via
+# ``sg.config.timeout_secs``. Without it a non-responding ShotGrid server
+# blocks the asyncio.to_thread worker forever with no recovery. shotgun_api3
+# threads this value straight into httplib2's socket timeout.
+TIMEOUT_SECS: float = float(os.getenv("SHOTGRID_TIMEOUT_SECS", "30"))
 
 # Placeholder values shipped in .env.example. If the user never filled in
 # .env (or just ran setup_venv.sh / install.sh and forgot step 2), these
@@ -81,18 +95,64 @@ def _validate_config() -> None:
 
 _sg_instance: shotgun_api3.Shotgun | None = None
 
+# Guards lazy construction of the singleton (double-checked locking).
+_sg_init_lock = threading.Lock()
+
+# Serializes USE of the shared connection. shotgun_api3.Shotgun wraps a single
+# httplib2 connection (one socket). Every async wrapper runs its op via
+# asyncio.to_thread, so concurrent tool calls (MCP can dispatch in parallel;
+# HTTP mode and any future fan-out expose it) would otherwise interleave reads
+# and writes on that one socket and corrupt responses. This lock makes each
+# op atomic with respect to the others without giving up the singleton.
+_sg_call_lock = threading.Lock()
+
 
 def get_sg() -> shotgun_api3.Shotgun:
     """Return a cached ShotGrid connection (thread-safe singleton)."""
     global _sg_instance
     if _sg_instance is None:
-        _validate_config()
-        _sg_instance = shotgun_api3.Shotgun(
-            SHOTGRID_URL,
-            script_name=SCRIPT_NAME,
-            api_key=SCRIPT_KEY,
-        )
+        with _sg_init_lock:
+            # Re-check inside the lock: another thread may have built it while
+            # we were blocked on the lock.
+            if _sg_instance is None:
+                _validate_config()
+                sg = shotgun_api3.Shotgun(
+                    SHOTGRID_URL,
+                    script_name=SCRIPT_NAME,
+                    api_key=SCRIPT_KEY,
+                )
+                # Apply the socket/request timeout so a dead server cannot hang
+                # a worker thread indefinitely. Best-effort: a stub/mock Shotgun
+                # in tests may not expose `.config`.
+                try:
+                    sg.config.timeout_secs = TIMEOUT_SECS
+                except AttributeError:
+                    pass
+                _sg_instance = sg
     return _sg_instance
+
+
+def _sg_call(op: str, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run one ShotGrid SDK call under the shared-connection lock with logging.
+
+    This is the single chokepoint for every ShotGrid I/O in the server:
+      * serializes access to the shared httplib2 socket (thread-safety fix),
+      * logs the op + sanitized arguments before the call, and
+      * logs the full traceback on failure before re-raising, so an
+        AuthenticationFault / connection timeout is reconstructable from the
+        rotating log instead of vanishing into the to_thread worker.
+
+    The call is re-raised unchanged so existing all-or-nothing semantics
+    (e.g. batch rollback) and error classification at the tool boundary are
+    preserved.
+    """
+    _logger.info("sg op=%s args=%s", op, sanitize_for_log(list(args)))
+    with _sg_call_lock:
+        try:
+            return method(*args, **kwargs)
+        except Exception:
+            _logger.exception("sg op=%s FAILED", op)
+            raise
 
 
 def get_project_filter() -> dict[str, Any]:
@@ -116,7 +176,7 @@ async def sg_find(
     """Async wrapper around sg.find()."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.find, entity_type, filters, fields, order=order or [], limit=limit
+        _sg_call, "find", sg.find, entity_type, filters, fields, order=order or [], limit=limit
     )
 
 
@@ -127,7 +187,7 @@ async def sg_find_one(
 ) -> dict[str, Any] | None:
     """Async wrapper around sg.find_one()."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.find_one, entity_type, filters, fields)
+    return await asyncio.to_thread(_sg_call, "find_one", sg.find_one, entity_type, filters, fields)
 
 
 async def sg_create(
@@ -136,7 +196,7 @@ async def sg_create(
 ) -> dict[str, Any]:
     """Async wrapper around sg.create()."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.create, entity_type, data)
+    return await asyncio.to_thread(_sg_call, "create", sg.create, entity_type, data)
 
 
 async def sg_update(
@@ -146,7 +206,7 @@ async def sg_update(
 ) -> dict[str, Any]:
     """Async wrapper around sg.update()."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.update, entity_type, entity_id, data)
+    return await asyncio.to_thread(_sg_call, "update", sg.update, entity_type, entity_id, data)
 
 
 async def sg_upload(
@@ -159,7 +219,7 @@ async def sg_upload(
     """Async wrapper around sg.upload()."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.upload, entity_type, entity_id, path, field_name, display_name
+        _sg_call, "upload", sg.upload, entity_type, entity_id, path, field_name, display_name
     )
 
 
@@ -170,7 +230,7 @@ async def sg_upload_thumbnail(
 ) -> int:
     """Async wrapper around sg.upload_thumbnail()."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.upload_thumbnail, entity_type, entity_id, path)
+    return await asyncio.to_thread(_sg_call, "upload_thumbnail", sg.upload_thumbnail, entity_type, entity_id, path)
 
 
 async def sg_download_attachment(
@@ -193,7 +253,7 @@ async def sg_download_attachment(
     else:
         # Standard attachment dict
         sg = get_sg()
-        await asyncio.to_thread(sg.download_attachment, attachment, file_path=file_path)
+        await asyncio.to_thread(_sg_call, "download_attachment", sg.download_attachment, attachment, file_path=file_path)
     return file_path
 
 
@@ -203,7 +263,7 @@ async def sg_schema_field_read(
 ) -> dict[str, Any]:
     """Async wrapper around sg.schema_field_read()."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.schema_field_read, entity_type, field_name)
+    return await asyncio.to_thread(_sg_call, "schema_field_read", sg.schema_field_read, entity_type, field_name)
 
 
 async def sg_batch(
@@ -211,7 +271,7 @@ async def sg_batch(
 ) -> list[dict[str, Any]]:
     """Async wrapper around sg.batch(). Transactional — all or nothing."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.batch, requests)
+    return await asyncio.to_thread(_sg_call, "batch", sg.batch, requests)
 
 
 async def sg_revive(
@@ -220,7 +280,7 @@ async def sg_revive(
 ) -> bool:
     """Async wrapper around sg.revive(). Restores a soft-deleted entity."""
     sg = get_sg()
-    return await asyncio.to_thread(sg.revive, entity_type, entity_id)
+    return await asyncio.to_thread(_sg_call, "revive", sg.revive, entity_type, entity_id)
 
 
 async def sg_text_search(
@@ -232,7 +292,7 @@ async def sg_text_search(
     """Async wrapper around sg.text_search(). Full-text search across entities."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.text_search, text, entity_types, project_ids=project_ids, limit=limit
+        _sg_call, "text_search", sg.text_search, text, entity_types, project_ids=project_ids, limit=limit
     )
 
 
@@ -245,7 +305,7 @@ async def sg_summarize(
     """Async wrapper around sg.summarize(). Server-side aggregation."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.summarize, entity_type, filters, summary_fields, grouping=grouping
+        _sg_call, "summarize", sg.summarize, entity_type, filters, summary_fields, grouping=grouping
     )
 
 
@@ -256,7 +316,7 @@ async def sg_note_thread_read(
     """Async wrapper around sg.note_thread_read(). Returns full reply thread."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.note_thread_read, note_id, entity_fields=entity_fields
+        _sg_call, "note_thread_read", sg.note_thread_read, note_id, entity_fields=entity_fields
     )
 
 
@@ -268,5 +328,5 @@ async def sg_activity_stream_read(
     """Async wrapper around sg.activity_stream_read()."""
     sg = get_sg()
     return await asyncio.to_thread(
-        sg.activity_stream_read, entity_type, entity_id, limit=limit
+        _sg_call, "activity_stream_read", sg.activity_stream_read, entity_type, entity_id, limit=limit
     )
