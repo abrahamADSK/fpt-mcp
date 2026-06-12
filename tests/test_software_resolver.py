@@ -358,3 +358,145 @@ def test_integration_full_resolve_maya_with_fake_sg():
     assert result.engine == "tk-maya"
     assert set(result.source_layers) == {"os_scan", "toolkit_yaml", "sg_software"}
     assert any("empty stub" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Flame OS scan + FPT version preference (Chat 65)
+# ---------------------------------------------------------------------------
+
+
+def _make_flame_install(root: Path, version: str) -> Path:
+    """Create a fake Flame install at ``root/flame_<version>/bin/startApplication``."""
+    binary = root / f"flame_{version}" / "bin" / "startApplication"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    return binary
+
+
+def _flame_glob(root: Path) -> str:
+    return str(root / "flame_*" / "bin" / "startApplication")
+
+
+class TestOsScanFlame:
+    def test_full_version_sort_newest_first(self, tmp_path: Path):
+        """Dotted versions sort by the FULL tuple, not major only."""
+        from fpt_mcp.software_resolver import _os_scan_flame
+
+        _make_flame_install(tmp_path, "2025.2.7")
+        _make_flame_install(tmp_path, "2026.2.3")
+        _make_flame_install(tmp_path, "2027")
+        hits = _os_scan_flame(_flame_glob(tmp_path))
+        assert [v for _, v in hits] == ["2027", "2026.2.3", "2025.2.7"]
+
+    def test_version_symlinks_dedup_to_highest_label(self, tmp_path: Path):
+        """Autodesk version symlinks (flame_2027.0.1 → flame_2027) must not
+        produce duplicate hits; the highest version label wins."""
+        from fpt_mcp.software_resolver import _os_scan_flame
+
+        _make_flame_install(tmp_path, "2027")
+        (tmp_path / "flame_2027.0.1").symlink_to(tmp_path / "flame_2027")
+        hits = _os_scan_flame(_flame_glob(tmp_path))
+        assert len(hits) == 1
+        assert hits[0][1] == "2027.0.1"
+
+    def test_dispatch_via_resolve_app(self, tmp_path: Path):
+        """resolve_app('flame') without SG layers returns the OS-scan hit."""
+        binary = _make_flame_install(tmp_path, "2027")
+        result = resolve_app("flame", glob_pattern=_flame_glob(tmp_path))
+        assert result is not None
+        assert result.binary == binary
+        assert result.version == "2027"
+        assert result.launch_method == "open"
+
+
+class TestPickFptVersion:
+    def _hits(self, tmp_path: Path) -> list:
+        from fpt_mcp.software_resolver import _os_scan_flame
+
+        _make_flame_install(tmp_path, "2026.2.3")
+        _make_flame_install(tmp_path, "2027.0.1")
+        return _os_scan_flame(_flame_glob(tmp_path))
+
+    def test_exact_match(self, tmp_path: Path):
+        from fpt_mcp.software_resolver import _pick_fpt_version
+
+        hit = _pick_fpt_version("2026.2.3", self._hits(tmp_path))
+        assert hit is not None and hit[1] == "2026.2.3"
+
+    def test_prefix_match_both_directions(self, tmp_path: Path):
+        from fpt_mcp.software_resolver import _pick_fpt_version
+
+        hits = self._hits(tmp_path)
+        # Coarse FPT selection resolves the specific local install...
+        assert _pick_fpt_version("2027", hits)[1] == "2027.0.1"
+        # ...and a more specific FPT selection matches a coarser local one.
+        assert _pick_fpt_version("2026.2.3.1", hits)[1] == "2026.2.3"
+
+    def test_no_selection_or_no_match_returns_none(self, tmp_path: Path):
+        from fpt_mcp.software_resolver import _pick_fpt_version
+
+        hits = self._hits(tmp_path)
+        assert _pick_fpt_version(None, hits) is None
+        assert _pick_fpt_version("", hits) is None
+        assert _pick_fpt_version("2024", hits) is None
+
+    def test_list_input_accepted(self, tmp_path: Path):
+        from fpt_mcp.software_resolver import _pick_fpt_version
+
+        hit = _pick_fpt_version(["2024", "2026.2.3"], self._hits(tmp_path))
+        assert hit is not None and hit[1] == "2026.2.3"
+
+
+class TestFptVersionAuthority:
+    """The FPT-selected Software version overrides newest-local (Chat 65
+    user rule: held-back versions are intentional; never launch 'newest')."""
+
+    def _sg_find(self, version_names):
+        def fake(entity, filters, fields):
+            if entity == "PipelineConfiguration":
+                return []
+            if entity == "Software":
+                return [{
+                    "id": 7, "code": "Flame", "engine": "tk-flame",
+                    "mac_path": None, "version_names": version_names,
+                    "projects": [],
+                }]
+            raise AssertionError(f"unexpected entity {entity}")
+        return fake
+
+    def test_fpt_selection_overrides_newest(self, tmp_path: Path):
+        _make_flame_install(tmp_path, "2026.2.3")
+        _make_flame_install(tmp_path, "2027.0.1")
+        result = resolve_app(
+            "flame", project_id=1,
+            sg_find=self._sg_find("2026.2.3"),
+            glob_pattern=_flame_glob(tmp_path),
+        )
+        assert result is not None
+        assert result.version == "2026.2.3"
+        assert "sg_version_pref" in result.source_layers
+
+    def test_fpt_selection_not_installed_warns_and_falls_back(
+        self, tmp_path: Path
+    ):
+        _make_flame_install(tmp_path, "2027.0.1")
+        result = resolve_app(
+            "flame", project_id=1,
+            sg_find=self._sg_find("2024.2.3"),
+            glob_pattern=_flame_glob(tmp_path),
+        )
+        assert result is not None
+        assert result.version == "2027.0.1"
+        assert any("not installed locally" in w for w in result.warnings)
+
+    def test_no_fpt_selection_keeps_newest(self, tmp_path: Path):
+        _make_flame_install(tmp_path, "2026.2.3")
+        _make_flame_install(tmp_path, "2027.0.1")
+        result = resolve_app(
+            "flame", project_id=1,
+            sg_find=self._sg_find(None),
+            glob_pattern=_flame_glob(tmp_path),
+        )
+        assert result is not None
+        assert result.version == "2027.0.1"
+        assert "sg_version_pref" not in result.source_layers

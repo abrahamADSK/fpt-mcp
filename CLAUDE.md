@@ -46,7 +46,7 @@ Claude Desktop / Claude Code / Terminal
 - `tk_publish` — publish file: resolve path, copy file, find/create PublishedFileType, link Task, register PublishedFile in ShotGrid
 
 **Launcher** (1 direct tool):
-- `fpt_launch_app` — launch a DCC scoped to a ShotGrid entity (OS-first discovery, Toolkit tank routing)
+- `fpt_launch_app` — launch a DCC scoped to a ShotGrid entity (OS-first discovery; FPT-selected Software version is authoritative; Maya via Toolkit tank, Flame via direct `startApplication --start-project` with local-project validation; `route` param: auto/direct/toolkit)
 
 **RAG tools** (4 direct tools — Retrieval-Augmented Generation):
 - `search_sg_docs` — hybrid search (ChromaDB semantic + BM25 lexical + HyDE + RRF fusion) across all 3 ShotGrid API docs. **MANDATORY** before complex or unknown queries.

@@ -214,9 +214,10 @@ class FptLaunchAppInput(BaseModel):
     model_config = _STRICT_CONFIG
     app: str = Field(
         description=(
-            "App to launch, case-insensitive. Supported: 'maya'. "
-            "Other DCCs (nuke, houdini, flame) are resolvable but not "
-            "yet wired for context launch — they fall back to 'open'."
+            "App to launch, case-insensitive. Supported for context launch: "
+            "'maya' (via Toolkit tank), 'flame' (direct startApplication "
+            "into the matching local Flame project). Other DCCs (nuke, "
+            "houdini) are resolvable but fall back to a bare 'open'."
         )
     )
     entity_type: str = Field(
@@ -235,6 +236,42 @@ class FptLaunchAppInput(BaseModel):
             "spawning the process. Useful for UI previews and tests."
         ),
     )
+    route: str = Field(
+        default="auto",
+        description=(
+            "Launch route. 'auto' (default): maya prefers Toolkit tank when "
+            "available; flame uses the direct startApplication CLI. "
+            "'direct': skip Toolkit entirely. 'toolkit': force the tank "
+            "route (for flame this runs pre-launch hooks and can CREATE a "
+            "missing Flame project, but requires a live Toolkit SSO "
+            "session)."
+        ),
+    )
+    workspace: Optional[str] = Field(
+        default=None,
+        description=(
+            "Flame only: workspace to open inside the project "
+            "(--start-workspace). Omit to let Flame create/use the default "
+            "workspace (--create-workspace)."
+        ),
+    )
+    force: bool = Field(
+        default=False,
+        description=(
+            "Flame only: launch even if a Flame instance is already running "
+            "on this machine. Default false — Flame is effectively "
+            "single-instance per framestore and holds exclusive project "
+            "locks, so a second launch is refused unless forced."
+        ),
+    )
+
+    @field_validator("route")
+    @classmethod
+    def _route_known(cls, v: str) -> str:
+        allowed = {"auto", "direct", "toolkit"}
+        if v not in allowed:
+            raise ValueError(f"route must be one of {sorted(allowed)}")
+        return v
 
 
 # ---------------------------------------------------------------------------

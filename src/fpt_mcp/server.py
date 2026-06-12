@@ -556,6 +556,18 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     surfaces a warning — the app still opens, but without context
     injection from Toolkit.
 
+    Version selection: the FPT-selected version (SG ``Software``
+    ``version_names``) is authoritative over "newest installed"; a
+    warning names both when the selected one is not installed locally.
+
+    FLAME (route='auto'/'direct'): composes ``startApplication
+    --start-project=<name> ... --closed-libs`` — SG name slugified via
+    tk-flame's convention and validated against the local Stone+Wire
+    project list; no Toolkit/SSO needed. Refusals to relay: "does not
+    exist on this workstation" (direct route cannot create projects —
+    offer route='toolkit', which pre-creates via Wiretap) and "already
+    running" (single-instance + project locks; close it or force=true).
+
     Common failure modes to explain to the user if they surface:
 
     - ``error: "... is not installed ..."`` — the DCC binary is not under
