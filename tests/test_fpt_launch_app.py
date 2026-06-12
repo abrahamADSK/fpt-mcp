@@ -260,3 +260,155 @@ def test_install_sh_preapproves_fpt_launch_app():
         "fpt_launch_app is not in install.sh TOOLS array — add it to the "
         "pre-approval list to avoid permission prompts"
     )
+
+
+# ---------------------------------------------------------------------------
+# Flame context launch — direct startApplication route (Chat 65)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def resolved_flame(tmp_path: Path) -> ResolvedApp:
+    binary = tmp_path / "flame_2027.0.1" / "bin" / "startApplication"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    return ResolvedApp(
+        app="flame",
+        binary=binary,
+        version="2027.0.1",
+        engine="tk-flame",
+        launch_method="open",
+        source_layers=["os_scan", "sg_software"],
+        warnings=[],
+    )
+
+
+class TestFlameDirectLaunch:
+    """route='auto'/'direct' composes startApplication with guard rails."""
+
+    def _params(self, **kw) -> FptLaunchAppInput:
+        return FptLaunchAppInput(
+            app="flame", entity_type="Asset", entity_id=42, dry_run=True, **kw
+        )
+
+    def _sg(self, project_name: str) -> MagicMock:
+        sg = MagicMock()
+        # 1st find_one: entity → owning project; 2nd: Project → name.
+        sg.find_one.side_effect = [
+            {"id": 42, "project": {"type": "Project", "id": 1244}},
+            {"id": 1244, "name": project_name},
+        ]
+        return sg
+
+    def test_direct_launch_composes_start_project(self, resolved_flame):
+        """SG name slugified with tk-flame's rule, validated locally."""
+        sg = self._sg("FPT2025-25 basic test")  # → FPT2025_25_basic_test
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["FPT2025_25_basic_test", "other_proj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._params())))
+        assert "error" not in data
+        assert data["sg_project_name"] == "FPT2025-25 basic test"
+        assert data["flame_project"] == "FPT2025_25_basic_test"
+        assert data["route"] == "auto"
+        assert data["argv"] == [
+            str(resolved_flame.binary),
+            "--start-project=FPT2025_25_basic_test",
+            "--create-workspace",
+            "--closed-libs",
+        ]
+
+    def test_workspace_param_uses_start_workspace(self, resolved_flame):
+        sg = self._sg("MyProj")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MyProj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(
+                fpt_launch_app_tool(self._params(workspace="comp"))
+            ))
+        assert "--start-workspace=comp" in data["argv"]
+        assert "--create-workspace" not in data["argv"]
+
+    def test_project_not_local_errors_with_guidance(self, resolved_flame):
+        """The direct route must NEVER pass an unverified project name —
+        Flame errors on unknown names; tk-flame can create them instead."""
+        sg = self._sg("Totally Unknown Show")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["FPT2025_25_basic_test"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._params())))
+        assert "does not exist on this workstation" in data["error"]
+        assert "route='toolkit'" in data["error"]
+        assert "argv" not in data  # nothing launchable was composed
+
+    def test_running_flame_refused_without_force(self, resolved_flame):
+        sg = self._sg("MyProj")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MyProj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=True):
+            data = json.loads(_run(fpt_launch_app_tool(self._params())))
+        assert "already running" in data["error"]
+        assert "force=true" in data["error"]
+
+    def test_running_flame_force_overrides(self, resolved_flame):
+        sg = self._sg("MyProj")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MyProj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=True):
+            data = json.loads(_run(
+                fpt_launch_app_tool(self._params(force=True))
+            ))
+        assert "error" not in data
+        assert "--start-project=MyProj" in data["argv"]
+
+    def test_route_toolkit_without_tank_errors(self, resolved_flame):
+        """route='toolkit' is an explicit ask — without a tank CLI it must
+        fail loudly, not silently degrade to the direct route."""
+        sg = self._sg("MyProj")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame):
+            data = json.loads(_run(
+                fpt_launch_app_tool(self._params(route="toolkit"))
+            ))
+        assert "route='toolkit' requested but no usable Toolkit tank CLI" \
+            in data["error"]
+
+    def test_case_insensitive_local_match(self, resolved_flame):
+        sg = self._sg("myproj")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MyProj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._params())))
+        assert data["flame_project"] == "MyProj"
+
+
+class TestRouteParam:
+    def test_maya_route_direct_skips_tank(self, fake_sg, resolved_tank):
+        """route='direct' must bypass an available tank CLI for maya too."""
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Asset", entity_id=42,
+            dry_run=True, route="direct",
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert data["argv"][0] == "open"
+        assert any("without Toolkit context" in w for w in data["warnings"])
+
+    def test_invalid_route_rejected_by_model(self):
+        with pytest.raises(ValueError):
+            FptLaunchAppInput(
+                app="maya", entity_type="Asset", entity_id=42, route="ssh"
+            )

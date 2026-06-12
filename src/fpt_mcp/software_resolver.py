@@ -49,6 +49,18 @@ _MACOS_MAYA_GLOB = "/Applications/Autodesk/maya*/Maya.app"
 # Accepts optional ``.minor`` tail for future-proofing against ``maya2027.1``.
 _MAYA_VERSION_RE = re.compile(r"/maya(\d{4}(?:\.\d+)?)/")
 
+# Flame installs live under /opt/Autodesk, one directory per release
+# (``flame_2027``, ``flame_2025.2.7``, …), each shipping the
+# ``startApplication`` CLI launcher that tk-flame itself invokes. Autodesk
+# maintains version symlinks (e.g. ``flame_2025.2.6 → flame_2025.2.7``) in
+# the same layout, so the glob may yield duplicate targets — deduplicated
+# by resolved path in the scanner.
+_MACOS_FLAME_GLOB = "/opt/Autodesk/flame_*/bin/startApplication"
+
+# Parse the version out of a Flame install path
+# (``/flame_2025.2.7/`` → ``2025.2.7``; ``/flame_2027/`` → ``2027``).
+_FLAME_VERSION_RE = re.compile(r"/flame_(\d{4}(?:\.\d+)*)/")
+
 # User-visible app name → Toolkit engine id. Extend as more DCCs gain
 # resolver coverage.
 _APP_TO_ENGINE: dict[str, str] = {
@@ -114,12 +126,51 @@ def _os_scan_maya(
     return sorted(hits, key=sort_key, reverse=True)
 
 
+def _os_scan_flame(
+    glob_pattern: str = _MACOS_FLAME_GLOB,
+) -> list[tuple[Path, Optional[str]]]:
+    """Scan the filesystem for Flame installs.
+
+    Returns ``(startApplication_path, version)`` tuples sorted newest-first
+    by the FULL version tuple — unlike Maya, Flame ships several minor
+    releases per year (``2025.2.6``, ``2025.2.7``) plus version symlinks,
+    so major-only sorting would tie. Symlinked duplicates of the same
+    install are collapsed to the highest version label pointing at them.
+    """
+    by_target: dict[Path, tuple[Path, Optional[str]]] = {}
+    for path_str in glob.glob(glob_pattern):
+        path = Path(path_str)
+        if not path.exists():  # dangling symlink
+            continue
+        match = _FLAME_VERSION_RE.search(path_str)
+        version = match.group(1) if match else None
+        target = path.resolve()
+        prev = by_target.get(target)
+        if prev is None or _flame_sort_key((path, version)) > _flame_sort_key(prev):
+            by_target[target] = (path, version)
+
+    return sorted(by_target.values(), key=_flame_sort_key, reverse=True)
+
+
+def _flame_sort_key(item: tuple[Path, Optional[str]]) -> tuple:
+    """Sort key over the full dotted version (``2025.2.7`` < ``2027``)."""
+    _, v = item
+    if not v:
+        return (0, ())
+    try:
+        return (1, tuple(int(part) for part in v.split(".")))
+    except ValueError:
+        return (0, ())
+
+
 def _os_scan(
     app: str, glob_pattern: Optional[str] = None
 ) -> list[tuple[Path, Optional[str]]]:
     """Dispatch to the per-app OS scanner. Unknown apps return ``[]``."""
     if app == "maya":
         return _os_scan_maya(glob_pattern or _MACOS_MAYA_GLOB)
+    if app == "flame":
+        return _os_scan_flame(glob_pattern or _MACOS_FLAME_GLOB)
     return []
 
 
@@ -195,6 +246,49 @@ def _sg_software_enrichment(
         if row.get("mac_path") or row.get("version_names"):
             return row
     return rows[0]
+
+
+def _pick_fpt_version(
+    version_names: Any,
+    os_hits: list[tuple[Path, Optional[str]]],
+) -> Optional[tuple[Path, Optional[str]]]:
+    """Match the FPT-selected version(s) against local installs.
+
+    ``version_names`` is the SG ``Software.version_names`` value — a
+    comma-separated string ("2027.0.1, 2026.2.3") or a list. Returns the
+    highest local hit whose version exactly matches, or prefix-matches in
+    either direction (FPT "2027" matches local "2027.0.1" and vice versa),
+    so a coarse FPT selection still resolves a specific local install.
+    Returns ``None`` when nothing is selected in FPT or nothing matches.
+    """
+    if not version_names:
+        return None
+    if isinstance(version_names, str):
+        wanted = [v.strip() for v in version_names.split(",") if v.strip()]
+    elif isinstance(version_names, (list, tuple)):
+        wanted = [str(v).strip() for v in version_names if str(v).strip()]
+    else:
+        return None
+    if not wanted:
+        return None
+
+    def matches(local: Optional[str], sel: str) -> bool:
+        if not local:
+            return False
+        return (
+            local == sel
+            or local.startswith(sel + ".")
+            or sel.startswith(local + ".")
+        )
+
+    # Exact matches first, then prefix matches; os_hits is newest-first.
+    for hit in os_hits:
+        if any(hit[1] == sel for sel in wanted):
+            return hit
+    for hit in os_hits:
+        if any(matches(hit[1], sel) for sel in wanted):
+            return hit
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +370,26 @@ def resolve_app(
                         warnings.append(
                             f"SG Software entity for {engine} is an empty "
                             f"stub (no mac_path, no versions)"
+                        )
+                    # The version selected in FPT (SG Software.version_names)
+                    # is AUTHORITATIVE over the newest-local default: held-back
+                    # versions are intentional in this pipeline, and machines
+                    # carry several parallel releases for testing. Only when
+                    # FPT selects nothing (empty stub) does newest-local apply.
+                    preferred = _pick_fpt_version(
+                        sw.get("version_names"), os_hits
+                    )
+                    if preferred is not None:
+                        if preferred[0] != result.binary:
+                            result.binary, result.version = preferred
+                            layers.append("sg_version_pref")
+                    elif sw.get("version_names"):
+                        warnings.append(
+                            f"FPT-selected {app_norm} version(s) "
+                            f"'{sw['version_names']}' not installed locally; "
+                            f"falling back to newest local "
+                            f"({result.version}). Install the FPT-selected "
+                            f"version or update the SG Software entity."
                         )
             except Exception as exc:
                 warnings.append(f"sg software enrichment failed: {exc}")

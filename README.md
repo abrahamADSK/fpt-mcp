@@ -223,7 +223,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 
 | Tool | Description |
 |------|-------------|
-| `fpt_launch_app` | Launch a DCC (Maya today) scoped to a ShotGrid entity. OS-first discovery, Toolkit `tank` routing when available, `open -a` fallback. Returns a launch plan with `pid`, `argv`, `launch_method`, `warnings`. See [Launcher prerequisites](#launcher-prerequisites) before first use. |
+| `fpt_launch_app` | Launch a DCC (Maya, Flame) scoped to a ShotGrid entity. OS-first discovery with the FPT-selected Software version authoritative over "newest installed". Maya routes through Toolkit `tank` when available (`open -a` fallback); Flame launches directly into the matching local project via `startApplication --start-project` (route `auto`/`direct`/`toolkit`). Returns a launch plan with `pid`, `argv`, `launch_method`, `warnings`. See [Launcher prerequisites](#launcher-prerequisites) before first use. |
 
 ### RAG — API Knowledge Engine (4 tools)
 
@@ -294,6 +294,23 @@ This is an additive change: classic localized bundles under `<config>/install/` 
 - `<app>_<version>` — the convention when the pipeline registers one launcher per installed version (`maya_2027`, `nuke_16.0v4`, etc.).
 
 `fpt_launch_app` prefers the version-specific form when the OS scan parses a version from the install path, and falls back to `launch_<app>` otherwise. Pipelines with yet another convention will need a wrapper that maps to the right tank command.
+
+### Flame context launch
+
+Flame does not need the tank prerequisites above: by default (`route="auto"` or `"direct"`) `fpt_launch_app` composes the direct CLI launch
+
+```bash
+/opt/Autodesk/flame_<ver>/bin/startApplication \
+  --start-project=<name> [--start-workspace=<ws> | --create-workspace] --closed-libs
+```
+
+with three guard rails, in order:
+
+1. **Version**: the FPT-selected `Software.version_names` entry wins over the newest local install (held-back versions are intentional); a warning names both when the selected version is not installed.
+2. **Project mapping**: the SG project name is slugified with tk-flame's exact convention (`re.sub(r"\W+", "_", name)`) and validated against the projects that actually exist locally (Stone+Wire `sw_listProjects`, fallback `/opt/Autodesk/project` scan). An unknown project is refused — Flame errors on non-existent `--start-project` names — with `route="toolkit"` suggested, since the tk-flame route pre-creates missing projects via Wiretap.
+3. **Single instance**: if a Flame-family GUI is already running the launch is refused (Flame holds exclusive per-project locks); `force=true` overrides explicitly.
+
+`route="toolkit"` opts into the tank route (pipeline hooks + project auto-creation) and then the tank prerequisites above apply.
 
 ## RAG — Anti-hallucination Engine
 

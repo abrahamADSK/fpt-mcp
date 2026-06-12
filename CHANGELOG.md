@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`fpt_launch_app` launches Flame in context** (P3, Chat 65) — closing
+  the gap where the resolver only scanned for Maya and every
+  `app="flame"` call returned "not installed". New direct route composes
+  `startApplication --start-project=<name> [--start-workspace=<ws> |
+  --create-workspace] --closed-libs` (the user-validated formula; flags
+  verified identical across Flame 2024–2027) with three guard rails:
+  the SG project name is slugified with tk-flame's exact convention
+  (`\W+` → `_`) and validated against the local Stone+Wire project list
+  (`sw_listProjects`, fallback `/opt/Autodesk/project`); an unknown
+  project is refused with `route='toolkit'` suggested (tk-flame
+  pre-creates projects via Wiretap — the direct route cannot); a running
+  Flame-family instance refuses the launch (single instance per
+  framestore + exclusive project locks) unless `force=true`. New
+  `FptLaunchAppInput` params: `route` (`auto`/`direct`/`toolkit`),
+  `workspace`, `force`.
+- **FPT-selected version is authoritative** — `resolve_app` now matches
+  SG `Software.version_names` against local installs and prefers the
+  FPT selection over "newest installed" (held-back versions are
+  intentional in this pipeline); a warning names both versions when the
+  FPT-selected one is missing locally. Flame OS scan added
+  (`/opt/Autodesk/flame_*/bin/startApplication`, full-version sort,
+  version-symlink dedup).
+
 ### Changed
 - **TK_API.md: `texture_asset_publish` now documents the multi-format
   definition** — the pipeline config (toolkit_config_custom_template
