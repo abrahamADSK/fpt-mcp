@@ -1,0 +1,154 @@
+# Architecture
+
+The same system at increasing zoom (the **C4 model**): start at the map, descend
+into detail only when needed. Each box shows its name on the first line and its
+contents below. Colour carries meaning (see legend). The deepest level (code) is
+generated automatically by Graphify (god nodes, call-flow) — not redrawn here.
+
+> **Colour legend** — blue = my code (servers / tools / logic) · amber = safety & validation ·
+> purple = knowledge / RAG · green = connectivity / bridge · teal = state / journal ·
+> yellow = governance / concept registry · tan = external systems & apps · grey = actors.
+
+## Level 1 — System Context (the map)
+
+```mermaid
+flowchart TB
+  classDef actor fill:#eceff1,stroke:#78909c,color:#37474f;
+  classDef system fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef govern fill:#fff8e1,stroke:#f9a825,color:#f57f17;
+  classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef safety fill:#fff3e0,stroke:#ef6c00,color:#e65100;
+  classDef knowledge fill:#f3e5f5,stroke:#8e24aa,color:#6a1b9a;
+  classDef state fill:#e0f2f1,stroke:#00897b,color:#00695c;
+  classDef conn fill:#e8f5e9,stroke:#43a047,color:#2e7d32;
+  classDef external fill:#efebe9,stroke:#a1887f,color:#4e342e;
+
+  user(["Human operator<br/>manual control / decisions"])
+  claude(["Claude<br/>drives the servers via MCP"])
+  system["MCP VFX Automation<br/>fpt-mcp<br/>maya-mcp<br/>flame-mcp"]
+  fpt_sys[("Flow Production Tracking<br/>cloud · production tracking")]
+  maya["Autodesk Maya 2027<br/>local DCC app"]
+  flame["Autodesk Flame 2027<br/>local DCC app"]
+  gpu["LAN GPU host<br/>Linux · Ollama / vision3d"]
+
+  user --> claude
+  claude --> system
+  system -->|Flow Production Tracking API| fpt_sys
+  system -->|Command Port TCP| maya
+  system -->|bridge socket| flame
+  system -.->|optional local LLM| gpu
+
+  class user,claude actor;
+  class system system;
+  class fpt_sys,maya,flame,gpu external;
+```
+
+## Level 2 — Containers (the three servers)
+
+```mermaid
+flowchart TB
+  classDef actor fill:#eceff1,stroke:#78909c,color:#37474f;
+  classDef system fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef govern fill:#fff8e1,stroke:#f9a825,color:#f57f17;
+  classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef safety fill:#fff3e0,stroke:#ef6c00,color:#e65100;
+  classDef knowledge fill:#f3e5f5,stroke:#8e24aa,color:#6a1b9a;
+  classDef state fill:#e0f2f1,stroke:#00897b,color:#00695c;
+  classDef conn fill:#e8f5e9,stroke:#43a047,color:#2e7d32;
+  classDef external fill:#efebe9,stroke:#a1887f,color:#4e342e;
+
+  claude(["Claude<br/>MCP client"])
+
+  subgraph eco["MCP VFX Automation"]
+    direction TB
+    fpt["fpt-mcp<br/>Flow Production Tracking + Toolkit client"]
+    maya["maya-mcp<br/>Maya automation"]
+    flame["flame-mcp<br/>Flame automation"]
+    registry["Concept registry<br/>.concepts.yml<br/>verify_concepts<br/>byte-identical across repos"]
+  end
+
+  fpt_sys[("Flow Production Tracking")]
+  mayaApp["Maya 2027"]
+  flameApp["Flame 2027"]
+  gpu["LAN GPU host"]
+
+  claude -->|MCP| fpt
+  claude -->|MCP| maya
+  claude -->|MCP| flame
+  fpt -->|shotgun_api3| fpt_sys
+  maya -->|Command Port localhost:8100| mayaApp
+  flame -->|Unix socket bridge| flameApp
+  fpt -.->|local LLM| gpu
+  flame -.->|local LLM| gpu
+  registry -.->|guards drift in| fpt
+  registry -.-> maya
+  registry -.-> flame
+
+  class claude actor;
+  class fpt,maya,flame system;
+  class registry govern;
+  class fpt_sys,mayaApp,flameApp,gpu external;
+```
+
+## Level 3 — Components (fpt-mcp)
+
+```mermaid
+flowchart TB
+  classDef actor fill:#eceff1,stroke:#78909c,color:#37474f;
+  classDef system fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef govern fill:#fff8e1,stroke:#f9a825,color:#f57f17;
+  classDef entry fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
+  classDef safety fill:#fff3e0,stroke:#ef6c00,color:#e65100;
+  classDef knowledge fill:#f3e5f5,stroke:#8e24aa,color:#6a1b9a;
+  classDef state fill:#e0f2f1,stroke:#00897b,color:#00695c;
+  classDef conn fill:#e8f5e9,stroke:#43a047,color:#2e7d32;
+  classDef external fill:#efebe9,stroke:#a1887f,color:#4e342e;
+
+  claude(["Claude"])
+
+  subgraph s["fpt-mcp"]
+    direction TB
+    tools["Direct tools<br/>sg_find / create<br/>update / delete<br/>sg_schema<br/>sg_upload / download"]
+    disp["Dispatchers<br/>fpt_bulk<br/>fpt_reporting"]
+    launch["Launcher<br/>fpt_launch_app<br/>software_resolver<br/>tk_config"]
+    publish["Publish<br/>tk_publish<br/>tk_resolve_path"]
+    safety["Safety module<br/>check_dangerous<br/>destructive-op patterns"]
+    rag["RAG engine<br/>SG_API.md / TK_API.md<br/>ChromaDB + BM25"]
+    client["Flow Production Tracking client<br/>_sg_call chokepoint<br/>lock · timeout · logging"]
+  end
+
+  fpt_sys[("Flow Production Tracking")]
+  tank["Toolkit tank CLI"]
+  apps["Maya / Flame<br/>launched in context"]
+
+  claude -->|MCP| tools
+  claude -->|MCP| disp
+  claude -->|MCP| launch
+  claude -->|MCP| publish
+  tools --> safety
+  safety --> client
+  disp --> client
+  publish --> client
+  client --> fpt_sys
+  launch -->|tank route| tank
+  launch -->|direct CLI| apps
+  tools -.-> rag
+
+  class claude actor;
+  class tools,disp,launch,publish entry;
+  class safety safety;
+  class rag knowledge;
+  class client conn;
+  class fpt_sys,tank,apps external;
+```
+
+For function-level code use the Graphify graph of `src/`.
+
+## Level 4 — Code (deepest zoom)
+
+Below components is the actual code (functions, classes, call paths). It is
+generated on demand by **Graphify** (god nodes, call-flow, interactive graph) —
+run it over `src/` rather than maintaining it by hand.
+
+*C4 levels: 1 Context → 2 Containers → 3 Components → 4 Code. Top-down for
+understanding; Graphify owns the bottom.*
