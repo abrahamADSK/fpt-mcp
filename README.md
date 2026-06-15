@@ -8,6 +8,12 @@
 >
 > Allowing AI-generated operations against a live ShotGrid instance carries real risks: **unintended data modifications, accidental entity deletion, incorrect publishes, or metadata corruption.** Always test against a dedicated sandbox project first. Never run this against production data without understanding the operations being performed. The author(s) accept no responsibility for data loss, corruption, or any other damage resulting from its use.
 
+## 📊 Code knowledge graph
+
+Interactive, auto-published map of this codebase — modules, functions, call/import edges and community clusters — rebuilt by [graphify](https://github.com/safishamsi/graphify) and deployed to GitHub Pages on every push to `src/`:
+
+**[abrahamadsk.github.io/fpt-mcp](https://abrahamadsk.github.io/fpt-mcp/)** · part of the [MCP ecosystem graph hub](https://abrahamadsk.github.io/mcp-graphs/).
+
 MCP server for **Autodesk Flow Production Tracking** (formerly ShotGrid).
 
 Gives any MCP-compatible AI assistant (Claude Desktop, Claude Code, or any MCP client) full access to the ShotGrid API, Toolkit path resolution, and a RAG-powered knowledge engine that prevents common API hallucinations.
