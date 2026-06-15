@@ -19,6 +19,7 @@ import os
 from typing import Any
 
 from fpt_mcp.models import TkPublishInput, TkResolvePathInput
+from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
 from fpt_mcp.tk_config import TkConfigError
 
 
@@ -210,6 +211,23 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
 
         # Copy source file if provided
         if params.local_path and publish_path:
+            # Path-containment guard: anchor the write destination on an
+            # allowed project root BEFORE fabricating any directory chain or
+            # copying bytes. Allowed roots = the discovered project_root (when
+            # a PipelineConfiguration resolved) ∪ FPT_MCP_ALLOWED_WRITE_ROOTS.
+            # Mode 1 (template-resolved) passes by construction. Default policy
+            # is WARN (log + allow, so no current workflow breaks); a hard
+            # refusal happens only under FPT_MCP_STRICT_PATHS=1. See
+            # proposals/fpt-path-containment-allowlist.md.
+            allowed_roots = resolve_allowed_roots(
+                tk_config.project_root if tk_config is not None else None
+            )
+            containment_error = enforce_write_containment(
+                publish_path, allowed_roots, tool_name="tk_publish"
+            )
+            if containment_error:
+                return json.dumps({"error": containment_error})
+
             import shutil
             publish_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(params.local_path, str(publish_path))

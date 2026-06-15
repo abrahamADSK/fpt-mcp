@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Write-path containment for `tk_publish` / `sg_download`** (`paths.py`) —
+  the two tools that write attacker-influenceable bytes to
+  attacker-influenceable locations now anchor every write destination on a
+  legitimate project root before the `shutil.copy2` (tk_publish) / attachment
+  download (sg_download). Containment is computed on the *real* path
+  (`os.path.realpath` + `Path.is_relative_to`), so it catches dot-dot
+  traversal, **absolute escapes with no `..`** (`/etc/passwd`), and symlink
+  escapes that the detection-only `safety.py` regex cannot. The copy *source*
+  (`local_path`) is intentionally not contained yet (documented follow-up),
+  and `safety.py` keeps its traversal regex as a detection-only pre-filter.
+  - **`FPT_MCP_ALLOWED_WRITE_ROOTS`** (`os.pathsep`-separated absolute roots) —
+    the operator allowlist. Allowed roots = the discovered
+    `TkConfig.project_root` (when a PipelineConfiguration resolves) UNION this
+    list. Mode-1 publishes pass by construction.
+  - **`FPT_MCP_STRICT_PATHS`** — enforcement switch. **Default is WARN**: an
+    out-of-root destination logs a structured warning via the existing logger
+    and is *allowed*, so no current workflow breaks and the existing Mode-2
+    tests stay green. Set `FPT_MCP_STRICT_PATHS=1` to turn it into a hard
+    refusal (`{"error": ...}`, nothing written, no directory chain fabricated).
+  - New `tests/test_path_containment.py` (predicate + WARN/STRICT policy +
+    `tk_publish`/`sg_download` integration) and a `path_containment_guard`
+    entry in `.concepts.yml`.
+
 ### Changed
 - CI: Python 3.13 added to the test matrix.
 

@@ -38,6 +38,8 @@ LLMs hallucinate ShotGrid API details constantly — invalid filter operators, w
 
 The `safety.py` module scans every tool call before execution against twelve regex patterns that cover the most destructive operations: bulk delete without specific IDs, unfiltered queries with no limit, path traversal in publish paths, PublishedFile deletion, invalid filter operators, large batch operations, and schema modifications. Blocked operations return a warning with a safe alternative — they never reach the ShotGrid API.
 
+The two tools that actually write files — `tk_publish` (copies a source file to a publish path) and `sg_download` (writes a downloaded attachment) — additionally enforce **write-path containment** via `paths.py`. Each write destination is anchored on a legitimate project root before any bytes are written, computed on the *real* path (`os.path.realpath` + `Path.is_relative_to`), so it catches dot-dot traversal, absolute escapes with no `..` (e.g. `/etc/passwd`), and symlink escapes that the detection-only `safety.py` regex cannot. Allowed roots = the discovered `TkConfig.project_root` (when a PipelineConfiguration resolves) plus the `FPT_MCP_ALLOWED_WRITE_ROOTS` allowlist. The default policy is **warn-and-allow** (a destination outside the roots is logged and permitted, so existing workflows are unaffected); set `FPT_MCP_STRICT_PATHS=1` to turn it into a hard refusal that writes nothing. See [`FPT_MCP_ALLOWED_WRITE_ROOTS` / `FPT_MCP_STRICT_PATHS`](#optional-server-behaviour-env-vars) below.
+
 ### Qt Console and Protocol Handler
 
 fpt-mcp ships a native PySide6 chat window that routes messages through the Claude Code CLI and renders responses with full Markdown support. The console registers the `fpt-mcp://` custom URL scheme on macOS, which means a ShotGrid Action Menu Item can open a chat window with full entity context (entity type, ID, project) pre-populated in a single click — no browser tab, no copy-paste of IDs.
@@ -129,6 +131,13 @@ SHOTGRID_PROJECT_ID=123
 - `SHOTGRID_PROJECT_ID` — integer ID of the project you work in most often. Used as a default filter for `sg_find`, `sg_create`, `sg_upload`, and as the key for Toolkit `PipelineConfiguration` lookup. Set to `0` to disable the default filter (every call must then specify project explicitly).
 
 After editing `.env`, restart any running fpt-mcp process (Qt console, MCP server) so it picks up the new values.
+
+### Optional: server-behaviour env vars
+
+These are optional and control server-side behaviour, not ShotGrid identity:
+
+- `FPT_MCP_ALLOWED_WRITE_ROOTS` — `os.pathsep`-separated list of absolute directory roots that `tk_publish` and `sg_download` are permitted to write under. The effective allowlist is this list UNION the discovered `TkConfig.project_root` (when a PipelineConfiguration resolves). Leave unset to rely solely on the discovered project root (or, with no config, no root — see the policy below).
+- `FPT_MCP_STRICT_PATHS` — set to `1` to **enforce** write-path containment: a destination outside the allowed roots is refused with an `{"error": ...}` and nothing is written. **Default (unset / any other value) is warn-and-allow**: the out-of-root destination is logged and the write proceeds, so no existing workflow breaks. Turn this on once you have declared your write roots via `FPT_MCP_ALLOWED_WRITE_ROOTS`.
 
 The installer scripts now detect placeholder values left in `.env` and emit a visible warning at the end of the install. The MCP server itself will also refuse to start with a clear error message pointing to `.env` if placeholders remain. Both safeguards exist specifically to prevent confusing SSL errors on the first real call.
 

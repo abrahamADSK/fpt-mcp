@@ -58,6 +58,13 @@ Claude Desktop / Claude Code / Terminal
 - 12+ regex patterns detecting dangerous operations before execution
 - Integrated into sg_find and fpt_bulk delete (highest-risk tools)
 - Detects: bulk delete, empty filters without limit, path traversal, schema modification, entity format errors, invalid filter operators
+- Detection-only: it flags `..` in a serialized string but cannot reason about where a path lands. Real write-containment lives in `paths.py` (see below).
+
+**Write-path containment** (`paths.py`):
+- The two file-writing tools — `tk_publish` (`shutil.copy2`) and `sg_download` (attachment write) — anchor every destination on a legitimate project root before writing.
+- Containment is computed on the *real* path (`os.path.realpath` + `Path.is_relative_to`), catching `..` traversal, absolute escapes with no `..` (`/etc/passwd`), and symlink escapes the `safety.py` regex misses.
+- Allowed roots = discovered `TkConfig.project_root` (when a PipelineConfiguration resolves) ∪ `FPT_MCP_ALLOWED_WRITE_ROOTS` (`os.pathsep`-separated). Mode-1 publishes pass by construction.
+- Policy: **WARN by default** (out-of-root destination logged + allowed, so no workflow breaks); `FPT_MCP_STRICT_PATHS=1` makes it a hard refusal (`{"error": ...}`, nothing written). The copy *source* (`local_path`) is not contained yet (follow-up).
 
 ### RAG Technologies
 
@@ -119,16 +126,18 @@ Mode 1 (with PipelineConfiguration):
 3. Build template fields from SG entity context
 4. tk_config.next_version → auto-increment by scanning filesystem
 5. tk_config.resolve_path → full path
-6. shutil.copy2 → copy source file if local_path provided
-7. sg_find_one("PublishedFileType") → find or create if missing
-8. sg_find_one("Task") → link with pipeline step task
-9. sg_create("PublishedFile") → register in ShotGrid
+6. paths.ensure_within_roots → containment check (no-op success: path is under project_root)
+7. shutil.copy2 → copy source file if local_path provided
+8. sg_find_one("PublishedFileType") → find or create if missing
+9. sg_find_one("Task") → link with pipeline step task
+10. sg_create("PublishedFile") → register in ShotGrid
 
 Mode 2 (explicit path, no PipelineConfiguration):
 1. User provides publish_path directly
-2. shutil.copy2 → copy source file if local_path provided
-3. sg_find_one("PublishedFileType") → find or create
-4. sg_create("PublishedFile") → register with explicit path
+2. paths.enforce_write_containment → WARN-by-default guard (refuses only under FPT_MCP_STRICT_PATHS=1)
+3. shutil.copy2 → copy source file if local_path provided
+4. sg_find_one("PublishedFileType") → find or create
+5. sg_create("PublishedFile") → register with explicit path
 ```
 
 ### Distributed configs (TODO phase 2)
