@@ -20,9 +20,11 @@ from typing import Any
 
 from fpt_mcp.models import TkPublishInput, TkResolvePathInput
 from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
+from fpt_mcp.sg_errors import sg_errors_to_json
 from fpt_mcp.tk_config import TkConfigError
 
 
+@sg_errors_to_json
 async def tk_resolve_path_impl(params: TkResolvePathInput) -> str:
     """Body of tk_resolve_path_tool. See server.py for user-facing docstring."""
     # Lazy imports: tests patch these on fpt_mcp.server, so going through
@@ -65,6 +67,7 @@ async def tk_resolve_path_impl(params: TkResolvePathInput) -> str:
         return json.dumps({"error": str(e)})
 
 
+@sg_errors_to_json
 async def tk_publish_impl(params: TkPublishInput) -> str:
     """Body of tk_publish_tool. See server.py for user-facing docstring."""
     from pathlib import Path as _Path

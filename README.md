@@ -40,6 +40,21 @@ The `safety.py` module scans every tool call before execution against twelve reg
 
 The two tools that actually write files — `tk_publish` (copies a source file to a publish path) and `sg_download` (writes a downloaded attachment) — additionally enforce **write-path containment** via `paths.py`. Each write destination is anchored on a legitimate project root before any bytes are written, computed on the *real* path (`os.path.realpath` + `Path.is_relative_to`), so it catches dot-dot traversal, absolute escapes with no `..` (e.g. `/etc/passwd`), and symlink escapes that the detection-only `safety.py` regex cannot. Allowed roots = the discovered `TkConfig.project_root` (when a PipelineConfiguration resolves) plus the `FPT_MCP_ALLOWED_WRITE_ROOTS` allowlist. The default policy is **warn-and-allow** (a destination outside the roots is logged and permitted, so existing workflows are unaffected); set `FPT_MCP_STRICT_PATHS=1` to turn it into a hard refusal that writes nothing. See [`FPT_MCP_ALLOWED_WRITE_ROOTS` / `FPT_MCP_STRICT_PATHS`](#optional-server-behaviour-env-vars) below.
 
+### Structured ShotGrid error responses
+
+When a ShotGrid call fails on authentication, connectivity, or a protocol error, the tool no longer surfaces an opaque `Error executing tool ...` string. Instead `sg_errors.py` translates the `shotgun_api3` fault family (`AuthenticationFault`, `Fault`, `MissingTwoFactorAuthenticationFault`, `ProtocolError`, `ResponseError`, `ShotgunFileDownloadError`) plus the underlying socket/`urllib`/SSL/timeout errors — and the credential `EnvironmentError` raised at startup by `_validate_config` — into a consistent JSON object the model can branch on:
+
+```json
+{
+  "error": "<scrubbed, truncated server message>",
+  "error_type": "authentication_failed",
+  "hint": "ShotGrid rejected the credentials. Check SHOTGRID_SCRIPT_NAME / SHOTGRID_SCRIPT_KEY in .env (SG Admin -> Scripts) ...",
+  "retryable": false
+}
+```
+
+`error_type` is a stable machine-readable class (`authentication_failed`, `two_factor_required`, `sso_credentials_rejected`, `shotgrid_api_fault`, `protocol_error`, `malformed_response`, `download_failed`, `ssl_error`, `timeout`, `connection_error`, `config_error`), `hint` is concrete remediation guidance, and `retryable` is an **advisory** label (the server does not auto-retry — a 5xx/timeout is worth retrying, a bad key is not). The translation is applied by the `@sg_errors_to_json` decorator at the `*_impl` / `*_do_*` tool-boundary layer, reusing the standard top-level `error` key so the result is counted as a failed turn (p_fallo) and skips suggestion annotation like every other error path. The echoed server message is scrubbed of credential-shaped tokens and truncated to 300 characters. Unrecognised exceptions (genuine bugs) are re-raised with their traceback rather than swallowed.
+
 ### Qt Console and Protocol Handler
 
 fpt-mcp ships a native PySide6 chat window that routes messages through the Claude Code CLI and renders responses with full Markdown support. The console registers the `fpt-mcp://` custom URL scheme on macOS, which means a ShotGrid Action Menu Item can open a chat window with full entity context (entity type, ID, project) pre-populated in a single click — no browser tab, no copy-paste of IDs.

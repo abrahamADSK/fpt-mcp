@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Structured ShotGrid fault → JSON at the tool boundary** (`sg_errors.py`) —
+  `shotgun_api3` faults (`AuthenticationFault`, `Fault`,
+  `MissingTwoFactorAuthenticationFault`,
+  `UserCredentialsNotAllowedForSSOAuthenticationFault`, `ProtocolError`,
+  `ResponseError`, `ShotgunFileDownloadError`) and the underlying
+  socket/`urllib`/SSL/timeout errors — plus the credential `EnvironmentError`
+  raised by `client._validate_config` — are now translated into the repo's
+  standard structured-error JSON `{error, error_type, hint, retryable}` instead
+  of propagating as an opaque `ToolError` string. A new `@sg_errors_to_json`
+  async decorator is applied to the 16 str-returning `*_impl` / `*_do_*`
+  tool-boundary functions across `shotgrid.py`, `reporting.py`,
+  `toolkit_tools.py`, and `launcher.py`. `client._sg_call` is left **untouched**
+  (it returns raw SDK data mid-pipeline, so catching there would corrupt the
+  data contract — it keeps logging the traceback and re-raising).
+  - `error_type` is a stable machine-readable class; `hint` carries concrete
+    remediation guidance; `retryable` is an **advisory** label only (no
+    auto-retry).
+  - **OPSEC**: the echoed server message is scrubbed of credential-shaped
+    tokens (`api_key` / `script_key` / `password` / `secret` / `token` / `key`
+    `=`/`:` values) and truncated to 300 chars; a message that merely *names* a
+    field (e.g. the common `AuthenticationFault` string) is left intact.
+  - Unrecognised exceptions are **re-raised** with their traceback (a genuine
+    `KeyError`/`TypeError` bug is never swallowed).
+  - Free correctness win: faults now flow through the dispatcher `_count_turn`,
+    so auth/connection failures are finally counted toward `p_fallo` (they
+    previously bypassed it by unwinding the wrapper).
+  - New `tests/test_sg_errors.py` (31 cases) and an `sg_fault_error_contract`
+    entry in `.concepts.yml`. Kept fpt-specific for now; porting the decorator
+    to flame-mcp / maya-mcp as a shared helper is a documented follow-up.
 - **Write-path containment for `tk_publish` / `sg_download`** (`paths.py`) —
   the two tools that write attacker-influenceable bytes to
   attacker-influenceable locations now anchor every write destination on a

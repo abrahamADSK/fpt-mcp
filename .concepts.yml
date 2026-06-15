@@ -298,6 +298,59 @@ concepts:
           file_pattern: 'src/fpt_mcp/shotgrid.py'
         expected: found
 
+  sg_fault_error_contract:
+    description: >
+      ShotGrid faults (AuthenticationFault / Fault / ProtocolError / connection
+      / timeout errors) and the EnvironmentError from client._validate_config
+      are translated to the standard structured-error JSON
+      {error, error_type, hint, retryable} by sg_errors.sg_errors_to_json,
+      applied at the *_impl / *_do_* tool-boundary layer (16 functions across
+      shotgrid.py, reporting.py, toolkit_tools.py, launcher.py). client._sg_call
+      is left UNTOUCHED — it returns raw SDK data mid-pipeline and must keep
+      logging the traceback + re-raising, never returning an error object.
+      Prevents regressions where a new SG tool leaks a raw traceback to the LLM.
+    source_of_truth:
+      file: src/fpt_mcp/sg_errors.py
+      symbol: sg_errors_to_json
+    mirrors:
+      - file: src/fpt_mcp/shotgrid.py
+        symbol: "@sg_errors_to_json decorated impls"
+      - file: src/fpt_mcp/reporting.py
+        symbol: "@sg_errors_to_json decorated handlers"
+      - file: src/fpt_mcp/toolkit_tools.py
+        symbol: "@sg_errors_to_json decorated impls"
+      - file: src/fpt_mcp/launcher.py
+        symbol: "@sg_errors_to_json decorated impl"
+    invariants:
+      - id: sg_errors_module_exists
+        type: file_exists
+        path: src/fpt_mcp/sg_errors.py
+        context: sg_fault_error_contract source of truth
+
+      - id: sg_errors_decorator_defined
+        type: claim_verifies
+        claim: "sg_errors_to_json decorator is defined in sg_errors.py"
+        code_grep:
+          regex: 'def sg_errors_to_json'
+          file_pattern: 'src/fpt_mcp/sg_errors.py'
+        expected: found
+
+      - id: impls_are_decorated
+        type: claim_verifies
+        claim: "SG-touching impls are decorated with @sg_errors_to_json"
+        code_grep:
+          regex: '@sg_errors_to_json'
+          file_pattern: 'src/fpt_mcp'
+        expected: found
+
+      - id: sg_call_does_not_serialize_errors
+        type: claim_verifies
+        claim: "client._sg_call re-raises (does NOT import/return the error serializer)"
+        code_grep:
+          regex: 'sg_errors'
+          file_pattern: 'src/fpt_mcp/client.py'
+        expected: not_found
+
   vision3d_zero_persistence:
     description: >
       Vision3D URL policy — zero persistence. fpt-mcp must NEVER persist a
