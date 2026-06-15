@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-06-15
+
 ### Added
 - **`fpt_launch_app` launches Flame in context** (P3, Chat 65) — closing
   the gap where the resolver only scanned for Maya and every
