@@ -38,8 +38,10 @@ from fpt_mcp.models import (
     SgUpdateInput,
     SgUploadInput,
 )
+from fpt_mcp.sg_errors import sg_errors_to_json
 
 
+@sg_errors_to_json
 async def sg_find_impl(params: SgFindInput) -> str:
     """Body of sg_find_tool. See server.py for user-facing docstring."""
     from fpt_mcp.server import (
@@ -86,6 +88,7 @@ async def sg_find_impl(params: SgFindInput) -> str:
     return json.dumps(payload, default=str)
 
 
+@sg_errors_to_json
 async def sg_create_impl(params: SgCreateInput) -> str:
     """Body of sg_create_tool."""
     from fpt_mcp.server import (
@@ -110,6 +113,7 @@ async def sg_create_impl(params: SgCreateInput) -> str:
     return json.dumps(payload, default=str)
 
 
+@sg_errors_to_json
 async def sg_update_impl(params: SgUpdateInput) -> str:
     """Body of sg_update_tool."""
     from fpt_mcp.server import (
@@ -133,6 +137,7 @@ async def sg_update_impl(params: SgUpdateInput) -> str:
     return json.dumps(payload, default=str)
 
 
+@sg_errors_to_json
 async def sg_schema_impl(params: SgSchemaInput) -> str:
     """Body of sg_schema_tool."""
     from fpt_mcp.server import sg_schema_field_read
@@ -148,6 +153,7 @@ async def sg_schema_impl(params: SgSchemaInput) -> str:
     return json.dumps(summary, default=str)
 
 
+@sg_errors_to_json
 async def sg_upload_impl(params: SgUploadInput) -> str:
     """Body of sg_upload_tool."""
     from fpt_mcp.server import sg_upload, sg_upload_thumbnail
@@ -167,6 +173,7 @@ async def sg_upload_impl(params: SgUploadInput) -> str:
     })
 
 
+@sg_errors_to_json
 async def sg_download_impl(params: SgDownloadInput) -> str:
     """Body of sg_download_tool."""
     from fpt_mcp.server import sg_download_attachment, sg_find_one
@@ -207,6 +214,7 @@ async def sg_download_impl(params: SgDownloadInput) -> str:
 # ---------------------------------------------------------------------------
 
 
+@sg_errors_to_json
 async def _do_sg_delete(params: dict) -> str:
     """Delete (retire) an entity. Soft-delete — can be restored."""
     from pydantic import ValidationError
@@ -237,6 +245,7 @@ async def _do_sg_delete(params: dict) -> str:
     return json.dumps(payload)
 
 
+@sg_errors_to_json
 async def _do_sg_batch(params: dict) -> str:
     """Execute multiple ShotGrid operations in a single transactional call."""
     from pydantic import ValidationError
@@ -271,6 +280,7 @@ async def _do_sg_batch(params: dict) -> str:
     return json.dumps(results, default=str)
 
 
+@sg_errors_to_json
 async def _do_sg_revive(params: dict) -> str:
     """Restore a soft-deleted (retired) entity."""
     from pydantic import ValidationError

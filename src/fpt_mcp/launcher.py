@@ -19,6 +19,7 @@ import subprocess
 from typing import Any, Optional
 
 from fpt_mcp.models import FptLaunchAppInput
+from fpt_mcp.sg_errors import sg_errors_to_json
 
 # Stone+Wire project lister — authoritative local Flame project source
 # (all volumes, runs as the current user, works with the Flame GUI closed).
@@ -217,6 +218,7 @@ def _compose_flame_direct(
     return None
 
 
+@sg_errors_to_json
 async def fpt_launch_app_impl(params: FptLaunchAppInput) -> str:
     """Launch a DCC application scoped to a ShotGrid entity.
 

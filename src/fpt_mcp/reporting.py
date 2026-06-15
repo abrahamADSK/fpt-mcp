@@ -23,8 +23,10 @@ from fpt_mcp.models import (
     SgSummarizeInput,
     SgTextSearchInput,
 )
+from fpt_mcp.sg_errors import sg_errors_to_json
 
 
+@sg_errors_to_json
 async def _do_sg_text_search(params: dict) -> str:
     """Full-text search across multiple entity types simultaneously."""
     from pydantic import ValidationError
@@ -54,6 +56,7 @@ async def _do_sg_text_search(params: dict) -> str:
     return json.dumps(payload, default=str)
 
 
+@sg_errors_to_json
 async def _do_sg_summarize(params: dict) -> str:
     """Server-side aggregation: count, sum, avg, min, max with optional grouping."""
     from pydantic import ValidationError
@@ -73,6 +76,7 @@ async def _do_sg_summarize(params: dict) -> str:
     return json.dumps(results, default=str)
 
 
+@sg_errors_to_json
 async def _do_sg_note_thread(params: dict) -> str:
     """Read the full reply thread of a Note."""
     from pydantic import ValidationError
@@ -87,6 +91,7 @@ async def _do_sg_note_thread(params: dict) -> str:
     return json.dumps(results, default=str)
 
 
+@sg_errors_to_json
 async def _do_sg_activity(params: dict) -> str:
     """Read the activity stream for an entity."""
     from pydantic import ValidationError
