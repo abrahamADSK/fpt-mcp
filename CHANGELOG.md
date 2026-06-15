@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-06-15
+
 ### Added
 - **Copy-source exfiltration guard for `tk_publish`** (`paths.py`
   `enforce_read_containment`) — the publish copy *source* (`local_path`) is now
