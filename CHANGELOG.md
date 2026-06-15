@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-06-15
+
 ### Added
 - **Structured ShotGrid fault → JSON at the tool boundary** (`sg_errors.py`) —
   `shotgun_api3` faults (`AuthenticationFault`, `Fault`,
