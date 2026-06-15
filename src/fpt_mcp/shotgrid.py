@@ -170,6 +170,7 @@ async def sg_upload_impl(params: SgUploadInput) -> str:
 async def sg_download_impl(params: SgDownloadInput) -> str:
     """Body of sg_download_tool."""
     from fpt_mcp.server import sg_download_attachment, sg_find_one
+    from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
 
     entity = await sg_find_one(
         params.entity_type,
@@ -182,6 +183,21 @@ async def sg_download_impl(params: SgDownloadInput) -> str:
         })
 
     attachment = entity[params.field_name]
+
+    # Path-containment guard: anchor the download destination on an allowed
+    # root BEFORE writing the file. sg_download has no PipelineConfiguration in
+    # scope, so the allowed set is FPT_MCP_ALLOWED_WRITE_ROOTS only (env-only,
+    # per the proposal's sketch; discovering a project_root here is a documented
+    # follow-up). Default policy is WARN (log + allow); a hard refusal happens
+    # only under FPT_MCP_STRICT_PATHS=1. See
+    # proposals/fpt-path-containment-allowlist.md.
+    allowed_roots = resolve_allowed_roots(None)
+    containment_error = enforce_write_containment(
+        params.download_path, allowed_roots, tool_name="sg_download"
+    )
+    if containment_error:
+        return json.dumps({"error": containment_error})
+
     path = await sg_download_attachment(attachment, params.download_path)
     return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
 

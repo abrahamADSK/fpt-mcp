@@ -256,6 +256,48 @@ concepts:
           file_pattern: 'src/fpt_mcp/server.py'
         expected: found
 
+  path_containment_guard:
+    description: >
+      File-writing tools (tk_publish, sg_download) contain their write
+      destination to an allowed project root before writing. The guard lives
+      in paths.py (ensure_within_roots + enforce_write_containment; WARN by
+      default, hard refusal under FPT_MCP_STRICT_PATHS=1) and is called from
+      both tool impls. Allowed roots = discovered TkConfig.project_root ∪
+      FPT_MCP_ALLOWED_WRITE_ROOTS. safety.py keeps its path-traversal regex as
+      a detection-only pre-filter (paths.py is the real containment boundary).
+    source_of_truth:
+      file: src/fpt_mcp/paths.py
+      symbol: ensure_within_roots
+    mirrors:
+      - file: src/fpt_mcp/toolkit_tools.py
+        symbol: tk_publish_impl
+      - file: src/fpt_mcp/shotgrid.py
+        symbol: sg_download_impl
+    invariants:
+      - id: containment_helper_present
+        type: claim_verifies
+        claim: "ensure_within_roots() exists in paths.py"
+        code_grep:
+          regex: 'def ensure_within_roots'
+          file_pattern: 'src/fpt_mcp/paths.py'
+        expected: found
+
+      - id: tk_publish_calls_containment
+        type: claim_verifies
+        claim: "tk_publish_impl enforces path containment before writing"
+        code_grep:
+          regex: 'enforce_write_containment'
+          file_pattern: 'src/fpt_mcp/toolkit_tools.py'
+        expected: found
+
+      - id: sg_download_calls_containment
+        type: claim_verifies
+        claim: "sg_download_impl enforces path containment before writing"
+        code_grep:
+          regex: 'enforce_write_containment'
+          file_pattern: 'src/fpt_mcp/shotgrid.py'
+        expected: found
+
   vision3d_zero_persistence:
     description: >
       Vision3D URL policy — zero persistence. fpt-mcp must NEVER persist a
