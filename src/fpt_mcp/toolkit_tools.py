@@ -19,7 +19,11 @@ import os
 from typing import Any
 
 from fpt_mcp.models import TkPublishInput, TkResolvePathInput
-from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
+from fpt_mcp.paths import (
+    enforce_read_containment,
+    enforce_write_containment,
+    resolve_allowed_roots,
+)
 from fpt_mcp.sg_errors import sg_errors_to_json
 from fpt_mcp.tk_config import TkConfigError
 
@@ -230,6 +234,17 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
             )
             if containment_error:
                 return json.dumps({"error": containment_error})
+
+            # Read-side guard: a publish source legitimately comes from anywhere
+            # (~/Desktop, /tmp), so it is NOT allowlisted on the project roots.
+            # Instead refuse copying from credential stores (~/.ssh, ~/.aws,
+            # /etc, …) — the exfiltration vector where a crafted local_path would
+            # copy a secret into tracked storage. Always on, non-breaking.
+            source_error = enforce_read_containment(
+                params.local_path, tool_name="tk_publish (copy source)",
+            )
+            if source_error:
+                return json.dumps({"error": source_error})
 
             import shutil
             publish_path.parent.mkdir(parents=True, exist_ok=True)

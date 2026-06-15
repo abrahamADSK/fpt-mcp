@@ -47,9 +47,12 @@ Notes
 -----
 * ``safety.py`` keeps its path-traversal regex as a *detection-only*
   pre-filter; this module is the real containment boundary.
-* The copy *source* (``tk_publish.local_path``) is intentionally NOT
-  contained in this iteration — tracked as a follow-up in the proposal
-  (reading an arbitrary file is a lesser, separate issue).
+* The copy *source* (``tk_publish.local_path``) is guarded by
+  :func:`enforce_read_containment` — NOT an allowlist (a source legitimately
+  comes from anywhere) but a credential-store **denylist** (``~/.ssh``,
+  ``~/.aws``, ``/etc``, …), always on and non-breaking. It closes the read-side
+  exfiltration vector where a crafted ``local_path`` would copy a secret into
+  ShotGrid-managed storage.
 """
 
 from __future__ import annotations
@@ -204,3 +207,71 @@ def enforce_write_containment(
             _STRICT_ENV, tool_name, exc.attempted, roots_str,
         )
         return None
+
+
+# Credential-bearing locations a legitimate publish SOURCE is NEVER read from.
+# Directory-component matching (not extension matching) keeps false positives at
+# ~zero: no pipeline artifact lives under ~/.ssh, yet ``.key`` would clash with
+# Apple Keynote and ``.pem`` is too coarse, so only unambiguous signals are used.
+_SENSITIVE_DIR_NAMES = frozenset({
+    ".ssh", ".aws", ".gnupg", ".gcloud", ".azure", ".docker",
+    ".kube", ".password-store",
+})
+#: Unambiguous credential filenames (private keys, login/cred stores, dotenv).
+_SENSITIVE_BASENAMES = frozenset({
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+    ".netrc", ".pgpass", ".env", "credentials",
+})
+
+
+def _is_sensitive_source(real: Path) -> bool:
+    """Return ``True`` when *real* (an already-``realpath``'d path) is a known
+    credential store no legitimate publish source would ever point at."""
+    if set(real.parts) & _SENSITIVE_DIR_NAMES:
+        return True
+    if real.name in _SENSITIVE_BASENAMES:
+        return True
+    real_str = str(real)
+    return real_str.startswith("/etc/") or real_str.startswith("/private/etc/")
+
+
+def enforce_read_containment(
+    candidate: Union[str, Path],
+    *,
+    tool_name: str,
+) -> Optional[str]:
+    """Guard the copy/read SOURCE of ``tk_publish`` against credential exfil.
+
+    Unlike a write *destination* — which legitimately must land inside the
+    project tree — a publish *source* legitimately comes from anywhere (an
+    artist's ``~/Desktop``, a scratch render dir, ``/tmp``). So this does NOT
+    allowlist the source on the project roots (that would break the normal
+    "publish a file from wherever I saved it" workflow, and is why the audit
+    deferred a naive allowlist here).
+
+    Instead it refuses copying from a small set of credential-bearing locations
+    (``~/.ssh``, ``~/.aws``, ``~/.gnupg``, ``/etc``, …) that no legitimate
+    pipeline artifact is ever read from — closing the exfiltration vector where
+    an LLM steered by hostile production data copies a secret into
+    ShotGrid-managed storage and registers it as a PublishedFile.
+
+    This guard is **always on** (independent of ``FPT_MCP_STRICT_PATHS``): it
+    only ever blocks reads that cannot be legitimate, so it is non-breaking by
+    construction. Matching is on the ``realpath`` so ``..`` / symlink tricks
+    cannot dodge it.
+
+    Returns:
+        ``None`` to allow the copy; an error ``str`` to refuse it (the caller
+        serializes it into the ``{"error": ...}`` envelope and copies nothing).
+    """
+    real = Path(os.path.realpath(str(candidate)))
+    if _is_sensitive_source(real):
+        _logger.warning(
+            "path containment BLOCK tool=%s copy_source=%s reason=credential_store",
+            tool_name, real,
+        )
+        return (
+            f"Refused: copy source '{real}' is a credential-bearing location; "
+            f"publishing from key/secret stores ({tool_name}) is never permitted."
+        )
+    return None

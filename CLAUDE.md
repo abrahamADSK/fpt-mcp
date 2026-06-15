@@ -63,8 +63,12 @@ Claude Desktop / Claude Code / Terminal
 **Write-path containment** (`paths.py`):
 - The two file-writing tools — `tk_publish` (`shutil.copy2`) and `sg_download` (attachment write) — anchor every destination on a legitimate project root before writing.
 - Containment is computed on the *real* path (`os.path.realpath` + `Path.is_relative_to`), catching `..` traversal, absolute escapes with no `..` (`/etc/passwd`), and symlink escapes the `safety.py` regex misses.
-- Allowed roots = discovered `TkConfig.project_root` (when a PipelineConfiguration resolves) ∪ `FPT_MCP_ALLOWED_WRITE_ROOTS` (`os.pathsep`-separated). Mode-1 publishes pass by construction.
-- Policy: **WARN by default** (out-of-root destination logged + allowed, so no workflow breaks); `FPT_MCP_STRICT_PATHS=1` makes it a hard refusal (`{"error": ...}`, nothing written). The copy *source* (`local_path`) is not contained yet (follow-up).
+- Allowed roots = discovered `TkConfig.project_root` (when a PipelineConfiguration resolves) ∪ `FPT_MCP_ALLOWED_WRITE_ROOTS` (`os.pathsep`-separated). Mode-1 publishes pass by construction. `sg_download` also auto-discovers the project root from `SHOTGRID_PROJECT_ID` (best-effort — any discovery failure silently falls back to the env allowlist and never blocks the download), so a single-project install gets containment for free.
+- Policy: **WARN by default** (out-of-root destination logged + allowed, so no workflow breaks); `FPT_MCP_STRICT_PATHS=1` makes it a hard refusal (`{"error": ...}`, nothing written). The copy *source* (`local_path`) is guarded separately by a credential-store **denylist** (`enforce_read_containment` — `~/.ssh`, `~/.aws`, `~/.gnupg`, `/etc`, …): **always on and non-breaking**, since a publish source legitimately comes from anywhere but never from a key store. It closes the read-side exfiltration vector.
+
+**Error sanitisation** (`error_scrub.py`):
+- Exception text echoed to the model at the tool boundary is scrubbed of credential-shaped tokens and length-bounded (300 chars).
+- This OPSEC primitive is a **shared, byte-identical ecosystem helper** (canonical `~/Projects/error_scrub_canonical.py`); `sg_errors.py` consumes it, and flame-mcp / maya-mcp carry the same copy. The ShotGrid `Fault`→`{error,error_type,hint,retryable}` *taxonomy* stays fpt-specific (flame/maya never raise `Fault`s).
 
 ### RAG Technologies
 

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Copy-source exfiltration guard for `tk_publish`** (`paths.py`
+  `enforce_read_containment`) — the publish copy *source* (`local_path`) is now
+  refused when it points at a credential-bearing location (`~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `~/.gcloud`, `~/.azure`, `~/.docker`, `~/.kube`,
+  `~/.password-store`, the unambiguous key/cred basenames, and `/etc`). This
+  closes the read-side exfiltration vector where an LLM steered by hostile
+  production data copies a secret into ShotGrid-managed storage and registers it
+  as a PublishedFile. Unlike the write *destination* guard it is **not** an
+  allowlist (a publish source legitimately comes from anywhere — `~/Desktop`,
+  `/tmp`) but a credential **denylist**, matched on the `realpath` (defeats
+  `..`/symlink tricks), **always on and non-breaking** (it only ever blocks
+  reads that cannot be legitimate). Resolves the PR #8 deferred follow-up.
+- **`sg_download` auto-discovers the project root** for write containment —
+  it now resolves `TkConfig.project_root` from `SHOTGRID_PROJECT_ID`
+  (via `_get_tk_config`) and folds it into the allowed roots, so a
+  single-project install gets containment for free without configuring
+  `FPT_MCP_ALLOWED_WRITE_ROOTS`. Discovery is **best-effort**: a missing
+  `PROJECT_ID` or any discovery failure silently falls back to the env-only
+  allowlist and never blocks the download. Resolves the PR #8 deferred design.
+- **Shared OPSEC error-sanitisation helper** (`error_scrub.py`) — the
+  scrub-credential-tokens + truncate-to-300-chars primitive is extracted into a
+  byte-identical ecosystem module (canonical `~/Projects/error_scrub_canonical.py`)
+  so flame-mcp / maya-mcp apply the exact same guard at their error boundaries.
+  `sg_errors.py` now consumes it (behaviour unchanged; `_safe_msg`/`_MAX_MSG`
+  preserved as thin aliases). The ShotGrid `Fault` *taxonomy* stays fpt-specific
+  (flame/maya never raise `Fault`s). Resolves the PR #9 "port as shared helper"
+  follow-up. New `tests/test_error_scrub.py` (10 cases) + 8 new
+  containment/discovery cases in `tests/test_path_containment.py`.
+
+### CI / Docs
+- **Code knowledge graph auto-publishes to GitHub Pages** on push to `src/**`
+  (`.github/workflows/graphify-pages.yml` + `scripts/graphify/`) using the
+  original force-directed layout and deterministic file-based community names
+  (no LLM key); README links the live graph. `src/graphify-out/` is gitignored.
+
 ## [1.13.0] — 2026-06-15
 
 ### Added

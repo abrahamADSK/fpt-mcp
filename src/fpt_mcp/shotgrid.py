@@ -176,7 +176,7 @@ async def sg_upload_impl(params: SgUploadInput) -> str:
 @sg_errors_to_json
 async def sg_download_impl(params: SgDownloadInput) -> str:
     """Body of sg_download_tool."""
-    from fpt_mcp.server import sg_download_attachment, sg_find_one
+    from fpt_mcp.server import _get_tk_config, sg_download_attachment, sg_find_one
     from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
 
     entity = await sg_find_one(
@@ -192,13 +192,22 @@ async def sg_download_impl(params: SgDownloadInput) -> str:
     attachment = entity[params.field_name]
 
     # Path-containment guard: anchor the download destination on an allowed
-    # root BEFORE writing the file. sg_download has no PipelineConfiguration in
-    # scope, so the allowed set is FPT_MCP_ALLOWED_WRITE_ROOTS only (env-only,
-    # per the proposal's sketch; discovering a project_root here is a documented
-    # follow-up). Default policy is WARN (log + allow); a hard refusal happens
-    # only under FPT_MCP_STRICT_PATHS=1. See
-    # proposals/fpt-path-containment-allowlist.md.
-    allowed_roots = resolve_allowed_roots(None)
+    # root BEFORE writing the file. Allowed roots = the discovered project_root
+    # for the current SHOTGRID_PROJECT_ID (so a single-project install gets
+    # containment for free, with no FPT_MCP_ALLOWED_WRITE_ROOTS to configure)
+    # UNION that env list. Discovery is best-effort enrichment: a missing
+    # PROJECT_ID or ANY discovery failure must NOT block the download, so it
+    # silently falls back to the env-only allowlist (prior behaviour). Default
+    # policy is WARN (log + allow); a hard refusal happens only under
+    # FPT_MCP_STRICT_PATHS=1. See proposals/fpt-path-containment-allowlist.md.
+    project_root = None
+    try:
+        tk_config = await _get_tk_config()
+        if tk_config is not None:
+            project_root = tk_config.project_root
+    except Exception:  # noqa: BLE001 - discovery is optional; never block the download
+        project_root = None
+    allowed_roots = resolve_allowed_roots(project_root)
     containment_error = enforce_write_containment(
         params.download_path, allowed_roots, tool_name="sg_download"
     )
