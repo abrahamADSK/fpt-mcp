@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import functools
 import json
-import re
 import socket
 import ssl
 import urllib.error
@@ -50,32 +49,25 @@ from typing import Any, Awaitable, Callable
 
 import shotgun_api3 as sg
 
-# Cap on how much raw server/exception text is echoed back to the model.
-_MAX_MSG = 300
+from fpt_mcp.error_scrub import MAX_ERROR_CHARS as _MAX_MSG
+from fpt_mcp.error_scrub import safe_error_message
 
-# Redact credential-shaped values embedded in a free-text exception message.
-# The common faults do NOT leak the key (e.g. AuthenticationFault is
-# "API read() invalid script_name or api_key" — it names the fields, not the
-# value), but `Fault` echoes arbitrary server text and `URLError` can embed a
-# full URL, so we scrub defensively. The key tokens mirror logging_config's
-# _SECRET_KEY_RE; longer alternatives are listed first so e.g. ``script_key``
-# is matched whole rather than as a trailing ``key``. Only a ``key=value`` /
-# ``key: value`` shape is redacted, so a helpful message that merely *names*
-# a field ("... or api_key") is left intact.
-_SECRET_VALUE_RE = re.compile(
-    r"(?i)\b(api_key|script_key|password|secret|token|key)\b(\s*[=:]\s*)(\S+)"
-)
+# OPSEC scrub + length cap now live in the shared ecosystem helper
+# ``fpt_mcp.error_scrub`` (canonical at ~/Projects/error_scrub_canonical.py) so
+# the same primitive guards the flame-mcp / maya-mcp error boundaries too. The
+# ShotGrid Fault *taxonomy* below stays fpt-specific (flame/maya never raise
+# Faults). ``_MAX_MSG`` is re-exported as an import alias for the existing tests
+# and the rule table below.
 
 
 def _safe_msg(exc: BaseException) -> str:
     """Scrub credential-shaped tokens and truncate the exception text.
 
-    Scrub first, then truncate, so a secret near the 300-char boundary cannot
-    be left half-exposed by the cut.
+    Thin wrapper over :func:`fpt_mcp.error_scrub.safe_error_message`; kept as a
+    module-local name so the rest of this module (and its tests) reference one
+    stable symbol. Scrub-then-truncate semantics are unchanged.
     """
-    text = str(exc) or exc.__class__.__name__
-    text = _SECRET_VALUE_RE.sub(r"\1\2***redacted***", text)
-    return text[:_MAX_MSG]
+    return safe_error_message(exc, _MAX_MSG)
 
 
 # (exception type, error_type, retryable, static hint). Ordered MOST-SPECIFIC

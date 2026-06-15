@@ -27,6 +27,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -34,6 +35,7 @@ import pytest
 from fpt_mcp.paths import (
     PathContainmentError,
     ensure_within_roots,
+    enforce_read_containment,
     enforce_write_containment,
     is_strict_paths,
     resolve_allowed_roots,
@@ -530,3 +532,162 @@ class TestSgDownloadContainment:
 
         assert "error" not in result, result
         assert outside.exists()
+
+
+# ===========================================================================
+# 7. TestEnforceReadContainment — copy-source credential denylist (unit)
+# ===========================================================================
+
+class TestEnforceReadContainment:
+    """enforce_read_containment refuses credential-store sources, allows the rest."""
+
+    def test_ordinary_source_allowed(self, tmp_path):
+        """A normal file outside any project root is a valid publish source."""
+        src = tmp_path / "Desktop" / "render.exr"
+        src.parent.mkdir(parents=True)
+        src.write_text("img")
+        assert enforce_read_containment(src, tool_name="tk_publish") is None
+
+    @pytest.mark.parametrize("rel", [
+        ".ssh/id_rsa",
+        ".aws/credentials",
+        ".gnupg/secring.gpg",
+        ".kube/config",
+        ".env",
+    ])
+    def test_credential_store_refused(self, tmp_path, rel):
+        src = tmp_path / rel
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("secret")
+        err = enforce_read_containment(src, tool_name="tk_publish")
+        assert err is not None
+        assert "Refused" in err and "credential" in err.lower()
+
+    def test_refusal_is_independent_of_strict(self, tmp_path):
+        """The denylist is always on — not gated on FPT_MCP_STRICT_PATHS."""
+        # autouse fixture has cleared both env vars (neither WARN nor STRICT).
+        src = tmp_path / ".ssh" / "id_ed25519"
+        src.parent.mkdir(parents=True)
+        src.write_text("k")
+        assert enforce_read_containment(src, tool_name="tk_publish") is not None
+
+    def test_symlink_into_credential_store_refused(self, tmp_path):
+        """realpath resolution defeats a symlink pointing into ~/.ssh."""
+        real_secret = tmp_path / ".ssh" / "id_rsa"
+        real_secret.parent.mkdir(parents=True)
+        real_secret.write_text("k")
+        link = tmp_path / "innocent.ma"
+        link.symlink_to(real_secret)
+        assert enforce_read_containment(link, tool_name="tk_publish") is not None
+
+
+# ===========================================================================
+# 8. TestTkPublishSourceContainment — tk_publish refuses a credential source
+# ===========================================================================
+
+class TestTkPublishSourceContainment:
+    """tk_publish refuses a copy SOURCE that is a credential store (Mode 2)."""
+
+    def test_sensitive_source_refused_and_nothing_copied(self, tmp_path, monkeypatch):
+        # WARN default (no strict): destination is allowed, but the source is a
+        # secret → refused before any directory is fabricated or bytes copied.
+        sandbox = tmp_path / "sandbox"
+        sandbox.mkdir()
+        monkeypatch.setenv("FPT_MCP_ALLOWED_WRITE_ROOTS", str(sandbox))
+
+        secret = tmp_path / ".ssh" / "id_rsa"
+        secret.parent.mkdir(parents=True)
+        secret.write_text("PRIVATE KEY")
+        publish_path = sandbox / "publish" / "hero_v001.ma"
+
+        params = _make_publish_input(local_path=str(secret), publish_path=str(publish_path))
+        with _patch_tk_publish_no_config():
+            result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" in result
+        assert "credential" in result["error"].lower()
+        assert not (sandbox / "publish").exists()  # nothing fabricated/copied
+
+
+# ===========================================================================
+# 9. TestSgDownloadProjectRootDiscovery — single-project containment for free
+# ===========================================================================
+
+def _patch_sg_download_with_config(write_sink, project_root):
+    """Like _patch_sg_download but also makes _get_tk_config resolve a config
+    whose project_root feeds the allowed roots (single-project containment)."""
+    async def _find_one(entity_type, filters, fields):
+        return {"type": entity_type, "id": 1, "image": "http://example/thumb.png"}
+
+    async def _config():
+        return SimpleNamespace(project_root=Path(project_root))
+
+    return patch.multiple(
+        "fpt_mcp.server",
+        sg_find_one=AsyncMock(side_effect=_find_one),
+        sg_download_attachment=AsyncMock(side_effect=write_sink),
+        _get_tk_config=AsyncMock(side_effect=_config),
+    )
+
+
+class TestSgDownloadProjectRootDiscovery:
+    """sg_download auto-discovers project_root → single-project containment."""
+
+    @staticmethod
+    async def _fake_download(attachment, file_path):
+        p = Path(file_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("downloaded")
+        return file_path
+
+    def test_discovered_root_contains_download_strict(self, tmp_path, monkeypatch):
+        """STRICT + NO env allowlist: a download under the DISCOVERED project_root
+        is contained purely via auto-discovery."""
+        monkeypatch.setenv("FPT_MCP_STRICT_PATHS", "1")
+        project_root = tmp_path / "proj"
+        project_root.mkdir()
+        dest = project_root / "downloads" / "thumb.png"
+
+        params = _make_download_input(str(dest))
+        with _patch_sg_download_with_config(self._fake_download, project_root):
+            result = json.loads(_run(sg_download_tool(params)))
+
+        assert "error" not in result, result
+        assert dest.exists()
+
+    def test_outside_discovered_root_refused_strict(self, tmp_path, monkeypatch):
+        """STRICT: a download OUTSIDE the discovered root is still refused."""
+        monkeypatch.setenv("FPT_MCP_STRICT_PATHS", "1")
+        project_root = tmp_path / "proj"
+        project_root.mkdir()
+        outside = tmp_path / "elsewhere" / "loot.png"
+
+        params = _make_download_input(str(outside))
+        with _patch_sg_download_with_config(self._fake_download, project_root):
+            result = json.loads(_run(sg_download_tool(params)))
+
+        assert "error" in result
+        assert "Refused" in result["error"]
+
+    def test_discovery_failure_falls_back_to_env(self, tmp_path, monkeypatch):
+        """A discovery exception must NOT block the download (best-effort)."""
+        monkeypatch.setenv("FPT_MCP_STRICT_PATHS", "1")
+        sandbox = tmp_path / "downloads"
+        sandbox.mkdir()
+        monkeypatch.setenv("FPT_MCP_ALLOWED_WRITE_ROOTS", str(sandbox))
+        dest = sandbox / "thumb.png"
+
+        async def _find_one(entity_type, filters, fields):
+            return {"type": entity_type, "id": 1, "image": "http://example/thumb.png"}
+
+        params = _make_download_input(str(dest))
+        with patch.multiple(
+            "fpt_mcp.server",
+            sg_find_one=AsyncMock(side_effect=_find_one),
+            sg_download_attachment=AsyncMock(side_effect=self._fake_download),
+            _get_tk_config=AsyncMock(side_effect=RuntimeError("discovery blew up")),
+        ):
+            result = json.loads(_run(sg_download_tool(params)))
+
+        assert "error" not in result, result
+        assert dest.exists()
