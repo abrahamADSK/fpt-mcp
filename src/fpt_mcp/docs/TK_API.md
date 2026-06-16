@@ -370,6 +370,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 - `nuke_shot_render_stereo`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
 - `houdini_shot_render`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
+- `maya_shot_render`: `@shot_root/work/images/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr` (Arnold multichannel EXR work area — Lighting step; `maya_publish_render.py` copies frames to `rendered_image_shot_publish` at publish time)
 - `photoshop_shot_jpg_publish`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
 
 ### Review templates (Quicktime/MOV for dailies)
@@ -396,7 +397,7 @@ whatever templates the project config defines.
 - `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.{texture_extension}` (png default, exr/tif supported)
 
 **Shot templates:**
-- `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr` (source: `maya_shot_render` work area, copied by `maya_publish_render.py`; Flame loads via `load_clip`)
 - `movie_shot_publish`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
 - `usd_shot_publish`: `@shot_root/publish/usd/{name}.v{version}.usd`
 - `fbx_shot_publish`: `@shot_root/publish/fbx/{name}.v{version}.fbx`
