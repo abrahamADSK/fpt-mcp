@@ -356,7 +356,7 @@ class ChatWindow(QMainWindow):
         title.setObjectName("title")
         header_layout.addWidget(title)
 
-        ctx_text = "Sin contexto"
+        ctx_text = "No context"
         ctx_active = False
         if self._context.get("entity_type") and self._context.get("entity_id"):
             ctx_text = f"{self._context['entity_type']} #{self._context['entity_id']}"
