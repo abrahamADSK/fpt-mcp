@@ -51,15 +51,15 @@
 
 <div class="header">
   <h1>FPT-MCP Console</h1>
-  <span class="context-badge" id="contextBadge">Sin contexto</span>
+  <span class="context-badge" id="contextBadge">No context</span>
   <div class="status" id="statusDot"></div>
 </div>
 
 <div class="chat" id="chat"></div>
 
 <div class="input-bar">
-  <input type="text" id="input" placeholder="Escribe aquí..." autofocus>
-  <button id="sendBtn" onclick="send()">Enviar</button>
+  <input type="text" id="input" placeholder="Type here..." autofocus>
+  <button id="sendBtn" onclick="send()">Send</button>
 </div>
 
 <script>
@@ -92,7 +92,7 @@ async function send() {
   input.value = '';
   document.getElementById('sendBtn').disabled = true;
   addMsg(text, 'user');
-  const thinking = addMsg('Pensando...', 'thinking');
+  const thinking = addMsg('Thinking...', 'thinking');
 
   try {
     const res = await fetch('/chat', {
@@ -113,7 +113,7 @@ async function send() {
     }
   } catch (e) {
     chat.removeChild(thinking);
-    addMsg(`Error de conexión: ${e.message}`, 'error');
+    addMsg(`Connection error: ${e.message}`, 'error');
   }
   document.getElementById('sendBtn').disabled = false;
 }
