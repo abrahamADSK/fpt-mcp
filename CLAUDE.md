@@ -164,6 +164,22 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
 - **SYSTEM_PROMPT**: defines the complete 3D creation workflow (must read before modifying)
 - **_TOOL_LABELS**: dictionary mapping MCP tool names → human-readable labels
 
+### Effort selector (header combo)
+
+The Qt Console header has an effort selector (mirroring the model selector)
+backed by `AVAILABLE_EFFORTS` in `claude_worker.py`. Values: **Auto / Low /
+Medium / High / Max**, default **Auto**. It controls the reasoning effort of
+the spawned `claude` subprocess via `build_backend_env`:
+
+- **Auto** → clears BOTH `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` and
+  `CLAUDE_CODE_EFFORT_LEVEL` (emitted empty and scrubbed from the child env by
+  the `_BACKEND_ENV_KEYS` empty-string pass in `run()`), so the CLI uses its
+  adaptive-thinking default.
+- **Low / Medium / High / Max** → set
+  `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"` and
+  `CLAUDE_CODE_EFFORT_LEVEL=<level>`, forcing adaptive thinking off at that
+  effort.
+
 ### Progress Streaming
 
 - **Text delta events**: parsed line by line from the JSON stream
@@ -481,6 +497,16 @@ mention every step.
 The Qt Console passes `--model` and env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 `ANTHROPIC_API_KEY`) to the Claude Code CLI subprocess. For Ollama backends, the Anthropic
 SDK is redirected to the Ollama Messages-compatible endpoint (Ollama v0.14+).
+
+### Effort selector
+A separate header combo (`AVAILABLE_EFFORTS`) controls reasoning effort:
+**Auto / Low / Medium / High / Max**, default **Auto**. `build_backend_env`
+injects the two hardening vars accordingly:
+- **Auto** clears both `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` and
+  `CLAUDE_CODE_EFFORT_LEVEL` (adaptive-thinking default).
+- **Low / Medium / High / Max** force adaptive thinking off
+  (`CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"`) at the chosen
+  `CLAUDE_CODE_EFFORT_LEVEL`. See section 3 for details.
 
 ### Write-allowed models (RAG trust gates)
 Only Claude models can write patterns via `learn_pattern`. Local models (Ollama) are

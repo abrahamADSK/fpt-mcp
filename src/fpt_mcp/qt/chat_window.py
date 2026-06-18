@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .claude_worker import AVAILABLE_MODELS, ClaudeWorker
+from .claude_worker import AVAILABLE_EFFORTS, AVAILABLE_MODELS, ClaudeWorker
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +282,7 @@ class ChatWindow(QMainWindow):
         self._worker: Optional[ClaudeWorker] = None
         # Multi-backend: default to first model (Claude Opus 4.7 / anthropic)
         self._selected_model_idx = 0
+        self._selected_effort_idx = 0
         # Whimsical thinking-bubble rotator state
         self._thinking_verb: str = ""
         self._progress_lines: list[str] = []
@@ -381,6 +382,18 @@ class ChatWindow(QMainWindow):
         )
         header_layout.addWidget(self._model_combo)
 
+        # Effort selector combo (mirrors the model combo styling)
+        self._effort_combo = QComboBox()
+        for label, _ in AVAILABLE_EFFORTS:
+            self._effort_combo.addItem(label)
+        self._effort_combo.setCurrentIndex(self._selected_effort_idx)
+        self._effort_combo.currentIndexChanged.connect(self._on_effort_changed)
+        self._effort_combo.setStyleSheet(
+            "QComboBox { background: #1e293b; color: #e0e0e0; border: 1px solid #334155; "
+            "border-radius: 6px; padding: 3px 8px; font-size: 12px; }"
+        )
+        header_layout.addWidget(self._effort_combo)
+
         status = QLabel()
         status.setObjectName("statusDot")
         header_layout.addWidget(status)
@@ -426,6 +439,14 @@ class ChatWindow(QMainWindow):
         """Return (model_id, backend) for the currently selected model."""
         _, model_id, backend = AVAILABLE_MODELS[self._selected_model_idx]
         return model_id, backend
+
+    def _on_effort_changed(self, index: int):
+        """Called when the user picks a different effort level."""
+        self._selected_effort_idx = index
+
+    def _get_selected_effort(self) -> str:
+        """Return the effort value for the currently selected combo entry."""
+        return AVAILABLE_EFFORTS[self._selected_effort_idx][1]
 
     # ---- Context update (for protocol handler late-arriving URLs) ----
 
@@ -528,9 +549,10 @@ class ChatWindow(QMainWindow):
         self._thinking_timer.start()
 
         model_id, backend = self._get_selected_model()
+        effort = self._get_selected_effort()
         self._worker = ClaudeWorker(
             text, self._context, history=self._history[:-1],
-            model_id=model_id, backend=backend, parent=self,
+            model_id=model_id, backend=backend, effort=effort, parent=self,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_response)

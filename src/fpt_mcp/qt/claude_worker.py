@@ -62,6 +62,18 @@ AVAILABLE_MODELS = [
     ("Qwen3.5 4B 🍎",         "qwen3.5:4b",                "ollama_mac"),
 ]
 
+# Each entry: (display_label, effort_value). "auto" re-enables adaptive
+# thinking (both hardening env vars cleared); the fixed levels force that
+# effort with adaptive thinking off. Default = "auto" (index 0).
+AVAILABLE_EFFORTS = [
+    ("Auto", "auto"),
+    ("Low", "low"),
+    ("Medium", "medium"),
+    ("High", "high"),
+    ("Max", "max"),
+]
+DEFAULT_EFFORT = "auto"
+
 # Models allowed to write RAG patterns (learn_pattern). Local models are read-only.
 # Self-learning is reserved for the two top cloud tiers: Opus and Fable.
 WRITE_ALLOWED_MODELS = ["claude-opus", "claude-fable"]
@@ -199,28 +211,45 @@ def _load_config() -> dict:
 
 # Env keys that the Anthropic SDK reads. We always set ALL THREE on every
 # backend switch so a stale value from a previous run cannot leak across.
-_BACKEND_ENV_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")
+_BACKEND_ENV_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "CLAUDE_CODE_EFFORT_LEVEL")
 
 
-def build_backend_env(model_id: str, backend: str) -> dict:
+def build_backend_env(model_id: str, backend: str, effort: str = "auto") -> dict:
     """Return env-var overrides for the selected backend.
 
     Always returns explicit values for all three Anthropic SDK env vars,
     even when switching back to the anthropic backend, so a stale
     ANTHROPIC_BASE_URL from a previous Ollama run cannot misroute the SDK.
 
-    Also hardens reasoning quality on every claude subprocess spawned
-    from the Qt console: adaptive thinking off, effort level max. Set
-    unconditionally so the behavior is identical regardless of backend
+    Also controls reasoning effort on every claude subprocess spawned
+    from the Qt console via the ``effort`` param (default ``"auto"``):
+
+    - ``"auto"`` clears BOTH hardening env vars
+      (``CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`` and
+      ``CLAUDE_CODE_EFFORT_LEVEL``) so the CLI uses its adaptive-thinking
+      default. They are emitted here as empty strings and scrubbed from
+      the child env by the ``_BACKEND_ENV_KEYS`` empty-string pass in
+      ``run()`` (so an inherited value from ``os.environ`` cannot leak).
+    - a fixed level (``"low"``/``"medium"``/``"high"``/``"max"``) forces
+      adaptive thinking OFF at that effort.
+
+    Set unconditionally so the behavior is identical regardless of backend
     switch order (Ollama ignores the vars in practice). The user
     controls their own top-level claude session via /effort — these
     overrides apply to the MCP-spawned subprocess only.
     """
     cfg = _load_config()
-    env: dict[str, str] = {
-        "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-        "CLAUDE_CODE_EFFORT_LEVEL": "max",
-    }
+    env: dict[str, str] = {}
+    if effort and effort != "auto":
+        # Fixed effort: force adaptive thinking off at the chosen level.
+        env["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = "1"
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = effort
+    else:
+        # "auto": empty strings here are scrubbed from the child env by the
+        # _BACKEND_ENV_KEYS empty-string pass in run(), so the CLI falls back
+        # to its adaptive-thinking default.
+        env["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = ""
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = ""
 
     if backend == "ollama":
         base_url = cfg.get("ollama_url") or DEFAULT_OLLAMA_URL
@@ -300,6 +329,7 @@ class ClaudeWorker(QThread):
         history: list | None = None,
         model_id: str | None = None,
         backend: str | None = None,
+        effort: str | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -308,6 +338,7 @@ class ClaudeWorker(QThread):
         self._history = history or []
         self._model_id = model_id
         self._backend = backend
+        self._effort = effort or DEFAULT_EFFORT
 
     # ---- nice names for MCP tools ----
 
@@ -445,7 +476,7 @@ class ClaudeWorker(QThread):
             run_env = os.environ.copy()
             run_env["CLAUDE_NO_TELEMETRY"] = "1"
             if self._model_id and self._backend:
-                run_env.update(build_backend_env(self._model_id, self._backend))
+                run_env.update(build_backend_env(self._model_id, self._backend, self._effort))
                 # Treat empty strings on the Anthropic SDK keys as "unset"
                 # so the downstream Claude Code CLI (Node.js) sees the var
                 # truly missing rather than as the literal "" — which some
