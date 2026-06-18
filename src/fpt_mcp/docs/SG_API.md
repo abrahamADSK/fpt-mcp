@@ -1556,3 +1556,71 @@ tasks = sg.find(
 **Document Version**: 2026-03-31
 **API Version**: shotgun_api3
 **Scope**: Python automation, script-based authentication, standard find/create/update/delete workflows
+
+
+## Learned: Create TaskTemplates with template tasks, then assign them to entities
+
+Goal: one TaskTemplate per kind of entity (per asset type, plus Shot and
+Sequence), each carrying its pipeline tasks, then assign each template to the
+existing entities. Reuse the existing global Steps — do NOT create new Steps.
+
+Validated facts (confirmed in-session):
+
+- **TaskTemplate has NO `project` field** — it is a global/site entity, scoped
+  only by its `entity_type` (`'Asset'` | `'Shot'` | `'Sequence'`). Its name is
+  the `code` field. Create it WITHOUT a project.
+  *fpt-mcp gotcha:* `sg_create` auto-injects `project` from `SHOTGRID_PROJECT_ID`
+  when `project` is absent from the data dict, which a TaskTemplate rejects. Keep
+  `project` OUT of the create (the only safe value is "no project" — TaskTemplate
+  has no such field).
+- **A template task links via its `task_template` field, NOT via a bare
+  `entity`.** Set `Task.task_template` to the TaskTemplate; ShotGrid then
+  auto-populates that Task's `entity` to the same TaskTemplate. Setting `entity`
+  alone while leaving `task_template` null leaves the task UNLINKED (it floats in
+  the project and never shows under the template — this was the original bug).
+  The template task keeps its `project`; do NOT try to clear it (the safety
+  module blocks null-`project` updates, and the link works fine with project set).
+- **Reuse existing Steps by id** — look them up, never create new Step entities.
+
+```python
+# 0) Reuse existing global Steps (no project). Filter by the entity_type they
+#    belong to; build a name -> id map. e.g. Model=14, Rig=15, Animation=..., etc.
+asset_steps = sg_find('Step', [['entity_type','is','Asset']],    ['code','short_name'])
+shot_steps  = sg_find('Step', [['entity_type','is','Shot']],     ['code','short_name'])
+seq_steps   = sg_find('Step', [['entity_type','is','Sequence']], ['code','short_name'])
+
+# 1) Create the TaskTemplate WITHOUT project (entity_type = what it applies to).
+tpl = sg_create('TaskTemplate', {
+    'code': 'Character', 'entity_type': 'Asset',
+    'description': 'Character assets: Model + Rig.',
+})
+
+# 2) Create each template task. Link via task_template (entity auto-fills);
+#    reference an EXISTING Step by id. project is auto-added — that is fine here.
+for content, step_id in [('Model', 14), ('Rig', 15)]:
+    sg_create('Task', {
+        'content': content,
+        'step': {'type': 'Step', 'id': step_id},
+        'task_template': {'type': 'TaskTemplate', 'id': tpl['id']},
+    })
+
+# Repeat 1-2 per template:
+#   Prop(Model) / Environment(Model)        -> entity_type 'Asset'
+#   Shot(Animation, Camera, Light, Comp)    -> entity_type 'Shot'
+#   Sequence(Layout, Master Lighting)       -> entity_type 'Sequence'
+
+# 3) Assign a template to existing entities by setting their `task_template`
+#    field. In ShotGrid, assigning a template instantiates its tasks on the
+#    entity. Assign Shot/Sequence templates only once those entities exist.
+for asset in sg_find('Asset', [['sg_asset_type','is','Character']], ['code']):
+    sg_update('Asset', asset['id'], {'task_template': {'type': 'TaskTemplate', 'id': tpl['id']}})
+
+# Verify (TaskTemplate.task_count is a cached summary and may read 0 at first):
+sg_find('Task', [['task_template','is',{'type':'TaskTemplate','id':tpl['id']}]],
+        ['content','step','entity'])
+```
+
+**Not yet validated:** step 3 — assigning a template to an *already-existing*
+entity via the `task_template` field auto-creating its tasks — is the standard
+ShotGrid behavior but was not exercised in-session. Verify the tasks actually
+appear on the first assigned entity before assuming it worked for the rest.
