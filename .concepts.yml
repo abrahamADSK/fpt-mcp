@@ -377,27 +377,47 @@ concepts:
 
   reasoning_hardening:
     description: >
-      Qt console injects CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 and
-      CLAUDE_CODE_EFFORT_LEVEL=max into the spawned claude subprocess env
-      via qt/claude_worker.py::build_backend_env so thinking is always on
-      and effort is always maximum, regardless of backend.
+      Reasoning effort is SELECTABLE in the Qt console via AVAILABLE_EFFORTS
+      (auto/low/medium/high/max), default auto. qt/claude_worker.py::
+      build_backend_env injects both hardening vars
+      (CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 and CLAUDE_CODE_EFFORT_LEVEL=<level>)
+      for the fixed levels, and clears them (empty-string emit + the
+      _BACKEND_ENV_KEYS scrub in run()) for "auto" so the CLI uses its
+      adaptive-thinking default. Applies to the spawned claude subprocess
+      regardless of backend.
     source_of_truth:
       file: src/fpt_mcp/qt/claude_worker.py
       symbol: build_backend_env
     invariants:
-      - id: adaptive_thinking_disabled
+      - id: adaptive_thinking_selectable
         type: claim_verifies
-        claim: "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 injected by build_backend_env"
+        claim: "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING handled by build_backend_env"
         code_grep:
-          regex: 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING.*1'
+          regex: 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING'
           file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
         expected: found
 
-      - id: effort_level_max
+      - id: effort_level_selectable
         type: claim_verifies
-        claim: "CLAUDE_CODE_EFFORT_LEVEL=max injected by build_backend_env"
+        claim: "CLAUDE_CODE_EFFORT_LEVEL handled by build_backend_env"
         code_grep:
-          regex: 'CLAUDE_CODE_EFFORT_LEVEL.*max'
+          regex: 'CLAUDE_CODE_EFFORT_LEVEL'
+          file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
+        expected: found
+
+      - id: effort_selector_exists
+        type: claim_verifies
+        claim: "AVAILABLE_EFFORTS selector defined in claude_worker.py"
+        code_grep:
+          regex: 'AVAILABLE_EFFORTS'
+          file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
+        expected: found
+
+      - id: effort_default_auto
+        type: claim_verifies
+        claim: "DEFAULT_EFFORT is auto"
+        code_grep:
+          regex: 'DEFAULT_EFFORT\s*=\s*"auto"'
           file_pattern: 'src/fpt_mcp/qt/claude_worker.py'
         expected: found
 
