@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Launch-time project detection now finds the ShotGrid creds** (Chat 69). The
+  console-side detector read creds from `os.environ`, but the Qt console parses
+  `.env` into a private dict (NOT `os.environ`, see `qt/app.py`) — so
+  `detect_recent_project` silently found no creds and never detected a project
+  (the gate always saw `SHOTGRID_PROJECT_ID=0`, i.e. the v1.18.0 launch detection
+  was effectively dead). It now resolves creds from the repo-root `.env` with
+  `os.environ` precedence (`_resolve_creds`). Verified live: resolves the user's
+  most-recent-activity project (which the gate still proposes for confirmation —
+  it can be stale).
+
 ## [1.18.0] — 2026-06-22
 
 ### Added
