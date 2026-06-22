@@ -205,6 +205,9 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
     if m:
         event_log_id = int(m.group(1))
 
+    # ShotGrid can HTML-encode the AMI URL separators (&amp; instead of &);
+    # normalise so parse_qs sees real '&' and every param is extracted. Chat 69.
+    url = url.replace("&amp;", "&")
     parsed = urlparse(url)
     qs = parse_qs(parsed.query)
 
@@ -239,6 +242,17 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
             val = qs["project_id"][0]
             if not val.startswith("{"):
                 result["project_id"] = int(val)
+        except (ValueError, IndexError):
+            pass
+
+    # An AMI fired from a project page carries page_id (a saved Page), not
+    # project_id. The Page's `project` field IS the project being viewed —
+    # resolved to project_id authoritatively later, console-side. Chat 69.
+    if "page_id" in qs:
+        try:
+            val = qs["page_id"][0]
+            if not val.startswith("{"):
+                result["page_id"] = int(val)
         except (ValueError, IndexError):
             pass
 

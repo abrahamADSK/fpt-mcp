@@ -28,27 +28,37 @@ from PySide6.QtWidgets import (
 )
 
 from .claude_worker import AVAILABLE_EFFORTS, AVAILABLE_MODELS, ClaudeWorker
-from .project_detect import detect_recent_project
+from .project_detect import detect_recent_project, resolve_page_project
 
 
 class _ProjectDetector(QThread):
-    """One-shot, off-main-thread query for the user's most recent project.
+    """One-shot, off-main-thread resolution of the session project.
 
-    Emits ``detected(project_id, project_name)`` only when a project is found;
-    stays silent otherwise (best-effort — see
-    ``project_detect.detect_recent_project``).
+    Emits ``resolved(project_id, project_name, authoritative)`` when a project is
+    found; silent otherwise (best-effort). Two sources, in priority order:
+      1. the AMI's ``page_id`` → the Page's project = the project the user is
+         VIEWING (``authoritative=True``);
+      2. else the user's most-recent-activity project (``authoritative=False`` —
+         a guess the gate confirms).
     """
 
-    detected = Signal(int, str)
+    resolved = Signal(int, str, bool)
 
-    def __init__(self, user_login: str, parent=None):
+    def __init__(self, page_id=None, user_login=None, parent=None):
         super().__init__(parent)
+        self._page_id = page_id
         self._login = user_login
 
     def run(self):  # noqa: D102 — QThread override
-        result = detect_recent_project(self._login)
-        if result and result.get("id"):
-            self.detected.emit(int(result["id"]), result.get("name") or "")
+        if self._page_id:
+            r = resolve_page_project(self._page_id)
+            if r and r.get("id"):
+                self.resolved.emit(int(r["id"]), r.get("name") or "", True)
+                return
+        if self._login:
+            r = detect_recent_project(self._login)
+            if r and r.get("id"):
+                self.resolved.emit(int(r["id"]), r.get("name") or "", False)
 
 
 # ---------------------------------------------------------------------------
@@ -377,29 +387,31 @@ class ChatWindow(QMainWindow):
             return  # already started this session
         if self._context.get("project_id"):
             return  # an authoritative project is already set
+        page_id = self._context.get("page_id")
         login = self._context.get("user_login")
-        if not login:
-            return  # no user identity → cannot query the event log
-        self._project_detector = _ProjectDetector(login, parent=self)
-        self._project_detector.detected.connect(self._on_project_detected)
+        if not (page_id or login):
+            return  # no page and no user identity → nothing to resolve from
+        self._project_detector = _ProjectDetector(page_id, login, parent=self)
+        self._project_detector.resolved.connect(self._on_project_resolved)
         self._project_detector.start()
 
-    def _on_project_detected(self, project_id: int, project_name: str):
-        """Pin a detected session project (only if none arrived meanwhile).
+    def _on_project_resolved(self, project_id: int, project_name: str, authoritative: bool):
+        """Pin the resolved session project (only if none arrived meanwhile).
 
-        Sets ``project_detected=True`` so the SYSTEM_PROMPT gate confirms it
-        before the first write — it is inferred from the last logged action and
-        may be stale. AMI / engine context (authoritative) always wins and is
-        never overwritten here.
+        ``authoritative`` (the AMI page → its project = the project you are
+        viewing) → bound silently, no confirm. Otherwise it is the
+        activity-heuristic guess → ``project_detected=True`` so the SYSTEM_PROMPT
+        gate confirms it before the first write (it may be stale).
         """
         if self._context.get("project_id"):
             return
         self._context["project_id"] = project_id
-        self._context["project_detected"] = True
+        if not authoritative:
+            self._context["project_detected"] = True
         if project_name:
             self._context["project_name"] = project_name
         label = project_name or f"Project {project_id}"
-        self._context_badge.setText(f"{label} · detected")
+        self._context_badge.setText(label if authoritative else f"{label} · detected")
         self._context_badge.setProperty("active", True)
         self._context_badge.style().unpolish(self._context_badge)
         self._context_badge.style().polish(self._context_badge)
@@ -553,6 +565,8 @@ class ChatWindow(QMainWindow):
             self._context["project_name"] = ctx["project_name"]
         if ctx.get("user_login"):
             self._context["user_login"] = ctx["user_login"]
+        if ctx.get("page_id"):
+            self._context["page_id"] = ctx["page_id"]
 
         # The AMI context (esp. user_login) may have just arrived via the Apple
         # Event, after __init__ — now that we have it, start the detector if it

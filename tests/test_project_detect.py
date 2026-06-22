@@ -80,3 +80,39 @@ def test_exception_is_swallowed(monkeypatch):
 
     monkeypatch.setattr(shotgun_api3, "Shotgun", _boom)
     assert pd.detect_recent_project("abraham") is None
+
+
+# ── resolve_page_project (authoritative: the page → its project) ─────────────
+
+class _FakeSGPage:
+    def __init__(self, page):
+        self._page = page
+
+    def find_one(self, *a, **k):
+        return self._page
+
+
+def _patch_page(monkeypatch, page, creds=_VALID_CREDS):
+    monkeypatch.setattr(pd, "_resolve_creds", lambda: dict(creds))
+    import shotgun_api3
+    monkeypatch.setattr(shotgun_api3, "Shotgun", lambda *a, **k: _FakeSGPage(page))
+
+
+def test_resolve_page_project(monkeypatch):
+    _patch_page(monkeypatch, {"id": 10740, "project": {"type": "Project", "id": 1310, "name": "sandbox"}})
+    assert pd.resolve_page_project(10740) == {"id": 1310, "name": "sandbox"}
+
+
+def test_resolve_page_without_project_returns_none(monkeypatch):
+    _patch_page(monkeypatch, {"id": 10740, "project": None})
+    assert pd.resolve_page_project(10740) is None
+
+
+def test_resolve_page_none_id_returns_none():
+    assert pd.resolve_page_project(None) is None
+    assert pd.resolve_page_project(0) is None
+
+
+def test_resolve_page_missing_creds_returns_none(monkeypatch):
+    monkeypatch.setattr(pd, "_resolve_creds", lambda: {})
+    assert pd.resolve_page_project(10740) is None

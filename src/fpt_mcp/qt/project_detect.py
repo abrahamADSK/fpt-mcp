@@ -49,6 +49,36 @@ def _resolve_creds() -> dict:
     return creds
 
 
+def resolve_page_project(page_id) -> dict | None:
+    """Return ``{"id": int, "name": str}`` of the project a ShotGrid Page belongs
+    to, or ``None``.
+
+    The AMI URL fired from a project page carries ``page_id`` (a saved Page),
+    NOT ``project_id``. The Page entity's ``project`` field IS the project the
+    user is *currently viewing* — so this is AUTHORITATIVE (the open project),
+    unlike the activity heuristic. Best-effort; never raises. (Chat 69.)
+    """
+    if not page_id:
+        return None
+    creds = _resolve_creds()
+    url = creds.get("SHOTGRID_URL", "")
+    script_name = creds.get("SHOTGRID_SCRIPT_NAME", "")
+    script_key = creds.get("SHOTGRID_SCRIPT_KEY", "")
+    if not (url and script_name and script_key):
+        return None
+    try:
+        import shotgun_api3
+
+        sg = shotgun_api3.Shotgun(url, script_name=script_name, api_key=script_key)
+        page = sg.find_one("Page", [["id", "is", int(page_id)]], ["project"])
+        proj = page.get("project") if page else None
+        if proj and proj.get("id"):
+            return {"id": int(proj["id"]), "name": proj.get("name", "") or ""}
+    except Exception:
+        pass
+    return None
+
+
 def detect_recent_project(user_login: str) -> dict | None:
     """Return ``{"id": int, "name": str}`` of the user's most recent activity
     project, or ``None``.

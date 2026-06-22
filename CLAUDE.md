@@ -171,10 +171,14 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
   global user menu or standalone → it injects `SHOTGRID_PROJECT_ID=0` ("no
   project"), NEVER the `.env` default (Chat 69): with `PROJECT_ID==0` the server
   adds no project filter and a project-scoped create fails. The session project
-  is resolved ONCE at launch (Chat 69, option B): a project-scoped AMI / DCC
-  engine is authoritative; otherwise the console itself detects the user's
-  most-recent-activity project off-thread (`qt/project_detect.py` — `HumanUser`
-  → recent `EventLogEntry` with a project) and pins it as `SHOTGRID_PROJECT_ID`
+  is resolved ONCE at launch (Chat 69, option B), in priority: (1) explicit
+  `project_id` (DCC engine) → authoritative; (2) the AMI's `page_id` (ShotGrid
+  passes page_id, NOT project_id, for an AMI fired from a project page) →
+  resolved to the Page's project (`qt/project_detect.py::resolve_page_project`)
+  = the project being VIEWED, authoritative; (3) else the user's
+  most-recent-activity project (`detect_recent_project` — `HumanUser` → recent
+  `EventLogEntry`), a heuristic the gate confirms. The resolver pins it as
+  `SHOTGRID_PROJECT_ID`
   for the whole session (every per-message MCP server inherits it; the header
   badge shows it). The 3-way project-context gate then proceeds on an
   authoritative project, CONFIRMS a detected one before the first write (the
