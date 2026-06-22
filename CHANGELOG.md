@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-06-22
+
 ### Added
 - **AMI from a project page now binds to that project, AUTHORITATIVELY** (Chat
   69). The launch diagnostics revealed that the ShotGrid AMI URL fired from a
