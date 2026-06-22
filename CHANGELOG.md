@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **AMI from a project page now binds to that project, AUTHORITATIVELY** (Chat
+  69). The launch diagnostics revealed that the ShotGrid AMI URL fired from a
+  project page carries `page_id` (a saved Page), NOT `project_id`. The console
+  now parses `page_id` and resolves it to the Page's project
+  (`project_detect.resolve_page_project` — the project being *viewed*) and binds
+  to it with no confirmation. So opening the console from a project's
+  Assets/Shots/etc. page targets that exact project — not the activity guess.
+  Resolution priority: explicit `project_id` → `page_id`→project → recent-activity
+  heuristic (gate-confirmed). Verified live: page 10740 → project 1310.
+
+### Fixed
+- **AMI URLs with HTML-encoded separators (`&amp;`) are parsed** —
+  `parse_protocol_url` normalises `&amp;`→`&` before `parse_qs`, so every param
+  (`user_login`, `page_id`, …) is extracted even if ShotGrid HTML-encodes the URL.
+- **Page/user-only AMI context is no longer dropped** — `_process_url` only
+  forwarded the parsed context to the window when it carried
+  `entity_type`+`entity_id`, so an AMI fired from a project *page* (carrying
+  `user_login`+`page_id` but no selected entity) was silently discarded →
+  "No context", no detection. It now forwards ANY non-empty context. This is the
+  bug that stopped the `page_id` binding (and the user-login detection) from ever
+  reaching the console.
+
 ## [1.18.2] — 2026-06-22
 
 ### Fixed
