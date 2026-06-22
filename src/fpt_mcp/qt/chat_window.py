@@ -319,12 +319,7 @@ class ChatWindow(QMainWindow):
         # user's most recent project off-thread and pin it for the session — the
         # gate confirms a *detected* project before the first write. Chat 69.
         self._project_detector: Optional[_ProjectDetector] = None
-        if not self._context.get("project_id") and self._context.get("user_login"):
-            self._project_detector = _ProjectDetector(
-                self._context["user_login"], parent=self
-            )
-            self._project_detector.detected.connect(self._on_project_detected)
-            self._project_detector.start()
+        self._maybe_start_detector()
 
     # ---- Thinking bubble helpers ----
 
@@ -368,6 +363,26 @@ class ChatWindow(QMainWindow):
         self._update_last_bubble(header_html + body_html, "thinking")
 
     # ---- Project context ----
+
+    def _maybe_start_detector(self):
+        """Start the recent-project detector once — if we have a user but no
+        project yet.
+
+        Called from ``__init__`` AND from ``update_context``: on macOS the AMI
+        context (including ``user_login``) arrives via an Apple Event AFTER
+        ``__init__``, so triggering only at ``__init__`` would always miss it
+        (the Chat-69 "launched from the AMI but no context" symptom).
+        """
+        if self._project_detector is not None:
+            return  # already started this session
+        if self._context.get("project_id"):
+            return  # an authoritative project is already set
+        login = self._context.get("user_login")
+        if not login:
+            return  # no user identity → cannot query the event log
+        self._project_detector = _ProjectDetector(login, parent=self)
+        self._project_detector.detected.connect(self._on_project_detected)
+        self._project_detector.start()
 
     def _on_project_detected(self, project_id: int, project_name: str):
         """Pin a detected session project (only if none arrived meanwhile).
@@ -538,6 +553,12 @@ class ChatWindow(QMainWindow):
             self._context["project_name"] = ctx["project_name"]
         if ctx.get("user_login"):
             self._context["user_login"] = ctx["user_login"]
+
+        # The AMI context (esp. user_login) may have just arrived via the Apple
+        # Event, after __init__ — now that we have it, start the detector if it
+        # did not start earlier. Chat 69 (the "launched from AMI, no context"
+        # timing fix).
+        self._maybe_start_detector()
 
         new_entity = (
             self._context.get("entity_type"),

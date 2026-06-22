@@ -268,6 +268,23 @@ def parse_protocol_url(url: str) -> tuple[dict, int | None]:
 # Application
 # ---------------------------------------------------------------------------
 
+def _launch_log(msg: str) -> None:
+    """Append a launch-diagnostic line to ``~/Library/Logs/fpt-console-launch.log``.
+
+    The console's stdout is invisible when launched from the ShotGrid AMI
+    (macOS LaunchServices), so the launch context is mirrored to a file to
+    diagnose what the AMI actually delivers (Chat 69). Best-effort; never raises.
+    """
+    try:
+        import time
+        path = os.path.expanduser("~/Library/Logs/fpt-console-launch.log")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as fh:
+            fh.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except Exception:
+        pass
+
+
 class FPTApplication(QApplication):
     """Custom QApplication that handles macOS protocol URL Apple Events."""
 
@@ -281,6 +298,7 @@ class FPTApplication(QApplication):
             if isinstance(event, QFileOpenEvent):
                 url = event.url().toString()
                 print(f"[QFileOpenEvent] url={url}", flush=True)
+                _launch_log(f"QFileOpenEvent url={url}")
                 if url and url.startswith("fpt-mcp://"):
                     if self.window:
                         self._process_url(url)
@@ -309,6 +327,7 @@ class FPTApplication(QApplication):
 
     def _on_payload_fetched(self, ctx: dict):
         print(f"[payload_fetched] ctx={ctx}", flush=True)
+        _launch_log(f"payload_fetched ctx={ctx}")
         if ctx and self.window:
             self.window.update_context(ctx)
 
@@ -322,6 +341,7 @@ class FPTApplication(QApplication):
 
 def main():
     print(f"[main] sys.argv={sys.argv}", flush=True)
+    _launch_log(f"main sys.argv={sys.argv}")
 
     parser = argparse.ArgumentParser(description="FPT-MCP Qt Console")
     parser.add_argument("--entity-type", type=str, default=None)
@@ -370,6 +390,7 @@ def main():
     app.setOrganizationName("fpt-mcp")
 
     print(f"[main] initial ctx={ctx}", flush=True)
+    _launch_log(f"main initial ctx={ctx}")
 
     window = ChatWindow(
         entity_type=ctx.get("entity_type"),
