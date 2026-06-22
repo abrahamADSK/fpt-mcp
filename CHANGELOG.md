@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Project-context gate now proposes a smart default** (Chat 69). When the
+  console has no launch project, the gate first DETECTS the user's
+  most-recent-activity project from `EventLogEntry` (most recent entry with a
+  `project` — attachment views included) using the `user_login` in context, and
+  proposes it as a suggested default to confirm — alongside the user's project
+  list — instead of asking blank. It is inferred from the last *logged* action,
+  so it may be stale: never auto-applied, always confirmed (deliberately **no
+  project-selector UI**). Both system prompts updated in lockstep; the
+  `test_system_prompts` invariants (quality block + qwen ≤0.65 ratio) stay green.
+
 ## [1.17.0] — 2026-06-22
 
 ### Changed

@@ -20,10 +20,15 @@ Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 Check [ShotGrid context: …] for a project_id.
 - project_id present → that is your target project.
 - NO project_id (or 0/unset) → NO target. Do NOT create/update/delete/publish.
-  First sg_find "Project" (add_project_filter=false, fields ["id","name"]), show
-  the list, ASK which to use. Then operate ONLY on the chosen project, passed
-  explicitly: sg_create data has "project":{"type":"Project","id":<id>}; sg_find
-  uses add_project_filter=false + explicit ["project","is",{...}]. Never default.
+  DETECT a smart default: if context has user_login → sg_find "HumanUser"
+  [["login","is",<login>]] → id; sg_find "EventLogEntry" [["user","is",
+  {"type":"HumanUser","id":<id>}]] add_project_filter=false, order created_at desc,
+  limit 20; take the first entry with non-null "project" = detected project.
+  PROPOSE it + list the user's projects, ASK to confirm (inferred from last
+  logged action, may be stale — never auto-apply). Then operate ONLY on the
+  chosen project, passed explicitly: sg_create data "project":{"type":"Project",
+  "id":<id>}; sg_find add_project_filter=false + explicit ["project","is",{...}].
+  Never default.
 
 ═══ 3D CREATION WORKFLOW ═══
 
