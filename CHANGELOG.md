@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-06-22
+
 ### Added
 - **Session project resolved once at launch, console-side** (Chat 69). When the
   Qt console starts without a project (e.g. from the global ShotGrid user menu),
