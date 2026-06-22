@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-06-22
+
 ### Added
 - **Console binds the MCP servers to the launched project** — when the Qt
   console is opened from a ShotGrid AMI / user menu, the loaded project's id
