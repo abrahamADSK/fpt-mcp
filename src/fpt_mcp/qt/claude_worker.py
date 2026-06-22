@@ -215,26 +215,34 @@ _BACKEND_ENV_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AP
 
 
 def project_env_override(context: dict | None) -> dict:
-    """Bind the spawned MCP servers to the project this console was launched for.
+    """Resolve the ``SHOTGRID_PROJECT_ID`` the console session must operate on.
 
-    When the console is launched from a ShotGrid AMI / user menu, ``context``
-    carries the loaded project's id (``project_id``). Returning it as a
-    ``SHOTGRID_PROJECT_ID`` override — applied to the spawned ``claude``
-    subprocess env, which the MCP servers it spawns inherit at startup — makes
-    ``sg_create`` / ``sg_find`` auto-link to THAT project instead of the static
-    value baked into ``.env``. A standalone launch (no ``project_id``) returns
-    an empty override, so the ``.env`` value stands (no regression).
+    ALWAYS returns an explicit value so the console NEVER silently inherits the
+    static ``.env`` project (Chat 69, option B — zero silent defaults):
 
-    Coercion to ``int`` then ``str`` guards against a non-numeric context value
-    (``client.py`` parses ``SHOTGRID_PROJECT_ID`` with ``int(...)``).
+    - launched with a valid ``project_id`` (a ShotGrid AMI fired from *within*
+      a project) → that project, so ``sg_create`` / ``sg_find`` auto-link to the
+      loaded project (applied to the spawned ``claude`` subprocess env, which the
+      MCP servers it spawns inherit at startup);
+    - launched WITHOUT a project (global user menu, or standalone) or with a
+      malformed id → ``"0"`` ("no project"). With ``PROJECT_ID == 0`` the server
+      adds no project filter and a project-scoped ``sg_create`` fails instead of
+      writing to a default, while read-only ``Project`` listing still works — the
+      SYSTEM_PROMPT project-context gate then makes the assistant ASK the user
+      which project (listing them) before any write.
+
+    Note: client.py restores an injected ``SHOTGRID_PROJECT_ID`` after its
+    ``load_dotenv(override=True)``, so this value wins over ``.env``.
     """
     pid = (context or {}).get("project_id")
-    if not pid:
-        return {}
-    try:
-        return {"SHOTGRID_PROJECT_ID": str(int(pid))}
-    except (TypeError, ValueError):
-        return {}
+    if pid:
+        try:
+            n = int(pid)
+            if n > 0:
+                return {"SHOTGRID_PROJECT_ID": str(n)}
+        except (TypeError, ValueError):
+            pass
+    return {"SHOTGRID_PROJECT_ID": "0"}
 
 
 def build_backend_env(model_id: str, backend: str, effort: str = "auto") -> dict:

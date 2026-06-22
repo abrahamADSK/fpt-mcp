@@ -163,13 +163,18 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
 - **QThread worker**: runs `claude -p "prompt" --output-format stream-json --append-system-prompt`
 - **SYSTEM_PROMPT**: defines the complete 3D creation workflow (must read before modifying)
 - **_TOOL_LABELS**: dictionary mapping MCP tool names → human-readable labels
-- **Project-context binding** (`project_env_override`): when the console is
-  launched from a ShotGrid AMI / user menu, the launch `project_id` (in
-  `self._context`) is injected as `SHOTGRID_PROJECT_ID` into the spawned
-  `claude` subprocess env. The MCP servers it spawns inherit it at startup, so
-  `sg_create`/`sg_find` auto-link to the **loaded** project, not the static
-  `.env` value. Standalone launch (no `project_id`) is a no-op — the `.env`
-  project stands. Tested in `tests/test_project_env_override.py`.
+- **Project-context binding & gate** (`project_env_override` + system-prompt
+  gate, option B): the console resolves its ShotGrid project ONLY from the launch
+  context. An AMI fired from *within* a project injects that `project_id` as
+  `SHOTGRID_PROJECT_ID` into the spawned `claude` env (MCP children inherit it →
+  `sg_create`/`sg_find` auto-link to the loaded project). Launched from the
+  global user menu or standalone → it injects `SHOTGRID_PROJECT_ID=0` ("no
+  project"), NEVER the `.env` default (Chat 69): with `PROJECT_ID==0` the server
+  adds no project filter and a project-scoped create fails, and the
+  project-context gate in both system prompts makes the assistant list projects
+  and ASK the user which to use before any write. `client.py` restores the
+  injected value after `load_dotenv(override=True)`. Tested in
+  `tests/test_project_env_override.py`.
 
 ### Effort selector (header combo)
 
