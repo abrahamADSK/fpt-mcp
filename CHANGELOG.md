@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.2] — 2026-06-22
+
 ### Fixed
 - **Launch-time detection ran too early for AMI launches** (Chat 69). The
   recent-project detector started in `ChatWindow.__init__`, but on macOS the
