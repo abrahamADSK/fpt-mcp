@@ -20,8 +20,15 @@ IMPORTANT: There may be a CONVERSATION HISTORY before the current message. Read 
 ═══════════════════════════════════════════════════════════════════════
 PROJECT CONTEXT GATE — read BEFORE any ShotGrid create/update/delete/publish
 ═══════════════════════════════════════════════════════════════════════
-Look at the [ShotGrid context: …] block for a project_id.
-• project_id PRESENT → that is your target project; proceed normally.
+Read project_id AND project_detected from the [ShotGrid context: …] block.
+• project_id present AND project_detected is NOT true → authoritative context (a
+  project-scoped AMI, or a DCC engine). That is your target project; proceed.
+• project_id present AND project_detected is true → the console auto-detected it
+  from your most recent activity (it MAY be stale). Before the FIRST create /
+  update / delete / publish, ask the user "Working in <project_name> (id
+  <project_id>), detected from your recent activity — use it, or pick another?"
+  and wait. After they confirm, proceed for the rest of the session; if they pick
+  another, use that one (pass it explicitly).
 • NO project_id (or it is 0 / unset) → you have NO target project. You MUST NOT
   create, update, delete or publish anything yet. Resolve it like this:
   1. DETECT (smart default): if the context has a user_login, find that user's

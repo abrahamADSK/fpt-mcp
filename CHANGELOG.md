@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Session project resolved once at launch, console-side** (Chat 69). When the
+  Qt console starts without a project (e.g. from the global ShotGrid user menu),
+  it detects the user's most-recent-activity project itself — off the UI thread
+  via `qt/project_detect.py` (`HumanUser` → recent `EventLogEntry` with a
+  `project`; attachment views count) — and pins it as `SHOTGRID_PROJECT_ID` for
+  the whole session (inherited by every per-message MCP server). The header badge
+  shows the detected project. A project-scoped AMI (or a DCC engine) stays
+  authoritative and always wins. New `tests/test_project_detect.py` (7 tests).
+
+### Changed
+- **Project-context gate is now 3-way.** Authoritative `project_id` (AMI/engine)
+  → proceed; `project_id` + `project_detected` (the console's launch guess) →
+  confirm once before the first write, then pinned for the session; no
+  `project_id` → detect-and-ask fallback (unchanged). Changing project = relaunch
+  the console (a launch-time decision, like Maya/Flame). Both system prompts
+  updated in lockstep; `test_system_prompts` invariants green (qwen/full 0.604).
+
 ## [1.17.1] — 2026-06-22
 
 ### Changed

@@ -13,7 +13,7 @@ import random
 import re
 from typing import Optional
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -28,6 +28,27 @@ from PySide6.QtWidgets import (
 )
 
 from .claude_worker import AVAILABLE_EFFORTS, AVAILABLE_MODELS, ClaudeWorker
+from .project_detect import detect_recent_project
+
+
+class _ProjectDetector(QThread):
+    """One-shot, off-main-thread query for the user's most recent project.
+
+    Emits ``detected(project_id, project_name)`` only when a project is found;
+    stays silent otherwise (best-effort — see
+    ``project_detect.detect_recent_project``).
+    """
+
+    detected = Signal(int, str)
+
+    def __init__(self, user_login: str, parent=None):
+        super().__init__(parent)
+        self._login = user_login
+
+    def run(self):  # noqa: D102 — QThread override
+        result = detect_recent_project(self._login)
+        if result and result.get("id"):
+            self.detected.emit(int(result["id"]), result.get("name") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +313,19 @@ class ChatWindow(QMainWindow):
         self._setup_ui()
         self.setStyleSheet(DARK_STYLE)
 
+        # Resolve a session project ONCE, at launch, when none was supplied
+        # (e.g. opened from the global user menu). AMI / DCC-engine context is
+        # authoritative and already in self._context; otherwise detect the
+        # user's most recent project off-thread and pin it for the session — the
+        # gate confirms a *detected* project before the first write. Chat 69.
+        self._project_detector: Optional[_ProjectDetector] = None
+        if not self._context.get("project_id") and self._context.get("user_login"):
+            self._project_detector = _ProjectDetector(
+                self._context["user_login"], parent=self
+            )
+            self._project_detector.detected.connect(self._on_project_detected)
+            self._project_detector.start()
+
     # ---- Thinking bubble helpers ----
 
     def _pick_thinking_verb(self) -> str:
@@ -332,6 +366,28 @@ class ChatWindow(QMainWindow):
         else:
             body_html = ""
         self._update_last_bubble(header_html + body_html, "thinking")
+
+    # ---- Project context ----
+
+    def _on_project_detected(self, project_id: int, project_name: str):
+        """Pin a detected session project (only if none arrived meanwhile).
+
+        Sets ``project_detected=True`` so the SYSTEM_PROMPT gate confirms it
+        before the first write — it is inferred from the last logged action and
+        may be stale. AMI / engine context (authoritative) always wins and is
+        never overwritten here.
+        """
+        if self._context.get("project_id"):
+            return
+        self._context["project_id"] = project_id
+        self._context["project_detected"] = True
+        if project_name:
+            self._context["project_name"] = project_name
+        label = project_name or f"Project {project_id}"
+        self._context_badge.setText(f"{label} · detected")
+        self._context_badge.setProperty("active", True)
+        self._context_badge.style().unpolish(self._context_badge)
+        self._context_badge.style().polish(self._context_badge)
 
     # ---- UI Setup ----
 
@@ -475,6 +531,9 @@ class ChatWindow(QMainWindow):
             self._context.pop("entity_code", None)
         if ctx.get("project_id"):
             self._context["project_id"] = ctx["project_id"]
+            # AMI / engine context is authoritative — drop the "detected" flag
+            # so the gate stops treating the project as a guess to confirm.
+            self._context.pop("project_detected", None)
         if ctx.get("project_name"):
             self._context["project_name"] = ctx["project_name"]
         if ctx.get("user_login"):

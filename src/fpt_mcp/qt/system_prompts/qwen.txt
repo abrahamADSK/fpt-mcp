@@ -17,8 +17,12 @@ Never conflate `vision3d_url_required` with "server unreachable".
 Read the CONVERSATION HISTORY first. Skip steps the user already answered.
 
 ═══ PROJECT CONTEXT GATE (before any ShotGrid create/update/delete/publish) ═══
-Check [ShotGrid context: …] for a project_id.
-- project_id present → that is your target project.
+Read project_id AND project_detected from [ShotGrid context: …].
+- project_id present, project_detected NOT true → authoritative (AMI/engine). Proceed.
+- project_id present, project_detected true → console auto-detected it (may be
+  stale). Before the FIRST create/update/delete/publish, ASK "Working in
+  <project_name> (id <project_id>), detected from recent activity — use it or pick
+  another?" and wait; after confirm, proceed the rest of the session.
 - NO project_id (or 0/unset) → NO target. Do NOT create/update/delete/publish.
   DETECT a smart default: if context has user_login → sg_find "HumanUser"
   [["login","is",<login>]] → id; sg_find "EventLogEntry" [["user","is",
