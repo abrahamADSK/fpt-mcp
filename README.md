@@ -100,6 +100,8 @@ fpt-mcp ships a native PySide6 chat window that routes messages through the Clau
   ```
 - See [MODEL_STRATEGY.md](MODEL_STRATEGY.md) for the full rationale (num_ctx bump, `think: false` requirement, KEEP_ALIVE tuning, KV-cache dtype)
 
+> ⚠️ The Ollama backends are **experimental** — recommended for offline or lightweight single-tool use. For the full pipeline use the Anthropic backend (see [LLM backends](#llm-backends)).
+
 
 ## Install
 
@@ -493,6 +495,17 @@ If **Light Payload** is enabled in the AMI configuration, ShotGrid sends only an
 After changing an AMI URL in ShotGrid, you may need to hard-refresh the browser (Cmd+Shift+R) to clear the cached AMI configuration.
 
 When launched from an AMI, the entity context is displayed in the header badge and included in every message sent to Claude.
+
+### LLM backends
+
+The console runs Claude Code CLI as a subprocess and lets you pick the model per session from the header dropdown. Three backend families are available:
+
+| Backend | Best suited for | Status |
+|---|---|---|
+| **Anthropic (Claude)** — Opus / Sonnet / Fable | Full pipeline and multi-tool agentic workflows (cross-MCP orchestration, multi-step publishes, large context) | **Recommended (default)** |
+| **Local Ollama** — 🍎 Mac-local · 🖥 LAN | Offline use and lightweight, single-domain requests | **Experimental** |
+
+> **Note on local backends.** The local Ollama options (🍎 Mac-local, 🖥 LAN) are provided for offline and experimental use. The combined MCP tool inventory (fpt-mcp + maya-mcp + flame-mcp) together with the workflow system prompt requires a large context window, and complex multi-step tool routing benefits from a frontier model. For the full pipeline and any non-trivial agentic task we therefore **recommend the Anthropic backend**; local models are best kept to short, single-tool requests. Broader local-workflow support is an area of ongoing development.
 
 ## Client configurations
 

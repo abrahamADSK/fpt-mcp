@@ -487,11 +487,21 @@ enforce that the quality block is byte-identical and that both variants
 mention every step.
 
 ### Available backends
-| Backend | Label in combo | URL source | Notes |
-|---|---|---|---|
-| `anthropic` | Claude Sonnet/Opus | Anthropic API | Default, needs internet + API key |
-| `ollama` | 🖥 models | `config.json → ollama_url` | glorfindel RTX 3090, LAN |
-| `ollama_mac` | 🍎 models | `config.json → ollama_mac_url` | Mac-local, offline |
+| Backend | Label in combo | URL source | Notes | Status |
+|---|---|---|---|---|
+| `anthropic` | Claude Opus/Sonnet/Fable | Anthropic API | Default, needs internet + API key | **Recommended** |
+| `ollama` | 🖥 models | `config.json → ollama_url` | glorfindel RTX 3090, LAN | Experimental |
+| `ollama_mac` | 🍎 models | `config.json → ollama_mac_url` | Mac-local, offline | Experimental |
+
+> **Maturity (known limitation).** The local Ollama backends are
+> **experimental** and not recommended for the full agentic pipeline. The
+> combined multi-MCP tool inventory (fpt + maya + flame) plus the workflow
+> system prompt exceeds the practical context window of current local models,
+> and local per-request latency can exceed the Anthropic SDK's client timeout,
+> so complex multi-step tasks may be misrouted or stall. They are best suited to
+> offline, lightweight, single-tool requests; richer local-workflow support
+> (per-task MCP loading, larger context, longer client timeout) is tracked as
+> future work. Use the Anthropic backend for any real multi-tool workflow.
 
 ### Backend switching
 The Qt Console passes `--model` and env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
