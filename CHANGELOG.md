@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] — 2026-06-22
+
 ### Fixed
 - **Launch-time project detection now finds the ShotGrid creds** (Chat 69). The
   console-side detector read creds from `os.environ`, but the Qt console parses
