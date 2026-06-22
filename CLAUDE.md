@@ -163,6 +163,13 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
 - **QThread worker**: runs `claude -p "prompt" --output-format stream-json --append-system-prompt`
 - **SYSTEM_PROMPT**: defines the complete 3D creation workflow (must read before modifying)
 - **_TOOL_LABELS**: dictionary mapping MCP tool names → human-readable labels
+- **Project-context binding** (`project_env_override`): when the console is
+  launched from a ShotGrid AMI / user menu, the launch `project_id` (in
+  `self._context`) is injected as `SHOTGRID_PROJECT_ID` into the spawned
+  `claude` subprocess env. The MCP servers it spawns inherit it at startup, so
+  `sg_create`/`sg_find` auto-link to the **loaded** project, not the static
+  `.env` value. Standalone launch (no `project_id`) is a no-op — the `.env`
+  project stands. Tested in `tests/test_project_env_override.py`.
 
 ### Effort selector (header combo)
 

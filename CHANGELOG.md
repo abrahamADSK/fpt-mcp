@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Console binds the MCP servers to the launched project** — when the Qt
+  console is opened from a ShotGrid AMI / user menu, the loaded project's id
+  (carried in the launch context) is injected as `SHOTGRID_PROJECT_ID` into the
+  spawned `claude` subprocess env, which the MCP servers it spawns inherit at
+  startup. `sg_create` / `sg_find` therefore auto-link to the project the user
+  has loaded in the web, **not** the static value in `.env`. A standalone
+  `fpt-console` launch (no AMI context) is unchanged — the `.env` project
+  stands. New `project_env_override` helper in `qt/claude_worker.py`, applied in
+  `ClaudeWorker.run`, with `tests/test_project_env_override.py` (4 tests).
+
 ## [1.15.1] — 2026-06-22
 
 ### Changed
