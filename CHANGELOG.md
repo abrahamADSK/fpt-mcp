@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Console colour scheme → Autodesk palette** — both consoles (Qt and AMI
+  browser) move from a dark blue/slate base with a red accent to a neutral
+  grayscale base with Autodesk yellow (`#ffff00`) for accents, titles and
+  primary buttons (dark `#1c1c1c` text on yellow for contrast). Status colours
+  (green / red / orange) are unchanged. Aligns fpt-mcp with the maya-mcp and
+  flame-mcp panels.
+
 ## [1.15.0] — 2026-06-22
 
 ### Added

@@ -8,43 +8,43 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column;
+    background: #1c1c1c; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column;
   }
   .header {
-    background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 12px;
-    border-bottom: 1px solid #0f3460;
+    background: #202020; padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid #2f2f2f;
   }
-  .header h1 { font-size: 16px; font-weight: 600; color: #e94560; }
+  .header h1 { font-size: 16px; font-weight: 600; color: #ffff00; }
   .header .context-badge {
-    background: #0f3460; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #94a3b8;
+    background: #2f2f2f; padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #9a9a9a;
   }
-  .header .context-badge.active { background: #164e63; color: #67e8f9; }
+  .header .context-badge.active { background: #2a2a2a; color: #cccccc; }
   .header .status { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
   .header .status.connected { background: #22c55e; }
 
   .chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 
   .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-wrap: break-word; }
-  .msg.user { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 4px; }
-  .msg.assistant { align-self: flex-start; background: #1e293b; color: #cbd5e1; border-bottom-left-radius: 4px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: #2f2f2f; color: #e0e0e0; border-bottom-right-radius: 4px; }
+  .msg.assistant { align-self: flex-start; background: #252525; color: #cccccc; border-bottom-left-radius: 4px; white-space: pre-wrap; }
   .msg.error { align-self: flex-start; background: #7f1d1d; color: #fca5a5; }
-  .msg.thinking { align-self: flex-start; background: #1e293b; color: #64748b; font-style: italic; }
+  .msg.thinking { align-self: flex-start; background: #252525; color: #888888; font-style: italic; }
 
   .input-bar {
-    background: #16213e; padding: 12px 20px; display: flex; gap: 10px;
-    border-top: 1px solid #0f3460;
+    background: #202020; padding: 12px 20px; display: flex; gap: 10px;
+    border-top: 1px solid #2f2f2f;
   }
   .input-bar input {
-    flex: 1; background: #1e293b; border: 1px solid #334155; color: #e0e0e0;
+    flex: 1; background: #252525; border: 1px solid #3a3a3a; color: #e0e0e0;
     padding: 10px 14px; border-radius: 10px; font-size: 14px; outline: none;
   }
-  .input-bar input:focus { border-color: #e94560; }
+  .input-bar input:focus { border-color: #ffff00; }
   .input-bar button {
-    background: #e94560; border: none; color: white; padding: 10px 20px;
+    background: #ffff00; border: none; color: #1c1c1c; padding: 10px 20px;
     border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600;
   }
-  .input-bar button:hover { background: #c13550; }
-  .input-bar button:disabled { background: #334155; cursor: not-allowed; }
+  .input-bar button:hover { background: #cccc00; }
+  .input-bar button:disabled { background: #3a3a3a; cursor: not-allowed; }
 </style>
 </head>
 <body>
