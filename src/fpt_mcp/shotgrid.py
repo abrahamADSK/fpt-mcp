@@ -96,8 +96,19 @@ async def sg_create_impl(params: SgCreateInput) -> str:
     )
 
     data = dict(params.data)
-    if "project" not in data and PROJECT_ID:
+    # Some global entities (TaskTemplate, Step, …) use 'projects' (multi_entity)
+    # not 'project' (single entity). Template tasks (Task + task_template, no entity)
+    # also must not have a project field. Skip auto-inject for all these cases.
+    _NO_PROJECT_FIELD = frozenset({"TaskTemplate", "Step"})
+    _is_template_task = (
+        params.entity_type == "Task"
+        and "task_template" in data
+        and "entity" not in data
+    )
+    if "project" not in data and PROJECT_ID and params.entity_type not in _NO_PROJECT_FIELD and not _is_template_task:
         data["project"] = {"type": "Project", "id": PROJECT_ID}
+    # Remove an explicit None sentinel the caller may have passed to suppress inject
+    data.pop("project", None) if data.get("project") is None else None
 
     params_str = json.dumps({"entity_type": params.entity_type, "data": data}, default=str)
     safety_warning = check_dangerous(params_str, tool_name="sg_create")

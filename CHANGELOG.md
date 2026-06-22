@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "No context", no detection. It now forwards ANY non-empty context. This is the
   bug that stopped the `page_id` binding (and the user-login detection) from ever
   reaching the console.
+- **`sg_create` no longer auto-injects `project` for global entities** —
+  `TaskTemplate` and `Step` use `projects` (multi-entity), not `project`
+  (single-entity), so the project auto-inject made creating them fail. `sg_create`
+  now skips the inject for those entity types, and honours an explicit
+  `project: None` to suppress the inject for any other type.
 
 ## [1.18.2] — 2026-06-22
 
