@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Console never silently defaults to a project (option B, Chat 69).** The Qt
+  console resolves its ShotGrid project ONLY from the launch context: an AMI
+  fired from within a project binds to it; launched from the global user menu or
+  standalone it injects `SHOTGRID_PROJECT_ID=0` ("no project") instead of the
+  `.env` value. A new **project-context gate** in both system prompts then makes
+  the assistant list projects and ASK which to use before any
+  create/update/delete/publish, operating only on the confirmed project (passed
+  explicitly). Prevents the Chat-69 incident where work landed on the default
+  project. `project_env_override` reworked; `tests/test_project_env_override.py`
+  rewritten (4 tests).
+
+### Fixed
+- **Injected `SHOTGRID_PROJECT_ID` now wins over `.env`** — `client.py` called
+  `load_dotenv(override=True)`, which clobbered the per-launch project id back to
+  the `.env` value, so the v1.16.0 project binding never actually took effect.
+  The injected value is captured before and restored after the dotenv load
+  (credentials keep `override=True`).
+
 ## [1.16.0] — 2026-06-22
 
 ### Added

@@ -26,7 +26,16 @@ _logger = get_logger("fpt_mcp.client")
 # stdio server spawned while .env still contained placeholder values
 # would retain those bad values for its whole lifetime even after .env
 # is fixed, because SHOTGRID_URL is already present at load time.
+#
+# EXCEPTION — SHOTGRID_PROJECT_ID: an explicitly-injected value (the Qt
+# console binding the MCP session to the project it was launched for, Chat 69)
+# MUST win over the .env default. override=True would otherwise clobber the
+# inherited value back to the .env one, so capture it first and restore it
+# after the dotenv load. Credentials keep the override=True semantics above.
+_injected_project_id = os.environ.get("SHOTGRID_PROJECT_ID")
 load_dotenv(override=True)
+if _injected_project_id:
+    os.environ["SHOTGRID_PROJECT_ID"] = _injected_project_id
 
 # ---------------------------------------------------------------------------
 # Configuration
