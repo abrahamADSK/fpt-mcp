@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AMI URLs with HTML-encoded separators (`&amp;`) are parsed** —
   `parse_protocol_url` normalises `&amp;`→`&` before `parse_qs`, so every param
   (`user_login`, `page_id`, …) is extracted even if ShotGrid HTML-encodes the URL.
+- **Page/user-only AMI context is no longer dropped** — `_process_url` only
+  forwarded the parsed context to the window when it carried
+  `entity_type`+`entity_id`, so an AMI fired from a project *page* (carrying
+  `user_login`+`page_id` but no selected entity) was silently discarded →
+  "No context", no detection. It now forwards ANY non-empty context. This is the
+  bug that stopped the `page_id` binding (and the user-login detection) from ever
+  reaching the console.
 
 ## [1.18.2] — 2026-06-22
 

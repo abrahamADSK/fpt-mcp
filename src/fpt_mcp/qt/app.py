@@ -327,14 +327,21 @@ class FPTApplication(QApplication):
         """Parse URL and fetch context from API if needed."""
         ctx, event_log_id = parse_protocol_url(url)
         print(f"[process] ctx={ctx} event_log_id={event_log_id}", flush=True)
+        _launch_log(f"process ctx={ctx} event_log_id={event_log_id}")
 
-        if ctx.get("entity_type") and ctx.get("entity_id"):
-            # Got real context from URL params (no Light Payload)
-            ctx = _enrich_with_entity_code(ctx)
+        if ctx:
+            # Direct context from URL params — entity, user_login, page_id and/or
+            # project. This previously REQUIRED entity_type+entity_id, so an AMI
+            # fired from a project *page* (user_login + page_id, no selected
+            # entity) was dropped → "No context", no detection. Now ANY non-empty
+            # ctx is applied; entity-code enrichment only when an entity is
+            # present. Chat 69.
+            if ctx.get("entity_type") and ctx.get("entity_id"):
+                ctx = _enrich_with_entity_code(ctx)
             if self.window:
                 self.window.update_context(ctx)
         elif event_log_id:
-            # Light Payload — fetch context from ShotGrid API
+            # Light Payload — only an event_log_entry_id; fetch full context.
             self._fetcher = PayloadFetcher(event_log_id, parent=self)
             self._fetcher.finished.connect(self._on_payload_fetched)
             self._fetcher.start()
