@@ -170,13 +170,18 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
   `sg_create`/`sg_find` auto-link to the loaded project). Launched from the
   global user menu or standalone → it injects `SHOTGRID_PROJECT_ID=0` ("no
   project"), NEVER the `.env` default (Chat 69): with `PROJECT_ID==0` the server
-  adds no project filter and a project-scoped create fails, and the
-  project-context gate in both system prompts makes the assistant DETECT the
-  user's most-recent-activity project (via `EventLogEntry` + the `user_login` in
-  context — the smart default, proposed to confirm, never auto-applied) and list
-  their projects to choose, before any write. `client.py` restores the
+  adds no project filter and a project-scoped create fails. The session project
+  is resolved ONCE at launch (Chat 69, option B): a project-scoped AMI / DCC
+  engine is authoritative; otherwise the console itself detects the user's
+  most-recent-activity project off-thread (`qt/project_detect.py` — `HumanUser`
+  → recent `EventLogEntry` with a project) and pins it as `SHOTGRID_PROJECT_ID`
+  for the whole session (every per-message MCP server inherits it; the header
+  badge shows it). The 3-way project-context gate then proceeds on an
+  authoritative project, CONFIRMS a detected one before the first write (the
+  `project_detected` flag in context), or asks when none. Changing project =
+  relaunch (a launch-time decision, like Maya/Flame). `client.py` restores the
   injected value after `load_dotenv(override=True)`. Tested in
-  `tests/test_project_env_override.py`.
+  `tests/test_project_env_override.py` + `tests/test_project_detect.py`.
 
 ### Effort selector (header combo)
 
