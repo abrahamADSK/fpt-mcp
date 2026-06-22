@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] — 2026-06-22
+
 ### Changed
 - **Console colour scheme → Autodesk palette** — both consoles (Qt and AMI
   browser) move from a dark blue/slate base with a red accent to a neutral
