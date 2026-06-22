@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Launch-time detection ran too early for AMI launches** (Chat 69). The
+  recent-project detector started in `ChatWindow.__init__`, but on macOS the
+  ShotGrid AMI context (incl. `user_login`) arrives via a `QFileOpenEvent` Apple
+  Event AFTER `__init__` — so the detector saw an empty context and never ran
+  (the "launched from the AMI but no [ShotGrid context]" symptom). The trigger
+  is extracted to `_maybe_start_detector` and now also fires from
+  `update_context` when the AMI URL is processed, so detection runs once
+  `user_login` actually arrives.
+
+### Added
+- **Launch diagnostics** — the console mirrors its launch context (`sys.argv`,
+  the `fpt-mcp://` Apple-Event URL, parsed context, light-payload) to
+  `~/Library/Logs/fpt-console-launch.log`, since the console's stdout is
+  invisible when launched from the AMI (macOS LaunchServices). Lets us see
+  exactly what an AMI delivers.
+
 ## [1.18.1] — 2026-06-22
 
 ### Fixed
