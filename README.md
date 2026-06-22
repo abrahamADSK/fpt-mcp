@@ -468,6 +468,8 @@ Features:
 - Light Payload support (fetches full context from EventLogEntry API)
 - No HTTP server dependency — launches as a standalone app
 
+> **Project context.** When opened from a ShotGrid AMI / user menu, the console binds its MCP operations to the **loaded project**: the launch `project_id` is injected as `SHOTGRID_PROJECT_ID` for the spawned session, so `sg_create` / `sg_find` target that project rather than a static value in `.env`. A standalone `fpt-console` launch uses the `.env` project.
+
 ### Launch
 
 ```bash

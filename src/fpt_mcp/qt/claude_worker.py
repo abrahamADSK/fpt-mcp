@@ -214,6 +214,29 @@ def _load_config() -> dict:
 _BACKEND_ENV_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "CLAUDE_CODE_EFFORT_LEVEL")
 
 
+def project_env_override(context: dict | None) -> dict:
+    """Bind the spawned MCP servers to the project this console was launched for.
+
+    When the console is launched from a ShotGrid AMI / user menu, ``context``
+    carries the loaded project's id (``project_id``). Returning it as a
+    ``SHOTGRID_PROJECT_ID`` override — applied to the spawned ``claude``
+    subprocess env, which the MCP servers it spawns inherit at startup — makes
+    ``sg_create`` / ``sg_find`` auto-link to THAT project instead of the static
+    value baked into ``.env``. A standalone launch (no ``project_id``) returns
+    an empty override, so the ``.env`` value stands (no regression).
+
+    Coercion to ``int`` then ``str`` guards against a non-numeric context value
+    (``client.py`` parses ``SHOTGRID_PROJECT_ID`` with ``int(...)``).
+    """
+    pid = (context or {}).get("project_id")
+    if not pid:
+        return {}
+    try:
+        return {"SHOTGRID_PROJECT_ID": str(int(pid))}
+    except (TypeError, ValueError):
+        return {}
+
+
 def build_backend_env(model_id: str, backend: str, effort: str = "auto") -> dict:
     """Return env-var overrides for the selected backend.
 
@@ -475,6 +498,11 @@ class ClaudeWorker(QThread):
             # Build environment with backend-specific overrides
             run_env = os.environ.copy()
             run_env["CLAUDE_NO_TELEMETRY"] = "1"
+            # Bind the MCP servers (spawned as children of this claude
+            # subprocess) to the project this console was launched for, so
+            # sg_create / sg_find target the loaded project instead of the
+            # static SHOTGRID_PROJECT_ID in .env. No-op for standalone launch.
+            run_env.update(project_env_override(self._context))
             if self._model_id and self._backend:
                 run_env.update(build_backend_env(self._model_id, self._backend, self._effort))
                 # Treat empty strings on the Anthropic SDK keys as "unset"
