@@ -468,7 +468,7 @@ Features:
 - Light Payload support (fetches full context from EventLogEntry API)
 - No HTTP server dependency — launches as a standalone app
 
-> **Project context (zero silent defaults).** The console resolves its ShotGrid project ONLY from the launch context. An AMI fired **from within a project** (an entity or project page) binds to that project (`project_id` → `SHOTGRID_PROJECT_ID`), so `sg_create` / `sg_find` target it. Launched from the **global user menu** or standalone, it has no project: it **lists projects and asks you which to use** before any create/update/delete/publish, and never falls back to the `.env` project. For automatic binding, trigger the AMI from a page inside the target project.
+> **Project context (zero silent defaults).** The console resolves its ShotGrid project ONLY from the launch context. An AMI fired **from within a project** (an entity or project page) binds to that project (`project_id` → `SHOTGRID_PROJECT_ID`), so `sg_create` / `sg_find` target it. Launched from the **global user menu** or standalone, it has no project: it **detects your most-recent-activity project** (from the ShotGrid event log) as a suggested default and **asks you to confirm or pick another** before any create/update/delete/publish, and never falls back to the `.env` project. For automatic binding, trigger the AMI from a page inside the target project.
 
 ### Launch
 

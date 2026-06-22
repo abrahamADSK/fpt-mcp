@@ -171,8 +171,10 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
   global user menu or standalone → it injects `SHOTGRID_PROJECT_ID=0` ("no
   project"), NEVER the `.env` default (Chat 69): with `PROJECT_ID==0` the server
   adds no project filter and a project-scoped create fails, and the
-  project-context gate in both system prompts makes the assistant list projects
-  and ASK the user which to use before any write. `client.py` restores the
+  project-context gate in both system prompts makes the assistant DETECT the
+  user's most-recent-activity project (via `EventLogEntry` + the `user_login` in
+  context — the smart default, proposed to confirm, never auto-applied) and list
+  their projects to choose, before any write. `client.py` restores the
   injected value after `load_dotenv(override=True)`. Tested in
   `tests/test_project_env_override.py`.
 
