@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-06-22
+
 ### Changed
 - **Console never silently defaults to a project (option B, Chat 69).** The Qt
   console resolves its ShotGrid project ONLY from the launch context: an AMI
