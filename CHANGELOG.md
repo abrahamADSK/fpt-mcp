@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Reasoning-effort selector in the Qt console** — a header combo
+  (`AVAILABLE_EFFORTS`: Auto / Low / Medium / High / Max, default **Auto**)
+  controls the reasoning effort of the spawned `claude` subprocess via
+  `build_backend_env`. **Auto** clears both
+  `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` and `CLAUDE_CODE_EFFORT_LEVEL`
+  (CLI adaptive-thinking default); a fixed level (Low/Medium/High/Max) forces
+  adaptive thinking off at that effort. Only the MCP-spawned subprocess is
+  affected, never the top-level user session. (PR #13)
+
+### Changed
+- **Qt console default model → Claude Opus 4.8** — Fable 5 kept as a selectable
+  option, Sonnet 4.6 retained; remaining console UI strings translated to
+  English. `WRITE_ALLOWED_MODELS` unchanged (Fable stays write-allowed). (PR #12)
+
+### Docs
+- **LLM backends positioning** — README gains an "LLM backends" subsection
+  (Qt Console). The local Ollama backends (🍎 Mac-local, 🖥 LAN) are now
+  labelled **experimental** — recommended for offline / lightweight single-tool
+  use — while the Anthropic backend is recommended for the full agentic
+  pipeline. `config.example.json` and `CLAUDE.md` aligned; the internal
+  root-cause note (context overflow + client timeout) lives in `CLAUDE.md` §12.
+- **TK_API**: documented the `maya_shot_render` template + `rendered_image`
+  publish source. (PR #11)
+- **SG_API (RAG corpus)**: corrected the `TaskTemplate` recipe. (PR #14)
+
 ## [1.14.0] — 2026-06-15
 
 ### Added
