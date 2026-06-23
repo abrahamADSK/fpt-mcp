@@ -7,6 +7,7 @@ operations (shape generation, texturing, etc.).
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -322,6 +323,52 @@ SYSTEM_PROMPT = (_PROMPTS_DIR / "default.txt").read_text(encoding="utf-8")
 SYSTEM_PROMPT_QWEN = (_PROMPTS_DIR / "qwen.txt").read_text(encoding="utf-8")
 
 
+# ── Read-only console + improvement-suggestion capture ────────────────
+# The spawned `claude` subprocess is denied every file-mutation tool
+# (see DISALLOWED_TOOLS), so it cannot edit the repo (it once rewrote the
+# server's own source). Instead it is instructed to surface code-improvement
+# ideas as `@@SUGGESTION@@ <text>` lines; this trusted worker is the ONLY
+# writer of CONSOLE_IMPROVEMENTS.md — it logs them for a later dev session /
+# PR and strips the markers from what the user sees.
+DISALLOWED_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]
+_IMPROVEMENTS_FILE = _PROJECT_ROOT / "CONSOLE_IMPROVEMENTS.md"
+_SUGGESTION_RE = re.compile(r"(?m)^.*@@SUGGESTION@@[ \t]*(.+?)[ \t]*$")
+
+
+def capture_suggestions(text: str, dest: Path = _IMPROVEMENTS_FILE) -> tuple[str, int]:
+    """Pull ``@@SUGGESTION@@`` lines from *text*, append them to *dest*, and
+    return ``(text_without_those_lines, count)``.
+
+    The read-only console agent cannot edit code, so it logs improvement ideas
+    via the marker. Each marked line is appended to the backlog file (created
+    with a header on first use) with a timestamp, and removed from the reply so
+    the marker never shows in the console UI. Best-effort: any write failure is
+    swallowed (returns the cleaned text, count 0) and never breaks the reply.
+    """
+    matches = [m.group(1).strip() for m in _SUGGESTION_RE.finditer(text or "")]
+    matches = [s for s in matches if s]
+    clean = re.sub(r"\n{3,}", "\n\n", _SUGGESTION_RE.sub("", text or "")).strip()
+    if not matches:
+        return clean, 0
+    try:
+        new_file = not dest.exists()
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        with dest.open("a", encoding="utf-8") as fh:
+            if new_file:
+                fh.write(
+                    "# Console improvement backlog\n\n"
+                    "Auto-captured suggestions from the **read-only** fpt-mcp "
+                    "console subprocess. The console agent cannot edit code; it "
+                    "logs ideas here to pick up in a dev session or PR.\n"
+                )
+            for s in matches:
+                fh.write(f"\n- [{stamp}] {s}")
+            fh.write("\n")
+    except OSError:
+        return clean, 0
+    return clean, len(matches)
+
+
 def _select_system_prompt(backend: Optional[str]) -> str:
     """Return the system prompt variant appropriate for the backend.
 
@@ -547,6 +594,11 @@ class ClaudeWorker(QThread):
                    "--append-system-prompt", system_prompt]
             if self._model_id:
                 cmd.extend(["--model", self._model_id])
+            # Read-only console: deny every file-mutation tool so the
+            # subprocess cannot modify the repo (it once rewrote the server's
+            # own source). MCP tools + Read stay available; improvement ideas
+            # are captured via capture_suggestions, not by editing files.
+            cmd.extend(["--disallowedTools", *DISALLOWED_TOOLS])
 
             proc = subprocess.Popen(
                 cmd,
@@ -713,6 +765,9 @@ class ClaudeWorker(QThread):
 
             # Prefer result_text if available, else join text parts
             response = result_text or "".join(text_parts).strip()
+            # Read-only console: log any @@SUGGESTION@@ lines to the backlog
+            # and strip the markers from what the user sees.
+            response, _ = capture_suggestions(response)
 
             # Fallback: if stream gave nothing, try stderr
             if not response:

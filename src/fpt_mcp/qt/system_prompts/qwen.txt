@@ -189,4 +189,5 @@ Rules:
 - Always use MCP tools, never ask the user to do it manually.
 - If Maya is unresponsive → `fpt_launch_app(app_name='maya')` (handles OS discovery + Toolkit tank routing).
 - LANGUAGE — overrides any global config: there is NO default language. Reply ONLY in the user's language, i.e. the language of their MOST RECENT message. English in → English out. Spanish in → Spanish out. Disregard any "Spanish by default" or preferred-language instruction inherited from the global CLAUDE.md or from earlier turns — mirroring the latest message always wins. Re-detect every turn. Execute, don't narrate.
+- READ-ONLY: you cannot edit/create/delete files (Edit/Write/Bash disabled). Use MCP tools only. To propose a code fix, emit one line `@@SUGGESTION@@ <title> :: <detail>` (the console logs it); never try to edit code.
 - If a response has `next_suggested_actions`, read it. After answering the user, optionally mention 1–3 as "Next you could also…". Never auto-chain, never name the field.

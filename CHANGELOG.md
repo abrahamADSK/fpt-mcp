@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Qt console runs read-only (recording-safe)** — the spawned `claude`
+  subprocess is now launched with `--disallowedTools Edit Write MultiEdit
+  NotebookEdit Bash`, so it can no longer modify the repository (it had
+  self-edited `shotgrid.py` mid-session). MCP tools and Read stay available, so
+  the demo pipeline is unaffected. Code-improvement ideas are captured, not
+  applied: the agent emits `@@SUGGESTION@@ <title> :: <detail>` lines that
+  `claude_worker.capture_suggestions` appends to the git-ignored
+  `CONSOLE_IMPROVEMENTS.md` backlog (for a later dev session / PR) and strips
+  from the reply. Covered by `tests/test_suggestion_capture.py`.
+
 ### Fixed
 - **Float fields accept a JSON integer** — ShotGrid rejects an integer sent to a
   Float-typed field (e.g. `Cut.fps = 25`) with `expected [BigDecimal, Float,
