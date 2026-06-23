@@ -8,7 +8,36 @@ These tests cover that pure capture / strip / append logic — no subprocess and
 no live MCP needed.
 """
 
-from fpt_mcp.qt.claude_worker import DISALLOWED_TOOLS, capture_suggestions
+from fpt_mcp.qt.claude_worker import (
+    DISALLOWED_TOOLS,
+    capture_suggestions,
+    log_usage,
+)
+
+
+def test_log_usage_writes_one_line(tmp_path):
+    dest = tmp_path / "usage.log"
+    log_usage(
+        {
+            "input_tokens": 100,
+            "cache_read_input_tokens": 200,
+            "cache_creation_input_tokens": 300,
+            "output_tokens": 50,
+        },
+        "fpt",
+        dest=dest,
+    )
+    body = dest.read_text(encoding="utf-8")
+    assert "fpt" in body
+    assert "context~=600" in body  # 100 + 200 + 300
+    assert "output=50" in body
+
+
+def test_log_usage_noop_on_empty(tmp_path):
+    dest = tmp_path / "usage.log"
+    log_usage(None, "fpt", dest=dest)
+    log_usage({}, "fpt", dest=dest)
+    assert not dest.exists()
 
 
 def test_captures_and_strips_single_suggestion(tmp_path):

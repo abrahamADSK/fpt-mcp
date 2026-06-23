@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-call token-usage monitoring.** Each `claude -p` turn now logs its token
+  usage (input context + cache + reasoning output) to the shared
+  `~/Library/Logs/mcp-console-usage.log` via `log_usage`, so request weight is
+  objectively visible across consoles instead of judged by feel. Covered by
+  `tests/test_suggestion_capture.py`.
+
 ### Changed
 - **Console defers MCP tool schemas (`ENABLE_TOOL_SEARCH=true`).** The spawned
   `claude` subprocess sent every loaded MCP server's full tool schemas in every
