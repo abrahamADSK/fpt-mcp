@@ -161,6 +161,14 @@ Native graphical interface that runs Claude Code CLI as a subprocess with real-t
 **File**: `src/fpt_mcp/qt/claude_worker.py`
 
 - **QThread worker**: runs `claude -p "prompt" --output-format stream-json --append-system-prompt`
+- **Read-only lockdown** (recording-safe): the subprocess is launched with
+  `--disallowedTools Edit Write MultiEdit NotebookEdit Bash` (`DISALLOWED_TOOLS`),
+  so it CANNOT modify the repo — it once rewrote `shotgrid.py` mid-session. MCP
+  tools + Read stay available. Code-improvement ideas are not applied: the agent
+  emits `@@SUGGESTION@@ <title> :: <detail>` lines, which `capture_suggestions`
+  logs to the git-ignored `CONSOLE_IMPROVEMENTS.md` backlog (later dev session /
+  PR) and strips from the reply. The READ-ONLY rule lives in both system-prompt
+  variants; the deny list + capture are enforced in `claude_worker.py`.
 - **SYSTEM_PROMPT**: defines the complete 3D creation workflow (must read before modifying)
 - **_TOOL_LABELS**: dictionary mapping MCP tool names → human-readable labels
 - **Project-context binding & gate** (`project_env_override` + system-prompt
