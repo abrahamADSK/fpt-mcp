@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the reply. Covered by `tests/test_suggestion_capture.py`.
 
 ### Fixed
+- **Console mirrors the user's language per message** — the spawned `claude`
+  subprocess inherited the global `CLAUDE.md` "Spanish by default" bias and
+  replied in Spanish to English orders. The console system prompts now carry an
+  explicit LANGUAGE directive that overrides any inherited default and re-detects
+  the latest message's language every turn (`default.txt` + `qwen.txt`).
 - **Float fields accept a JSON integer** — ShotGrid rejects an integer sent to a
   Float-typed field (e.g. `Cut.fps = 25`) with `expected [BigDecimal, Float,
   NilClass] ... but got Integer`. `shotgrid._coerce_float_fields` now parses that
