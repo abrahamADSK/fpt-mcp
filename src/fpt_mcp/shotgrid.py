@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from fpt_mcp.models import (
@@ -39,6 +40,29 @@ from fpt_mcp.models import (
     SgUploadInput,
 )
 from fpt_mcp.sg_errors import sg_errors_to_json
+
+# Matches: "API create() Cut.fps expected [BigDecimal, Float, NilClass] ... but got Integer"
+_FLOAT_EXPECTED_RE = re.compile(
+    r"API (?:create|update)\(\) \w+\.(\w+) expected \[[^\]]*(?:Float|BigDecimal)[^\]]*\].*but got Integer",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _coerce_float_fields(data: dict, error_msg: str) -> dict | None:
+    """Return a copy of *data* with the offending int field coerced to float.
+
+    Parses ShotGrid's Integer→Float type-mismatch Fault message to find the
+    field name and coerces it. Returns None if this is not a float issue.
+    """
+    m = _FLOAT_EXPECTED_RE.search(error_msg)
+    if not m:
+        return None
+    field_name = m.group(1)
+    if field_name not in data or not isinstance(data[field_name], int):
+        return None
+    fixed = dict(data)
+    fixed[field_name] = float(data[field_name])
+    return fixed
 
 
 @sg_errors_to_json
@@ -116,7 +140,13 @@ async def sg_create_impl(params: SgCreateInput) -> str:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": safety_warning})
 
-    result = await sg_create(params.entity_type, data)
+    try:
+        result = await sg_create(params.entity_type, data)
+    except Exception as exc:
+        fixed = _coerce_float_fields(data, str(exc))
+        if fixed is None:
+            raise
+        result = await sg_create(params.entity_type, fixed)
     payload: dict[str, Any] = {"created": result} if not isinstance(result, dict) else dict(result)
     rag_warning = _rag_skipped_warning()
     if rag_warning:
@@ -140,7 +170,13 @@ async def sg_update_impl(params: SgUpdateInput) -> str:
         _stats["safety_blocks"] += 1
         return json.dumps({"safety_warning": safety_warning})
 
-    result = await sg_update(params.entity_type, params.entity_id, params.data)
+    try:
+        result = await sg_update(params.entity_type, params.entity_id, params.data)
+    except Exception as exc:
+        fixed = _coerce_float_fields(dict(params.data), str(exc))
+        if fixed is None:
+            raise
+        result = await sg_update(params.entity_type, params.entity_id, fixed)
     payload: dict[str, Any] = {"updated": result} if not isinstance(result, dict) else dict(result)
     rag_warning = _rag_skipped_warning()
     if rag_warning:
