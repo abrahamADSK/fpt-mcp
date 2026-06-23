@@ -417,6 +417,18 @@ def _build_from_config_path(config_path: Path, project_id: int) -> TkConfig:
 
     project_root = Path(primary_root)
 
+    # Toolkit nests every project under <storage_root>/<tank_name>; roots.yml
+    # only carries the storage root. The project disk name (tank_name) lives in
+    # pipeline_configuration.yml as `project_name`. Without it every resolved
+    # path is one level too high — writes land outside the project root and
+    # `sgtk_from_path` rejects them ("path does not belong to any known Toolkit
+    # project"). See HANDOFF: DJ.v002 was written to <storage>/assets/... .
+    pc_yml = config_path / "config" / "core" / "pipeline_configuration.yml"
+    if pc_yml.exists():
+        tank_name = (_read_yaml(pc_yml) or {}).get("project_name")
+        if tank_name:
+            project_root = project_root / str(tank_name)
+
     # Read templates.yml
     templates_path = config_path / "config" / "core" / "templates.yml"
     templates_raw = _read_yaml(templates_path)

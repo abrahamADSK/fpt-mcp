@@ -110,6 +110,62 @@ class TestTkDiscoverConfig:
         call_args = sg_find.call_args
         assert call_args[0][0] == "PipelineConfiguration"
 
+    def test_project_root_nests_under_tank_name(
+        self, tmp_path, templates_yml_path, mock_pipeline_config,
+    ):
+        """When pipeline_configuration.yml carries a project_name (tank_name),
+        project_root nests the project under <storage_root>/<tank_name> — not the
+        bare storage root.
+
+        Regression: tk_config used the storage root directly, so every resolved
+        path was one level too high (e.g. <storage>/assets/... instead of
+        <storage>/mcp_project_abraham/assets/...). Files written there land
+        outside the project root and `sgtk_from_path` rejects them.
+        """
+        config_dir = tmp_path / "mock_pipeline"
+        core_dir = config_dir / "config" / "core"
+        core_dir.mkdir(parents=True)
+
+        storage_root = tmp_path / "storage"
+        storage_root.mkdir()
+
+        platform_key = {
+            "Darwin": "mac_path",
+            "Linux": "linux_path",
+            "Windows": "windows_path",
+        }.get(platform.system(), "mac_path")
+        (core_dir / "roots.yml").write_text(
+            yaml.dump({"primary": {"default": True, platform_key: str(storage_root)}})
+        )
+
+        import shutil
+        shutil.copy(templates_yml_path, core_dir / "templates.yml")
+
+        # The tank_name lives here — the fix must read it and append it.
+        (core_dir / "pipeline_configuration.yml").write_text(
+            yaml.dump({"project_name": "mcp_project_abraham", "project_id": 123})
+        )
+
+        pc = dict(mock_pipeline_config)
+        pc["mac_path"] = str(config_dir)
+        pc["linux_path"] = str(config_dir)
+        pc["windows_path"] = str(config_dir)
+        sg_find = AsyncMock(return_value=[pc])
+
+        result = _run(discover_config(project_id=123, sg_find_func=sg_find))
+
+        # project_root nests under the tank_name, NOT the bare storage root.
+        assert result.project_root == storage_root / "mcp_project_abraham"
+        # A resolved publish path therefore nests under the tank_name too.
+        path = result.resolve_path(
+            "maya_asset_publish",
+            {
+                "sg_asset_type": "Character", "Asset": "DJ", "Step": "MDL",
+                "name": "main", "version": 2, "maya_extension": "ma",
+            },
+        )
+        assert str(path).startswith(str(storage_root / "mcp_project_abraham"))
+
 
 # ---------------------------------------------------------------------------
 # 2. test_tk_resolve_path_asset

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Toolkit paths now nest under the project's `tank_name`** — `tk_config` used
+  the primary storage root directly as the project root, so every path from
+  `tk_resolve_path` / `tk_publish` was one level too high (e.g.
+  `<storage>/assets/...` instead of `<storage>/<tank_name>/assets/...`). Files
+  written there fall outside the project root and Toolkit's `sgtk_from_path`
+  rejects them ("path does not belong to any known Toolkit project"), which
+  silently drops the in-DCC engine context. The project disk name
+  (`project_name`) is now read from `pipeline_configuration.yml` and appended to
+  the project root. Regression test in `tests/test_toolkit_paths.py`.
+
 ## [1.20.0] — 2026-06-23
 
 ### Changed
