@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Float fields accept a JSON integer** — ShotGrid rejects an integer sent to a
+  Float-typed field (e.g. `Cut.fps = 25`) with `expected [BigDecimal, Float,
+  NilClass] ... but got Integer`. `shotgrid._coerce_float_fields` now parses that
+  Fault, coerces the offending field to float, and `sg_create`/`sg_update` retry
+  automatically — so creating a Cut with `fps = 25` (or any other float field on
+  any entity) no longer fails. Pure helper + Fault regex covered by
+  `tests/test_float_coercion.py`.
+
 ## [1.19.0] — 2026-06-22
 
 ### Added
