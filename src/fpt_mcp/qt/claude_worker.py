@@ -553,6 +553,11 @@ class ClaudeWorker(QThread):
             # Build environment with backend-specific overrides
             run_env = os.environ.copy()
             run_env["CLAUDE_NO_TELEMETRY"] = "1"
+            # Defer MCP tool schemas: only tool NAMES load upfront and the model
+            # fetches a schema on demand via ToolSearch. The FPT console keeps all
+            # three MCP servers (it orchestrates Maya + Flame), so this is its
+            # main relief from the ~49k-token per-request bloat.
+            run_env["ENABLE_TOOL_SEARCH"] = "true"
             # Bind the MCP servers (spawned as children of this claude
             # subprocess) to the project this console was launched for, so
             # sg_create / sg_find target the loaded project instead of the

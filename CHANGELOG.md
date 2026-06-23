@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Console defers MCP tool schemas (`ENABLE_TOOL_SEARCH=true`).** The spawned
+  `claude` subprocess sent every loaded MCP server's full tool schemas in every
+  request (fpt+maya+flame ≈ ~49k tokens), causing slow/overloaded "no response"
+  hangs. It now runs with `ENABLE_TOOL_SEARCH=true`, so only tool NAMES load
+  upfront and the model fetches a schema on demand via `ToolSearch`. The FPT
+  console keeps all three servers (it orchestrates Maya + Flame), so deferral is
+  its main relief — per-request payload drops toward ~8–12k tokens.
+
 ### Fixed
 - **Toolkit paths now nest under the project's `tank_name`** — `tk_config` used
   the primary storage root directly as the project root, so every path from
