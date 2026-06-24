@@ -67,7 +67,7 @@ fpt-mcp ships a native PySide6 chat window that routes messages through the Clau
 
 ## Requirements
 
-- Python >= 3.10
+- Python >= 3.13
 - macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
 - `shotgun_api3` (ShotGrid Python API)
 - `mcp[cli]` (MCP Python SDK with FastMCP)

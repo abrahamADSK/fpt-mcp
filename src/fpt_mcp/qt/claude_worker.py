@@ -88,8 +88,13 @@ DEFAULT_OLLAMA_MAC_URL = "http://localhost:11434"
 # Context window forced when pre-loading the Mac-local Ollama model.
 # Ollama's Anthropic-compat /v1/messages ignores Modelfile num_ctx and
 # defaults to 4096 without an explicit preflight against /api/generate.
-# Tuned for 4B/9B models on Mac unified memory (24 GB).
-OLLAMA_MAC_NUM_CTX = 8192
+# Set to 24576 so the deferred-tools console request (~24k tokens after
+# ENABLE_TOOL_SEARCH) fits; below this, Ollama truncates the prompt with keep=4
+# and the model loses most of its instructions. Matches flame-mcp's runtime force.
+# NOTE: the per-request CLIENT timeout to Ollama lives in the `claude` CLI's
+# Anthropic SDK, NOT here — a slow local box can still exceed it (CLAUDE.md §12
+# "Maturity"); the remote glorfindel Modelfile num_ctx is operator-side.
+OLLAMA_MAC_NUM_CTX = 24576
 
 
 def resolve_keep_alive(

@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upfront and the model fetches a schema on demand via `ToolSearch`. The FPT
   console keeps all three servers (it orchestrates Maya + Flame), so deferral is
   its main relief — per-request payload drops toward ~8–12k tokens.
+- **CI Python matrix realigned to the real runtimes.** The test matrix now runs
+  `[3.13, 3.14]` (Maya/Flame 2027 ship 3.13; the dev venv is 3.14) instead of
+  `[3.10, 3.11, 3.12, 3.13]`. `requires-python` raised to `>=3.13`;
+  `[tool.mypy] python_version`, the ruff/mypy/verify_concepts jobs and the
+  Codecov upload pin moved to 3.13; the README requirement was corrected.
+- **Local Ollama preload context raised to 24576** (`OLLAMA_MAC_NUM_CTX`
+  8192→24576) so the deferred-tools console request (~24k tokens) fits without
+  Ollama truncating the prompt; matches flame-mcp's runtime force. The
+  local-Ollama backend stays experimental — the per-request client timeout is
+  governed by the `claude` CLI, not fpt-mcp.
 
 ### Fixed
 - **Toolkit paths now nest under the project's `tank_name`** — `tk_config` used
