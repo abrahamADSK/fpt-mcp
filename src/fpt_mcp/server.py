@@ -83,7 +83,7 @@ from fpt_mcp.models import (
     # Launcher tool input
     FptLaunchAppInput,
     # Bulk sub-models
-    SgBatchInput, SgReviveInput,
+    SgBatchInput, SgReviveInput, SgEditorialInput,
     # Reporting sub-models
     SgTextSearchInput, SgSummarizeInput, SgNoteThreadInput, SgActivityInput,
     # RAG tool inputs
@@ -536,7 +536,7 @@ from fpt_mcp.launcher import _project_id_for_entity  # noqa: E402,F401
 # Bucket F Phase 2d — re-export handler functions from shotgrid / reporting so
 # tests that import them by the `fpt_mcp.server._do_sg_*` path still resolve.
 from fpt_mcp.shotgrid import (  # noqa: E402,F401
-    _do_sg_batch, _do_sg_delete, _do_sg_revive,
+    _do_sg_batch, _do_sg_delete, _do_sg_editorial, _do_sg_revive,
 )
 from fpt_mcp.reporting import (  # noqa: E402,F401
     _do_sg_activity, _do_sg_note_thread, _do_sg_summarize, _do_sg_text_search,
@@ -613,6 +613,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • delete — Retire (soft-delete) an entity. Can be restored from trash. Required params: {"entity_type": "Shot", "entity_id": 123}
     • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
+    • editorial — Deterministically create a Cut + one CutItem per shot (cumulative edit ranges, source ranges, handles computed in Python — no hand math). Required params: {"cut": {"entity": {"type": "Sequence", "id": 42}, "code": "SEQ01_v3", "fps": 24.0}, "shots": [{"shot": {"type": "Shot", "id": 1}, "duration": 100}]}. Optional cut keys: source_start_frame (default 1001), handles (default 0), revision_number.
     """
     from fpt_mcp.suggestions import maybe_annotate_with_suggestions
     _track_call()
@@ -620,6 +621,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
         BulkAction.DELETE: _do_sg_delete,
         BulkAction.REVIVE: _do_sg_revive,
         BulkAction.BATCH: _do_sg_batch,
+        BulkAction.EDITORIAL: _do_sg_editorial,
     }
     handler = dispatch[params.action]
     _stats["exec_calls"] += 1
