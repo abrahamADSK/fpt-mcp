@@ -17,8 +17,8 @@ These tests pin four behaviours of
 ``fpt_mcp.qt.claude_worker._preload_ollama_mac_model`` and
 ``fpt_mcp.qt.claude_worker.resolve_keep_alive``:
 
-1. The constant ``OLLAMA_MAC_NUM_CTX`` stays at 8192 (tuned for 4B/9B
-   models on Mac 24 GB unified memory).
+1. The constant ``OLLAMA_MAC_NUM_CTX`` stays at 24576 (fits the ~24k-token
+   deferred-tools console request so Ollama does not truncate the prompt).
 2. A successful preflight issues a POST to ``<url>/api/generate`` with
    the expected JSON payload (model, num_ctx, keep_alive, stream=False)
    and Content-Type header.
@@ -94,9 +94,9 @@ if not _HAS_REAL_QT:
 # Constant pinning
 # ---------------------------------------------------------------------------
 
-def test_ollama_mac_num_ctx_is_8192() -> None:
-    """OLLAMA_MAC_NUM_CTX is pinned at 8192 (Mac 24GB 4B/9B budget)."""
-    assert OLLAMA_MAC_NUM_CTX == 8192
+def test_ollama_mac_num_ctx_is_24576() -> None:
+    """OLLAMA_MAC_NUM_CTX is pinned at 24576 (fits the ~24k deferred-tools request)."""
+    assert OLLAMA_MAC_NUM_CTX == 24576
 
 
 # ---------------------------------------------------------------------------
