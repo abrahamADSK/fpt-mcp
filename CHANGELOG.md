@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/Library/Logs/mcp-console-usage.log` via `log_usage`, so request weight is
   objectively visible across consoles instead of judged by feel. Covered by
   `tests/test_suggestion_capture.py`.
+- **Deterministic editorial Cut + CutItem auto-calc** — new
+  `fpt_bulk(action="editorial")` action computes the full timecode layout from an
+  ordered shot list (cumulative `edit_in`/`edit_out`, source
+  `cut_item_in`/`cut_item_out` with handles, and the Cut `sg_cut_duration`) in a
+  pure, unit-tested function (`editorial.py::compute_editorial_cut`), then creates
+  the Cut + all CutItems in one batch transaction
+  (`shotgrid.py::_do_sg_editorial`). Moves the by-hand editorial math out of the
+  console into deterministic code. No new tool (extends the dispatcher; count
+  stays 15). +35 tests in `tests/test_editorial.py`.
 
 ### Changed
 - **Console defers MCP tool schemas (`ENABLE_TOOL_SEARCH=true`).** The spawned

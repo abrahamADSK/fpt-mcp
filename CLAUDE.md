@@ -30,10 +30,11 @@ Claude Desktop / Claude Code / Terminal
 - `sg_upload` — upload files (thumbnail, movie, attachment)
 - `sg_download` — download attachments
 
-**Bulk operations dispatcher** (`fpt_bulk` — 1 tool, 3 actions):
+**Bulk operations dispatcher** (`fpt_bulk` — 1 tool, 4 actions):
 - `fpt_bulk(action="delete")` — soft-delete (retire) entities
 - `fpt_bulk(action="revive")` — restore soft-deleted (retired) entities
 - `fpt_bulk(action="batch")` — transactional batch operations (all-or-nothing)
+- `fpt_bulk(action="editorial")` — deterministic Cut + CutItem auto-calc: pure timecode math (`editorial.py::compute_editorial_cut`) computes cumulative `edit_in`/`edit_out`, `cut_item_in`/`cut_item_out` (source range), handles and `sg_cut_duration`, then a thin creation layer (`shotgrid.py::_do_sg_editorial`) creates the Cut via `sg_create` and the CutItems via one `sg_batch` transaction
 
 **Reporting dispatcher** (`fpt_reporting` — 1 tool, 4 actions):
 - `fpt_reporting(action="text_search")` — full-text search across multiple entity types
@@ -376,7 +377,7 @@ In `~/.claude/settings.json`, enable all these tools:
 
 **fpt-mcp** (15 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
-- Dispatchers: fpt_bulk (delete/revive/batch), fpt_reporting (text_search/summarize/note_thread/activity)
+- Dispatchers: fpt_bulk (delete/revive/batch/editorial), fpt_reporting (text_search/summarize/note_thread/activity)
 - Toolkit: tk_resolve_path, tk_publish
 - Launcher: fpt_launch_app
 - RAG: search_sg_docs, learn_pattern, session_stats, reset_session_stats
@@ -422,7 +423,7 @@ All three repos are on the local Mac (M4 Pro):
 - **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
   - 15 @mcp.tool registrations using dispatcher pattern:
     - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
-    - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch)
+    - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch, editorial)
     - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
     - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery
     - 1 launcher tool (fpt_launch_app)

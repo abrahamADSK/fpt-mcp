@@ -65,6 +65,32 @@ def _coerce_to_json_str(v: Any) -> Any:
     return v
 
 
+def _validate_entity_ref(v: Any, *, allowed_types: set[str] | None = None) -> dict:
+    """Validate a ShotGrid entity reference dict (``{"type": ..., "id": ...}``).
+
+    Reused by the editorial sub-models for their ``entity`` / ``shot`` links.
+    Rejects the canonical LLM mistakes — a bare int/str instead of a dict, a
+    dict missing ``type``/``id``, a bool ``id`` (``True`` is an ``int`` in
+    Python but never a valid SG id), and — when ``allowed_types`` is given — an
+    out-of-domain entity type.
+    """
+    if not isinstance(v, dict):
+        raise ValueError(
+            "entity reference must be a dict like {'type': 'Shot', 'id': 123}"
+        )
+    if "type" not in v or "id" not in v:
+        raise ValueError(
+            "entity reference must contain both 'type' and 'id' keys"
+        )
+    if not isinstance(v["id"], int) or isinstance(v["id"], bool):
+        raise ValueError("entity reference 'id' must be an integer")
+    if allowed_types is not None and v["type"] not in allowed_types:
+        raise ValueError(
+            f"entity 'type' must be one of {sorted(allowed_types)}, got {v['type']!r}"
+        )
+    return v
+
+
 # ---------------------------------------------------------------------------
 # Direct ShotGrid tool inputs
 # ---------------------------------------------------------------------------
@@ -203,6 +229,7 @@ class BulkAction(str, Enum):
     DELETE = "delete"
     REVIVE = "revive"
     BATCH = "batch"
+    EDITORIAL = "editorial"
 
 
 class BulkDispatchInput(BaseModel):
@@ -323,6 +350,74 @@ class SgReviveInput(BaseModel):
     model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type to restore (e.g. 'Asset', 'Shot', 'Task').")
     entity_id: int = Field(description="ID of the soft-deleted entity to restore.")
+
+
+class EditorialCutSpec(BaseModel):
+    """Cut-level spec for ``fpt_bulk(action="editorial")``.
+
+    Describes the Cut entity to create. ``entity`` is the link the Cut hangs
+    off (Project, Sequence, or Shot). ``source_start_frame`` and ``handles``
+    drive every CutItem's source range; see
+    ``fpt_mcp.editorial.compute_editorial_cut`` for the exact frame-range math.
+    """
+    model_config = _STRICT_CONFIG
+    entity: dict = Field(
+        description="Entity the Cut links to: {'type':'Project'|'Sequence'|'Shot','id':N}.",
+    )
+    code: str = Field(description="Cut code / name (e.g. 'SEQ01_editorial_v003').")
+    fps: float = Field(gt=0, description="Frames per second as a float (e.g. 24.0, 23.976, 25.0).")
+    source_start_frame: int = Field(
+        default=1001,
+        description="First source frame for every shot's cut_item_in (default 1001).",
+    )
+    handles: int = Field(
+        default=0, ge=0,
+        description="Handle frames added to EACH side of every shot's source range (default 0).",
+    )
+    revision_number: Optional[int] = Field(
+        default=None, ge=0,
+        description="Optional Cut revision_number.",
+    )
+
+    @field_validator("entity")
+    @classmethod
+    def _validate_entity(cls, v: dict) -> dict:
+        return _validate_entity_ref(v, allowed_types={"Project", "Sequence", "Shot"})
+
+
+class EditorialShot(BaseModel):
+    """One ordered shot entry for ``fpt_bulk(action="editorial")``.
+
+    List position determines ``cut_order`` (1-based) and the cumulative
+    timeline placement; ``duration`` is the shot's cut length in frames.
+    """
+    model_config = _STRICT_CONFIG
+    shot: dict = Field(description="Shot link: {'type':'Shot','id':N}.")
+    duration: int = Field(gt=0, description="Shot cut duration in frames (must be > 0).")
+
+    @field_validator("shot")
+    @classmethod
+    def _validate_shot(cls, v: dict) -> dict:
+        return _validate_entity_ref(v, allowed_types={"Shot"})
+
+
+class SgEditorialInput(BaseModel):
+    """Input for ``fpt_bulk(action="editorial")``.
+
+    Deterministically build and create one Cut plus one CutItem per shot, in
+    order. All timecode math is the pure function
+    ``fpt_mcp.editorial.compute_editorial_cut``; this model only validates the
+    shape of the request.
+    """
+    model_config = _STRICT_CONFIG
+    cut: EditorialCutSpec = Field(description="Cut-level spec (entity, code, fps, source_start_frame, handles, revision_number).")
+    shots: list[EditorialShot] = Field(
+        min_length=1,
+        description=(
+            "Ordered list of shots, in cut order. Each: "
+            "{'shot':{'type':'Shot','id':N},'duration':<frames>}."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

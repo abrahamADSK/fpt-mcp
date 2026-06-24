@@ -3,8 +3,11 @@
 Extracted from server.py in Bucket F Phase 2d. Contains:
   - sg_find_impl, sg_create_impl, sg_update_impl
   - sg_schema_impl, sg_upload_impl, sg_download_impl
-  - _do_sg_delete, _do_sg_batch, _do_sg_revive  (bulk dispatcher handlers)
-  - BULK_DISPATCH                               (dict: BulkAction → handler)
+  - _do_sg_delete, _do_sg_batch, _do_sg_revive,
+    _do_sg_editorial                            (bulk dispatcher handlers)
+
+The BulkAction → handler dispatch dict itself lives in server.py::fpt_bulk
+(it owns the _stats bookkeeping); these handlers are the values it maps to.
 
 Impl functions are pure: they do NOT bump `_stats["exec_calls"]`,
 `tokens_in`, or `tokens_out`. The @mcp.tool wrappers in server.py handle
@@ -28,11 +31,13 @@ import json
 import re
 from typing import Any
 
+from fpt_mcp.editorial import compute_editorial_cut
 from fpt_mcp.models import (
     SgBatchInput,
     SgCreateInput,
     SgDeleteInput,
     SgDownloadInput,
+    SgEditorialInput,
     SgFindInput,
     SgReviveInput,
     SgSchemaInput,
@@ -353,3 +358,89 @@ async def _do_sg_revive(params: dict) -> str:
         "entity_type": validated.entity_type,
         "entity_id": validated.entity_id,
     })
+
+
+@sg_errors_to_json
+async def _do_sg_editorial(params: dict) -> str:
+    """Deterministically create a Cut + ordered CutItems from shot durations.
+
+    Thin creation layer over the PURE timecode math in
+    ``fpt_mcp.editorial.compute_editorial_cut`` (which documents the
+    frame-range convention). Steps:
+
+      1. Validate :class:`SgEditorialInput`.
+      2. Run the pure math (no ShotGrid I/O) → Cut fields + CutItem fields.
+      3. Create the Cut via ``sg_create`` (project auto-linked, with the same
+         Integer→Float coercion retry as ``sg_create_impl`` for ``Cut.fps``).
+      4. Batch-create every CutItem in ONE transaction (all-or-nothing),
+         each linked to the freshly created Cut. The Cut id is unknown until
+         step 3, so this cannot be folded into a single batch — standard
+         ShotGrid batch has no intra-batch entity references.
+    """
+    from pydantic import ValidationError
+    from fpt_mcp.server import (
+        PROJECT_ID, _stats, check_dangerous, sg_batch, sg_create,
+    )
+
+    try:
+        validated = SgEditorialInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for editorial: {e}"})
+
+    spec = validated.cut
+    cut_fields, cut_item_fields = compute_editorial_cut(
+        entity=spec.entity,
+        code=spec.code,
+        fps=spec.fps,
+        shots=[s.model_dump() for s in validated.shots],
+        source_start_frame=spec.source_start_frame,
+        handles=spec.handles,
+        revision_number=spec.revision_number,
+    )
+
+    # Project auto-link for the Cut (mirror sg_create_impl semantics).
+    if PROJECT_ID and "project" not in cut_fields:
+        cut_fields["project"] = {"type": "Project", "id": PROJECT_ID}
+
+    # Safety scan the planned Cut mutation under the sg_create content patterns.
+    scan_target = "sg_create " + json.dumps(
+        {"entity_type": "Cut", "data": cut_fields}, default=str
+    )
+    safety_warning = check_dangerous(scan_target, tool_name="sg_create")
+    if safety_warning:
+        _stats["safety_blocks"] += 1
+        return json.dumps({"safety_warning": safety_warning})
+
+    # 1. Create the Cut (Integer→Float coercion retry, as in sg_create_impl).
+    try:
+        cut = await sg_create("Cut", cut_fields)
+    except Exception as exc:
+        fixed = _coerce_float_fields(cut_fields, str(exc))
+        if fixed is None:
+            raise
+        cut = await sg_create("Cut", fixed)
+
+    cut_link = {"type": "Cut", "id": cut["id"]}
+
+    # 2. Batch-create every CutItem in a single transaction, linked to the Cut.
+    requests = []
+    for item in cut_item_fields:
+        data = dict(item)
+        data["cut"] = cut_link
+        if PROJECT_ID and "project" not in data:
+            data["project"] = {"type": "Project", "id": PROJECT_ID}
+        requests.append(
+            {"request_type": "create", "entity_type": "CutItem", "data": data}
+        )
+
+    cut_items = await sg_batch(requests)
+
+    return json.dumps(
+        {
+            "cut": cut,
+            "cut_items": cut_items,
+            "cut_item_count": len(cut_items),
+            "sg_cut_duration": cut_fields["sg_cut_duration"],
+        },
+        default=str,
+    )

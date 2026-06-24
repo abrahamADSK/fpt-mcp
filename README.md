@@ -223,7 +223,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
 | `sg_download` | Download attachment from any entity field |
 
-### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 3 actions)
+### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 4 actions)
 
 <!-- concept:fpt_bulk_actions start -->
 | Action | Description |
@@ -231,6 +231,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `fpt_bulk(action="delete")` | Soft-delete (retire) any entity. Can be restored from trash |
 | `fpt_bulk(action="revive")` | Restore a previously retired entity |
 | `fpt_bulk(action="batch")` | Transactional bulk operations — all succeed or all fail |
+| `fpt_bulk(action="editorial")` | Deterministically create a Cut + one CutItem per shot. Cumulative edit ranges, source ranges and handles are computed in Python (see `editorial.py`), not by hand. Required `params`: `{"cut": {"entity": {...}, "code": "...", "fps": 24.0}, "shots": [{"shot": {"type": "Shot", "id": N}, "duration": <frames>}]}`; optional cut keys `source_start_frame` (default 1001), `handles` (default 0), `revision_number` |
 <!-- concept:fpt_bulk_actions end -->
 
 ### ShotGrid API — Reporting Dispatcher (`fpt_reporting` — 1 tool, 4 actions)
