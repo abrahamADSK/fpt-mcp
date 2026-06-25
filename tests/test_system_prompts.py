@@ -376,3 +376,32 @@ def test_prompt_language_tags(both_prompts):
             prompt,
             re.IGNORECASE,
         ), f"{name}: missing conciseness instruction"
+
+
+def test_turntable_uses_deterministic_review_turntable(both_prompts):
+    """T21 (Chat 73): the turntable recipe must call the deterministic
+    maya_session action=review_turntable, NOT a hand-built execute_python
+    playblast + per-frame Arnold render. The old recipe reproduced the
+    empty-frame / main-thread hang fixed in maya-mcp v1.18.x (a skydome-fill
+    rig blew up the framing; an arnoldRender loop hung Maya)."""
+    for name, prompt in both_prompts:
+        assert "review_turntable" in prompt, f"{name}: review_turntable missing"
+        assert "arnoldRender" not in prompt, (
+            f"{name}: hand-built Arnold turntable loop still present"
+        )
+        assert "aiSkyDomeLight" not in prompt, (
+            f"{name}: skydome-fill rig (broke turntable framing) still present"
+        )
+
+
+def test_version_entity_vs_file_versioning_disambiguated(both_prompts):
+    """T22 (Chat 73): a ShotGrid review Version (media: sg_uploaded_movie) must
+    be kept distinct from file versioning (PublishedFile.version_number →
+    _v###) so 'create a turntable review version' uploads the .mov as a Version
+    entity instead of bumping a published file's version number."""
+    for name, prompt in both_prompts:
+        assert "sg_uploaded_movie" in prompt, f"{name}: review-media field missing"
+        assert "_v###" in prompt, f"{name}: file-versioning sense not named"
+        assert "version_code" in prompt, (
+            f"{name}: review_turntable's version_code not referenced"
+        )

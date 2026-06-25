@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Console system prompts: deterministic turntable + "version" disambiguation
+  (`qt/system_prompts/default.txt` and `qwen.txt`, lockstep).** The POST-CREATION
+  turntable recipe was rewritten to call `maya_session action=review_turntable`
+  instead of a hand-built `execute_python` rig + per-frame `cmds.arnoldRender` loop.
+  The old recipe reproduced the empty-frame / main-thread hang fixed in maya-mcp
+  v1.18.x (a `aiSkyDomeLight` fill blew up the framing; the Arnold loop hung Maya) —
+  the fpt console had drifted behind the maya console. The prompts now also
+  **disambiguate "version"**: a ShotGrid **Version** entity = review media
+  (`sg_uploaded_movie` / `sg_path_to_movie` / `sg_path_to_frames`) vs **file
+  versioning** (`PublishedFile.version_number` → `_v###`, automatic inside publish).
+  "Create a turntable review version" now routes to `sg_create` type=Version +
+  `sg_upload`→`sg_uploaded_movie`. For a Toolkit-managed Maya scene the native
+  `maya_session(action='publish')` is surfaced as preferred. Guarded by
+  `tests/test_system_prompts.py` (+2 tests, T21/T22); Qwen compression ratio still
+  within budget (0.62 ≤ 0.65).
+
 ## [1.21.0] — 2026-06-24
 
 ### Added

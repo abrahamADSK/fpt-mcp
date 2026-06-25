@@ -225,40 +225,29 @@ FAST PATH (short-circuit) — if the user's message ALREADY contains an unambigu
       - tk_publish(publish_type="Texture", local_path=<.png>)
       Template matching is convention-based: publish_type "USD" matches template `usd_asset_publish`.
       Only provide entity_type+entity_id explicitly when local_path is NOT a Toolkit path.
+      "version" — disambiguate: these tk_publish calls do FILE versioning
+      (PublishedFile.version_number → _v###, auto-incremented per publish). That is
+      NOT the same as a review "Version" entity (media for review, created in step d).
+      For a Toolkit-managed Maya scene the native maya_session(action='publish') is
+      preferred (auto-captures dependencies); keep tk_publish for interchange formats.
 
-   d) TURNTABLE preview (for Assets — skip for Shots):
-      Generate an orbit render around the asset for ShotGrid preview and Flame:
-      1. maya_session(action='execute_python') — SET UP the turntable rig:
-         - Compute bounding box of all scene geometry
-         - Create a camera ("turntableCam") at 1.5x the bounding radius, aimed at center
-         - Create a 3-point light rig (key aiAreaLight + fill aiSkyDomeLight + rim aiAreaLight)
-         - Set timeline to 90 frames
-         - Keyframe the camera orbiting 360° around Y axis (linear tangents)
-      2. maya_session(action='execute_python') — PLAYBLAST quick preview:
-         - `cmds.playblast(format='qt', filename='<path>.mov', w=1920, h=1080, p=100, orn=False)`
-         - This is fast (~2s) and produces the .mov for ShotGrid thumbnail
-      3. maya_session(action='execute_python') — ARNOLD RENDER EXR sequence:
-         - Configure Arnold render settings via execute_python:
-           `cmds.setAttr('defaultArnoldDriver.aiTranslator', 'exr', type='string')`
-           `cmds.setAttr('defaultArnoldDriver.exrCompression', 2)`  # zip
-           `cmds.setAttr('defaultArnoldDriver.mergeAOVs', 1)`  # multichannel EXR
-           `cmds.setAttr('defaultArnoldDriver.prefix', '<output_path>/<name>', type='string')`
-           `cmds.setAttr('defaultResolution.width', 1920)`
-           `cmds.setAttr('defaultResolution.height', 1080)`
-         - Render frame by frame (no external batch needed):
-           ```
-           for frame in range(1, 91):
-               cmds.currentTime(frame)
-               cmds.arnoldRender(cam='turntableCam', w=1920, h=1080)
-           ```
-         - This produces multichannel EXR files that Flame reads via "Rendered Image"
-      4. PUBLISH results:
-         - tk_publish(publish_type="Movie", name="turntable", local_path=<.mov>)
-         - tk_publish(publish_type="Rendered Image", name="turntable", local_path=<first_exr>,
-                      comment="EXR sequence: 90 frames, multichannel Arnold")
-         - sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>)  → ShotGrid preview
+   d) TURNTABLE REVIEW Version (for Assets — skip for Shots):
+      NEVER hand-build the turntable with execute_python — a manual playblast frames
+      the wrong thing (e.g. a skydome light's huge bbox → an empty .mov) and an
+      Arnold render loop can hang Maya's main thread. Use the deterministic tool, then
+      register the resulting media as a ShotGrid review Version:
+      1. tk_resolve_path(template='movie_asset_publish', ...) → the .mov out_path.
+      2. maya_session(action='review_turntable', params={'out_path': <.mov>}) — frames
+         the renderable mesh, orbits 360°, renders Viewport 2.0 offScreen to a 16:9
+         .mov by itself. It returns the .mov plus a version_code ({Asset}_{Task}).
+      3. Create the REVIEW Version — the FPT Version *entity* (review media), NOT a
+         file _v### bump:
+         - sg_create("Version", {code: <version_code>+'_v###', entity: <Asset dict>,
+           sg_task: <Task dict>, sg_path_to_movie: <.mov>})
+         - sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>)  → streamed review
+         - (optional) sg_path_to_frames = an exr sequence, if one was rendered separately.
 
-   Offer all of this as: "Save + publish in all formats and generate turntable preview? (yes/no)"
+   Offer all of this as: "Save + publish in all formats and generate a turntable review version? (yes/no)"
    If the user says yes, execute steps a-d sequentially. If no, just save the scene.
 
 ═══════════════════════════════════════════════════════════════════════
