@@ -340,6 +340,19 @@ Then execute:
 Offer maya_session(action="save_scene") and tk_publish
 ```
 
+**Turntable + "version" (Chat 73 — aligned with the maya-mcp console).** The
+POST-CREATION turntable recipe in `system_prompts/default.txt` (and `qwen.txt`,
+lockstep) was rewritten to call the deterministic `maya_session
+action=review_turntable` instead of a hand-built `execute_python` rig + per-frame
+`cmds.arnoldRender` loop. The old recipe reproduced the empty-frame / main-thread
+hang fixed in maya-mcp v1.18.x (a `aiSkyDomeLight` fill blew up the framing; the
+Arnold loop hung Maya). The prompts now also **disambiguate "version"**: a ShotGrid
+**Version** entity = review media (`sg_uploaded_movie` / `sg_path_to_movie` /
+`sg_path_to_frames`, created via `sg_create` type=Version + `sg_upload`) vs **file
+versioning** (`PublishedFile.version_number` → `_v###`, automatic inside publish).
+For a Toolkit-managed Maya scene the native `maya_session(action='publish')` is
+preferred (auto-captures deps). Guarded by `tests/test_system_prompts.py` (T21/T22).
+
 ### General rules
 - NEVER repeat a question already answered in history
 - ALWAYS use MCP tools, NEVER tell the user "do it manually"

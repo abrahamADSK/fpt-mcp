@@ -226,7 +226,7 @@ def project_env_override(context: dict | None) -> dict:
     ALWAYS returns an explicit value so the console NEVER silently inherits the
     static ``.env`` project (Chat 69, option B — zero silent defaults):
 
-    - launched with a valid ``project_id`` (a ShotGrid AMI fired from *within*
+    - launched with a valid ``project_id`` (a Flow Production Tracking AMI fired from *within*
       a project) → that project, so ``sg_create`` / ``sg_find`` auto-link to the
       loaded project (applied to the spawned ``claude`` subprocess env, which the
       MCP servers it spawns inherit at startup);
@@ -425,7 +425,7 @@ class ClaudeWorker(QThread):
     and emits progress events plus the final result.
 
     Signals:
-        progress(str)          — status updates ("Searching ShotGrid...", etc.)
+        progress(str)          — status updates ("Searching Flow Production Tracking...", etc.)
         finished(str, bool)    — (final_text, is_error)
     """
 
@@ -455,22 +455,22 @@ class ClaudeWorker(QThread):
     # Flat tool labels for non-dispatcher tools (one label regardless of params).
     _TOOL_LABELS = {
         # fpt-mcp
-        "sg_find": "Searching ShotGrid",
-        "sg_create": "Creating entity in ShotGrid",
-        "sg_update": "Updating ShotGrid",
-        "sg_delete": "Retiring entity in ShotGrid",
-        "sg_schema": "Querying ShotGrid schema",
-        "sg_upload": "Uploading file to ShotGrid",
-        "sg_download": "Downloading from ShotGrid",
-        "sg_batch": "Running batch operation in ShotGrid",
-        "sg_text_search": "Searching text across ShotGrid",
-        "sg_summarize": "Aggregating ShotGrid data",
-        "sg_revive": "Restoring entity in ShotGrid",
-        "sg_note_thread": "Reading note thread from ShotGrid",
-        "sg_activity": "Reading activity stream from ShotGrid",
+        "sg_find": "Searching Flow Production Tracking",
+        "sg_create": "Creating entity in Flow Production Tracking",
+        "sg_update": "Updating Flow Production Tracking",
+        "sg_delete": "Retiring entity in Flow Production Tracking",
+        "sg_schema": "Querying Flow Production Tracking schema",
+        "sg_upload": "Uploading file to Flow Production Tracking",
+        "sg_download": "Downloading from Flow Production Tracking",
+        "sg_batch": "Running batch operation in Flow Production Tracking",
+        "sg_text_search": "Searching text across Flow Production Tracking",
+        "sg_summarize": "Aggregating Flow Production Tracking data",
+        "sg_revive": "Restoring entity in Flow Production Tracking",
+        "sg_note_thread": "Reading note thread from Flow Production Tracking",
+        "sg_activity": "Reading activity stream from Flow Production Tracking",
         "tk_resolve_path": "Resolving Toolkit path",
-        "tk_publish": "Publishing to ShotGrid",
-        "search_sg_docs": "Searching ShotGrid documentation",
+        "tk_publish": "Publishing to Flow Production Tracking",
+        "search_sg_docs": "Searching Flow Production Tracking documentation",
         "learn_pattern": "Learning validated pattern",
         "fpt_launch_app": "Launching DCC application",
         "session_stats": "Fetching session statistics",
@@ -577,7 +577,7 @@ class ClaudeWorker(QThread):
         parts.append(self._message)
 
         if self._context:
-            parts.append(f"[ShotGrid context: {json.dumps(self._context)}]")
+            parts.append(f"[Flow Production Tracking context: {json.dumps(self._context)}]")
 
         prompt = "\n".join(parts)
 
