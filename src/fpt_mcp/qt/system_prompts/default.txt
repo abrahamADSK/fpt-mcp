@@ -275,8 +275,23 @@ W5. DOWNLOAD — maya_worldlabs(action='download', params={'operation_id': '<id>
 W5b. CONVERT — maya_worldlabs(action='convert', params={'spz_path': '<work_dir>/<code>.v001.spz'}) → ply. Tell the user "Converting to PLY… done."
 W6. OPEN IN MAYA — GATE: ask "PLY ready. Open it in Maya to assemble the environment? (yes/no)". On yes:
     a) fpt_launch_app(app_name='maya', entity_type='Asset', entity_id=<id>) → engine'd Maya in the environment's Model task.
-    b) maya_worldlabs(action='build', params={'ply_path': '<ply>', 'pano_path': '<work_dir>/<code>.v001.png'}) → aiGaussianSplat + coloured point proxy + fake-HDR pano dome + eye-level camera (RUNS IN MAYA).
-    c) Preview (viewport capture or review_turntable); let the user adjust. Publishing the environment (pano + spz + ply promoted workfiles→published, plus the assembled .ma + .usd) is a later step, done on the user's approval.
+    b) tk_resolve_path(entity_type='Asset', entity_id=<id>, template_name='maya_asset_work', name='<entity_code>', step='model', extension='ma') → the work-file path with Toolkit naming/versioning (e.g. <code>.v001.ma). Read entity_code from the injected [Flow Production Tracking context: …] block, no sg_find. The resolver auto-increments the version.
+    c) maya_worldlabs(action='build', params={'ply_path': '<ply>', 'pano_path': '<work_dir>/<code>.v001.png', 'save_path': '<the work-file path from b>'}) → in ONE in-Maya pass: assembles the scene (aiGaussianSplat + coloured point proxy + fake-HDR pano dome + eye-level camera) AND saves it as the work file at that Toolkit path — so Maya lands directly in the right work file with no manual Workfiles pick (RUNS IN MAYA).
+    d) Preview (viewport capture or review_turntable); let the user adjust, then GATE on approval before publishing (W7).
+
+W7. PUBLISH (only after the user approves the look) — leave the published Maya Scene SELF-CONTAINED:
+    a) Publish the raw assets FIRST so their published paths exist to repoint to (each tk_publish returns its published path):
+       tk_publish(publish_type='Gaussian Splat', local_path='<work_dir>/<code>.v001.ply')  → note <pub_ply>;
+       tk_publish(publish_type='SPZ Splat',      local_path='<work_dir>/<code>.v001.spz');
+       tk_publish(publish_type='Panorama',       local_path='<work_dir>/<code>.v001.png')  → note <pub_pano>.
+    b) Repath the OPEN scene to the PUBLISHED copies, so the .ma never depends on the work area (one execute_python):
+       cmds.setAttr('aiGaussianSplat1.filename', '<pub_ply>', type='string');
+       cmds.setAttr('envDomePano.fileTextureName', '<pub_pano>', type='string').
+    c) Save the next work version and publish the scene:
+       tk_resolve_path(template_name='maya_asset_work', name='<entity_code>', step='model', extension='ma') → <ma_next>;
+       save the scene there (maya_session action='save_scene', or execute_python rename+save);
+       tk_publish(publish_type='Maya Scene', local_path='<ma_next>'). The published .ma now references the PUBLISHED
+       ply/pano (not the work area); dependencies are captured automatically. (USD optional — the splat is Arnold-specific.)
 
 ═══════════════════════════════════════════════════════════════════════
 OTHER FLOWS

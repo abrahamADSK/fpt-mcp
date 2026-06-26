@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+from pathlib import Path
 from typing import Any, Callable
 
 import shotgun_api3
@@ -33,7 +34,13 @@ _logger = get_logger("fpt_mcp.client")
 # inherited value back to the .env one, so capture it first and restore it
 # after the dotenv load. Credentials keep the override=True semantics above.
 _injected_project_id = os.environ.get("SHOTGRID_PROJECT_ID")
-load_dotenv(override=True)
+# Anchor on THIS repo's .env by absolute path, not the cwd. Another client (a
+# Maya/Flame console, Claude Desktop) can spawn fpt-mcp from a different cwd, and
+# a bare load_dotenv() searches up from the cwd — it would then load the wrong
+# repo's .env and lose the ShotGrid credentials (Chat 76, symmetric to the
+# maya-mcp WORLDLABS_API_KEY fix).
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(_ENV_PATH, override=True)
 if _injected_project_id:
     os.environ["SHOTGRID_PROJECT_ID"] = _injected_project_id
 

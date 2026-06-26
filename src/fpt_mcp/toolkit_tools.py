@@ -81,6 +81,7 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         _build_template_fields,
         sg_find_one,
         sg_create,
+        sg_update,
         PROJECT_ID,
     )
     from fpt_mcp.tk_config import context_from_path
@@ -294,6 +295,23 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
             data["project"] = {"type": "Project", "id": PROJECT_ID}
 
         result = await sg_create("PublishedFile", data)
+
+        # Backfill path_cache. ShotGrid derives path_cache_storage + relative_path
+        # from the local_path we set, but leaves the path_cache STRING empty (only
+        # sgtk.util.register_publish sets it). Toolkit's path-based features —
+        # tk-multi-breakdown (outdated-reference detection) and
+        # sgtk.util.find_publish — match a file to its publish BY path_cache, so
+        # copy the derived storage-relative path into it. Best-effort: a failure
+        # here must never fail the publish itself. (Chat 76.)
+        try:
+            _created = await sg_find_one(
+                "PublishedFile", [["id", "is", result["id"]]], ["path", "path_cache"],
+            )
+            _rel = ((_created or {}).get("path") or {}).get("relative_path")
+            if _rel and not (_created or {}).get("path_cache"):
+                await sg_update("PublishedFile", result["id"], {"path_cache": _rel})
+        except Exception:  # noqa: BLE001 — path_cache is a best-effort enrichment
+            pass
 
         response = {
             "id": result["id"],
