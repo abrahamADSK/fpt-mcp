@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **World Labs assemble no longer auto-captures or playblasts the splat
+  (system prompts, lockstep).** The post-build step of the `WORLD LABS
+  ENVIRONMENT` flow dropped the automatic viewport-capture / `review_turntable`
+  preview: capturing the live Gaussian-splat draw over the Command Port hangs
+  Maya (GS/Arnold main-thread saturation) and is unnecessary — the user reviews
+  the assembled environment live in Viewport 2.0 by hand. The flow now stops at
+  an approval gate before publishing (W7).
+
 ## [1.22.0] — 2026-06-26
 
 ### Fixed
