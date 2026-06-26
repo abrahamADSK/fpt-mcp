@@ -24,7 +24,11 @@ def test_server_py_under_line_budget():
     # idle-reset, classify_result_error) lives in _session_stats.py; only the
     # irreducible glue that mutates server globals (_track_call, _count_turn,
     # _track_timing) plus the new reset_session_stats @mcp.tool stay here.
-    BUDGET = 800  # lines — raise only with a commit explaining why.
+    # 800 -> 820 (World Labs entry): the 16th @mcp.tool, sg_resolve_source, adds
+    # an irreducible thin wrapper here (the decorator MUST live in server.py for
+    # the install.sh AST extraction + .concepts.yml tool-inventory invariants);
+    # all of its logic is in source_resolver.py + shotgrid.py::sg_resolve_source_impl.
+    BUDGET = 820  # lines — raise only with a commit explaining why.
     server_py = Path(__file__).resolve().parent.parent / "src" / "fpt_mcp" / "server.py"
     line_count = sum(1 for _ in server_py.open(encoding="utf-8"))
     assert line_count < BUDGET, (

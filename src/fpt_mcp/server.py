@@ -75,6 +75,8 @@ from fpt_mcp.models import (
     # Direct ShotGrid tool inputs
     SgFindInput, SgCreateInput, SgUpdateInput, SgDeleteInput,
     SgSchemaInput, SgUploadInput, SgDownloadInput,
+    # Source-media resolver input
+    SgResolveSourceInput,
     # Toolkit tool inputs
     TkResolvePathInput, TkPublishInput,
     # Dispatcher enums + wrappers
@@ -481,6 +483,24 @@ async def _build_template_fields(
     return template_fields
 
 
+
+
+@mcp.tool(name="sg_resolve_source")
+async def sg_resolve_source_tool(params: SgResolveSourceInput) -> str:
+    """Resolve the best generation input (image or description) for an Asset.
+
+    Ranks linked Version stills + the Asset thumbnail/description by priority
+    (image > text; video deferred) and returns ``resolved`` (downloaded when
+    download_path is given), ``requires_choice`` (several images tie → call
+    again with ``choice``), ``text_only``, or ``no_source``. Shared by the
+    World Labs and Vision3D entry flows; logic lives in ``source_resolver.py``.
+    """
+    from fpt_mcp.shotgrid import sg_resolve_source_impl
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"resolve_source {params.asset_id}")
+    out = await sg_resolve_source_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="tk_resolve_path")

@@ -153,6 +153,40 @@ class SgDownloadInput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Source-media resolver input
+# ---------------------------------------------------------------------------
+
+class SgResolveSourceInput(BaseModel):
+    model_config = _STRICT_CONFIG
+    asset_id: int = Field(
+        description="ShotGrid Asset id whose source media to resolve for generation.",
+    )
+    download_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Local path to save the chosen image to. When a single image "
+            "resolves unambiguously it is downloaded here in the same call; "
+            "required to download a 'choice' (phase 2)."
+        ),
+    )
+    choice: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Phase 2: the candidate to download, as "
+            "{entity_type, entity_id, field_name} (taken from a prior "
+            "'requires_choice' result). Requires download_path."
+        ),
+    )
+    text_prompt: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional text prompt (e.g. the Asset description) to echo back "
+            "alongside a downloaded image, for an image+text generation."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Toolkit tool inputs
 # ---------------------------------------------------------------------------
 

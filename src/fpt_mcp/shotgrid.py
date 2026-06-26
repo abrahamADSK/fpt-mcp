@@ -39,6 +39,7 @@ from fpt_mcp.models import (
     SgDownloadInput,
     SgEditorialInput,
     SgFindInput,
+    SgResolveSourceInput,
     SgReviveInput,
     SgSchemaInput,
     SgUpdateInput,
@@ -268,6 +269,105 @@ async def sg_download_impl(params: SgDownloadInput) -> str:
 
     path = await sg_download_attachment(attachment, params.download_path)
     return json.dumps({"path": path, "entity_type": params.entity_type, "entity_id": params.entity_id})
+
+
+@sg_errors_to_json
+async def sg_resolve_source_impl(params: SgResolveSourceInput) -> str:
+    """Body of sg_resolve_source_tool.
+
+    Phase 1 (no ``choice``): rank the Asset's candidate source media and
+    return a decision (``resolved`` / ``requires_choice`` / ``text_only`` /
+    ``no_source``). Phase 2 (``choice`` given): download the chosen
+    attachment. A single resolved image is downloaded inline when a
+    ``download_path`` is supplied, collapsing the common case to one call.
+    Ranking is the pure ``source_resolver`` (image > text; video deferred).
+    """
+    from fpt_mcp.server import (
+        sg_find,
+        sg_find_one,
+        sg_download_attachment,
+        _get_tk_config,
+    )
+    from fpt_mcp.paths import enforce_write_containment, resolve_allowed_roots
+    from fpt_mcp.source_resolver import decide, rank_candidates
+
+    async def _download(entity_type: str, entity_id: int, field_name: str):
+        """Download an attachment field with the standard containment guard.
+
+        Returns ``(path, None)`` on success or ``(None, error_json_str)``.
+        """
+        entity = await sg_find_one(
+            entity_type, [["id", "is", entity_id]], [field_name]
+        )
+        if not entity or not entity.get(field_name):
+            return None, json.dumps({
+                "error": f"No attachment in {field_name} for {entity_type} #{entity_id}"
+            })
+        project_root = None
+        try:
+            tk_config = await _get_tk_config()
+            if tk_config is not None:
+                project_root = tk_config.project_root
+        except Exception:  # noqa: BLE001 - discovery optional; never block
+            project_root = None
+        containment_error = enforce_write_containment(
+            params.download_path,
+            resolve_allowed_roots(project_root),
+            tool_name="sg_resolve_source",
+        )
+        if containment_error:
+            return None, json.dumps({"error": containment_error})
+        path = await sg_download_attachment(entity[field_name], params.download_path)
+        return path, None
+
+    # Phase 2 — a candidate was explicitly chosen: download it.
+    if params.choice is not None:
+        ch = params.choice
+        missing = [k for k in ("entity_type", "entity_id", "field_name") if not ch.get(k)]
+        if missing:
+            return json.dumps({"error": f"choice is missing keys: {', '.join(missing)}"})
+        if not params.download_path:
+            return json.dumps({"error": "download_path is required to download the chosen source"})
+        path, err = await _download(ch["entity_type"], ch["entity_id"], ch["field_name"])
+        if err:
+            return err
+        return json.dumps({
+            "status": "downloaded",
+            "path": path,
+            "candidate": ch,
+            "text_prompt": params.text_prompt,
+        })
+
+    # Phase 1 — rank the Asset's candidate source media.
+    asset = await sg_find_one(
+        "Asset", [["id", "is", params.asset_id]], ["code", "description", "image"]
+    )
+    if not asset:
+        return json.dumps({"error": f"Asset #{params.asset_id} not found"})
+    asset.setdefault("id", params.asset_id)
+
+    versions = await sg_find(
+        "Version",
+        [["entity", "is", {"type": "Asset", "id": params.asset_id}]],
+        ["code", "image", "sg_uploaded_movie"],
+        order=[{"field_name": "created_at", "direction": "desc"}],
+    )
+    result = decide(rank_candidates(asset, versions or []))
+    result["asset"] = {"id": params.asset_id, "code": asset.get("code")}
+
+    # Convenience: a single unambiguous image + a download_path → fetch it now,
+    # so the common case is a single round-trip (no requires_choice surface).
+    if result.get("status") == "resolved" and params.download_path:
+        cand = result["candidate"]
+        path, err = await _download(
+            cand["entity_type"], cand["entity_id"], cand["field_name"]
+        )
+        if err:
+            return err
+        result["status"] = "downloaded"
+        result["path"] = path
+
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------
