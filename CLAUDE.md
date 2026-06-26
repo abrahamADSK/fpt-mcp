@@ -19,7 +19,7 @@ Claude Desktop / Claude Code / Terminal
 ```
 
 <!-- concept:mcp_tool_count start -->
-### MCP Server: fpt-mcp (15 @mcp.tool registrations — dispatcher pattern)
+### MCP Server: fpt-mcp (16 @mcp.tool registrations — dispatcher pattern)
 <!-- concept:mcp_tool_count end -->
 
 **ShotGrid API tools** (6 direct tools, unrestricted access to any entity):
@@ -388,8 +388,9 @@ In `~/.claude/settings.json`, enable all these tools:
 - Dispatchers (2): `mcp__maya-mcp__maya_session` (9 actions: ping, launch, list_scene, new_scene, save_scene, execute_python, delete, get_attribute, set_attribute), `mcp__maya-mcp__maya_vision3d` (7 actions: select_server, health, generate_image, generate_text, texture, poll, download)
 - RAG (3): `mcp__maya-mcp__search_maya_docs`, `mcp__maya-mcp__learn_pattern`, `mcp__maya-mcp__session_stats`
 
-**fpt-mcp** (15 tools — dispatcher pattern):
+**fpt-mcp** (16 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
+- Source resolver: sg_resolve_source (best Asset generation input — image>description; video deferred)
 - Dispatchers: fpt_bulk (delete/revive/batch/editorial), fpt_reporting (text_search/summarize/note_thread/activity)
 - Toolkit: tk_resolve_path, tk_publish
 - Launcher: fpt_launch_app
@@ -434,8 +435,9 @@ All three repos are on the local Mac (M4 Pro):
   - Returns job_id for polling
 
 - **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
-  - 15 @mcp.tool registrations using dispatcher pattern:
+  - 16 @mcp.tool registrations using dispatcher pattern:
     - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
+    - 1 source resolver: sg_resolve_source (World Labs / Vision3D entry — image>description, video deferred)
     - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch, editorial)
     - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
     - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery

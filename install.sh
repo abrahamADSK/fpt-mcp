@@ -635,6 +635,7 @@ from pathlib import Path
 TOOLS = [
     "sg_find", "sg_create", "sg_update", "sg_schema",
     "sg_upload", "sg_download",
+    "sg_resolve_source",
     "fpt_bulk", "fpt_reporting",
     "tk_resolve_path", "tk_publish",
     "fpt_launch_app",

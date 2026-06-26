@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`sg_resolve_source` — deterministic Asset source-media resolver for the
+  generation entry flow (World Labs + Vision3D).** Given an Asset, it ranks the
+  candidate generation inputs — linked Version stills, the Asset thumbnail, and
+  the Asset `description` — by priority (**image > text**; a **video** tier is
+  reserved but DEFERRED until the World Labs client builds `video_prompt`) and
+  returns one of `resolved` (a single image, downloaded inline when a
+  `download_path` is given), `requires_choice` (several images tie → the caller
+  surfaces the pick and calls again with `choice`), `text_only` (no image → the
+  description becomes the `text_prompt`), or `no_source`. The ranking lives in a
+  pure, unit-tested module (`source_resolver.py`, mirroring `software_resolver`);
+  the SG queries + attachment download reuse `sg_download`'s write-containment
+  guard. Replaces the per-session prompt-orchestrated reference search with tested
+  code shared by both GPU entry flows. fpt-mcp tool count 15 → 16. Guarded by
+  `tests/test_source_resolver.py` (12 tests).
+
 ### Changed
 - **Console rebrand: ShotGrid → Flow Production Tracking (user-facing).** Autodesk
   renamed ShotGrid to Flow Production Tracking; every user-visible reference in the

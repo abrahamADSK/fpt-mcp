@@ -206,7 +206,7 @@ Claude → search_sg_docs (status filter operators, Version entity) → Returns 
 ```
 
 <!-- concept:mcp_tool_count start -->
-## Tools (15 MCP tool registrations — dispatcher pattern)
+## Tools (16 MCP tool registrations — dispatcher pattern)
 <!-- concept:mcp_tool_count end -->
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field. Bulk and reporting operations are consolidated behind two dispatcher tools to reduce tool-count overhead for the LLM.
@@ -222,6 +222,12 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `sg_schema` | Inspect available fields for any entity type |
 | `sg_upload` | Upload file to any entity field (thumbnail, movie, attachment) |
 | `sg_download` | Download attachment from any entity field |
+
+### Source Resolver (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `sg_resolve_source` | Resolve an Asset's best generation input for the World Labs / Vision3D entry flow — ranks linked Version stills, the Asset thumbnail, and the Asset description by priority (image over text; video deferred) and returns resolved / requires_choice / text_only / no_source, downloading the chosen image when a download path is given |
 
 ### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 4 actions)
 
@@ -577,6 +583,7 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "mcp__fpt-mcp__sg_schema",
       "mcp__fpt-mcp__sg_upload",
       "mcp__fpt-mcp__sg_download",
+      "mcp__fpt-mcp__sg_resolve_source",
       "mcp__fpt-mcp__fpt_bulk",
       "mcp__fpt-mcp__fpt_reporting",
       "mcp__fpt-mcp__fpt_launch_app",
