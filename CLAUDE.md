@@ -361,6 +361,18 @@ preferred (auto-captures deps). Guarded by `tests/test_system_prompts.py` (T21/T
 - Text-to-3D: translate prompt to English
 - Be concise, execute don't explain
 
+### World Labs environment target (Step 0 = worldlabs)
+
+A third 3D-creation target. The `WORLD LABS ENVIRONMENT` block drives the
+**deferred** `maya_worldlabs` dispatcher (ToolSearch it first) with Maya CLOSED:
+resolve the Toolkit work area (`*_asset_work` panorama/spz/ply templates) →
+`sg_resolve_source` for the input → `maya_worldlabs` `status` (resume) →
+`generate` (credit-cost GATE, `confirm=false` first) → `poll`/`download`/`convert`
+→ "open in Maya?" GATE → `fpt_launch_app` + `build`. Maya opens only at the end;
+the console must stay open during generation (the resume sidecar covers
+interruptions within the ~1 h operation TTL). Both prompt variants carry it,
+guarded by `tests/test_system_prompts.py`.
+
 ---
 
 ## 5. Conversation History
