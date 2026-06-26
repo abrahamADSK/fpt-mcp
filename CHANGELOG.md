@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-06-26
+
 ### Fixed
 - **fpt-mcp `.env` loads by absolute path, not the cwd.** `client.py` loads the
   repo-root `.env` resolved from `__file__` (keeping `override=True` and the
