@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **fpt-mcp `.env` loads by absolute path, not the cwd.** `client.py` loads the
+  repo-root `.env` resolved from `__file__` (keeping `override=True` and the
+  `SHOTGRID_PROJECT_ID` injection). A bare `load_dotenv()` searches up from the
+  cwd, so a client that spawns fpt-mcp from a different working directory
+  (another DCC console, Claude Desktop) would load the wrong repo's `.env` and
+  lose the ShotGrid credentials. Symmetric to the maya-mcp `WORLDLABS_API_KEY`
+  cwd fix.
+
 ### Added
+- **`tk_publish` backfills `path_cache`.** After creating the PublishedFile, the
+  storage-relative path ShotGrid derives from `local_path` is copied into the
+  `path_cache` field (ShotGrid leaves it empty; only `sgtk.util.register_publish`
+  sets it). Toolkit path-based features — `tk-multi-breakdown` (outdated-reference
+  detection) and `sgtk.util.find_publish` — match a file to its publish by
+  `path_cache`, so this makes a published environment recognisable when
+  referenced into shot/sequence layouts. Best-effort: a backfill failure never
+  fails the publish.
+- **Console World Labs assemble lands the Toolkit work file + a self-contained
+  publish (system prompts, lockstep).** The "open in Maya" step resolves the
+  work-file path (`tk_resolve_path` on `maya_asset_work`, name=`<entity_code>`)
+  and passes it as `save_path` to `maya_worldlabs build`, so Maya lands directly
+  in the config-correct work file with no manual Workfiles pick. A new
+  `W7 PUBLISH` step publishes ply/spz/pano first, repaths the scene's
+  `aiGaussianSplat`/dome to the **published** copies, saves the next version and
+  publishes the `.ma` — so the published Maya Scene references the published
+  assets, not the work area.
 - **Console: World Labs 360° environment flow (system prompt).** The Qt console
   prompts (`qt/system_prompts/default.txt` + `qwen.txt`, lockstep) gain a third
   3D-creation target — **`worldlabs`** — and a `WORLD LABS ENVIRONMENT` flow that
@@ -35,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/test_source_resolver.py` (12 tests).
 
 ### Changed
+- **Console user prompts render in Autodesk yellow (`#ffff00`)** so the user's
+  input stands out from the assistant/console output; the per-role bubble palette
+  is a single shared constant.
 - **Console rebrand: ShotGrid → Flow Production Tracking (user-facing).** Autodesk
   renamed ShotGrid to Flow Production Tracking; every user-visible reference in the
   Qt console — the per-tool progress labels (`_TOOL_LABELS`), the injected
