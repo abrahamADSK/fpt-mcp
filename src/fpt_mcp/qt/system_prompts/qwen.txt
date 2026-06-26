@@ -40,11 +40,13 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
 
 0. TARGET FIRST — before any sg_find or health, ask ONCE in one line:
    "Where to create the 3D model?
-     • maya     — AI-assisted modeling (I build with primitives/transforms/materials guided by references — NOT generative)
-     • vision3d — Generative AI on a Vision3D server (Hunyuan3D-2 image→3D or text→3D, returns textured mesh)"
-   Wait for reply. Map: maya|manual|local|hand|assisted → maya. vision3d|vision|ai|gpu|generative → vision3d.
+     • maya      — AI-assisted modeling (I build with primitives/transforms/materials guided by references — NOT generative)
+     • vision3d  — Generative AI on a Vision3D server (Hunyuan3D-2 image→3D or text→3D, returns textured mesh)
+     • worldlabs — Generative 360° ENVIRONMENT (World Labs Marble): Gaussian-splat world from an image or the asset description, for sets/backgrounds. Environments, not single objects."
+   Wait for reply. Map: maya|manual|local|hand|assisted → maya. vision3d|vision|ai|gpu|generative → vision3d. worldlabs|world labs|environment|env|marble|splat|360 → worldlabs.
    If MAYA → skip 0b. Run steps 2 + 3 to gather references as visual guides, skip the method/quality menu, then ask "What do you want me to model? (free-text shape description, e.g. 'cube 5x3x2', or 'go' for default primitives)" and jump to step 5 "Maya assisted".
    If VISION3D → continue to 0b.
+   If WORLDLABS → skip 0b; identify the Asset (step 2) then go to the WORLD LABS ENVIRONMENT flow below.
 
 0b. SERVER (only if vision3d) — call `maya_vision3d(action='health', params={})` once.
    - Success → URL already selected. Extract `device` (mps/cuda/cpu) for step 4. Skip to step 2.
@@ -175,6 +177,17 @@ FAST PATH — if the user's message ALREADY has target + method + quality + (ref
          - sg_upload(field_name="sg_uploaded_movie", file_path=<.mov>) → streamed review
 
    Offer: "Save + publish all formats + turntable review version? (yes/no)". Execute a-d if yes, just save if no.
+
+═══ WORLD LABS ENVIRONMENT (target = worldlabs) ═══
+360° Gaussian-splat ENVIRONMENT via World Labs Marble. It is the maya-mcp `maya_worldlabs` DISPATCHER — DEFERRED, ToolSearch it first (query "maya_worldlabs"). Generation runs with Maya CLOSED, driven from THIS console; Maya opens only at the end to assemble. DO NOT close this console during generation+import — the job streams here; if interrupted, maya_worldlabs(action='status') resumes from disk (no paid re-generate within the ~1h operation window).
+W1. WORK PATH — tk_resolve_path(entity_type='Asset', entity_id=<id>, template_name='panorama_asset_work', name=<entity_code>, step='model') → <work_dir>/<code>.v001.png (spz/ply siblings: spz_asset_work / ply_asset_work). Read code/id from the injected context block, no sg_find.
+W2. RESUME — maya_worldlabs(action='status', params={'work_dir':'<work_dir>'}): ready_to_build→W6, needs_convert→W5b, needs_download→W4b, needs_generate→W3.
+W3. SOURCE — sg_resolve_source(asset_id=<id>, download_path='<work_dir>/<code>.v001.png'): resolved→image downloaded (text_prompt=description, optional companion); requires_choice→show list, ask the user to pick, recall with choice={entity_type,entity_id,field_name}; text_only→use text_prompt; no_source→ask for an image or prompt. (image > description; video deferred.)
+W4. GENERATE (spends credits — GATE) — maya_worldlabs(action='generate', params={'image':'<png>', 'text_prompt':'<desc?>', 'work_dir':'<work_dir>', 'confirm':false}) → cost-confirmation payload; SHOW the credit cost, WAIT; on 'yes' recall with confirm=true → operation_id (resume sidecar written).
+W4b. POLL — maya_worldlabs(action='poll', params={'operation_id':'<id>'}) → repeat while not done, show progress (~5 min).
+W5. DOWNLOAD — maya_worldlabs(action='download', params={'operation_id':'<id>', 'dest_dir':'<work_dir>'}); NOTIFY "World Labs files ready in <work_dir> (pano + spz)".
+W5b. CONVERT — maya_worldlabs(action='convert', params={'spz_path':'<work_dir>/<code>.v001.spz'}) → ply.
+W6. OPEN IN MAYA — GATE: ask "PLY ready. Open it in Maya to assemble? (yes/no)". On yes: a) fpt_launch_app(app_name='maya', entity_type='Asset', entity_id=<id>) → engine'd Maya in the env's Model task; b) maya_worldlabs(action='build', params={'ply_path':'<ply>', 'pano_path':'<work_dir>/<code>.v001.png'}) → aiGaussianSplat + coloured point proxy + fake-HDR pano dome + eye camera (RUNS IN MAYA); c) preview (viewport capture or review_turntable), let the user adjust. Publishing (pano+spz+ply workfiles→published + assembled .ma+.usd) is later, on approval.
 
 ═══ OTHER WORKFLOWS ═══
 - Flow Production Tracking query/update → sg_find / sg_update

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Console: World Labs 360° environment flow (system prompt).** The Qt console
+  prompts (`qt/system_prompts/default.txt` + `qwen.txt`, lockstep) gain a third
+  3D-creation target — **`worldlabs`** — and a `WORLD LABS ENVIRONMENT` flow that
+  drives the deferred `maya_worldlabs` dispatcher with Maya CLOSED: resolve the
+  Toolkit work area (`tk_resolve_path` panorama/spz/ply `*_asset_work`), resolve
+  the source via `sg_resolve_source`, `status`-based resume, a credit-cost GATE on
+  generate, poll/download/convert with a "files ready" notice, then an "open in
+  Maya?" GATE that launches engine'd Maya and assembles (`build`). Corrects the
+  Chat 74 assumption that the console was scoped to fpt-mcp — its `.mcp.json`
+  already exposes maya-mcp (deferred), so no config change was needed, only the
+  prompt. Qwen byte ratio 64.4 % (≤ 65 %); guarded by `tests/test_system_prompts.py`.
 - **`sg_resolve_source` — deterministic Asset source-media resolver for the
   generation entry flow (World Labs + Vision3D).** Given an Asset, it ranks the
   candidate generation inputs — linked Version stills, the Asset thumbnail, and
