@@ -342,10 +342,13 @@ class FptLaunchAppInput(BaseModel):
     force: bool = Field(
         default=False,
         description=(
-            "Flame only: launch even if a Flame instance is already running "
-            "on this machine. Default false — Flame is effectively "
-            "single-instance per framestore and holds exclusive project "
-            "locks, so a second launch is refused unless forced."
+            "Launch even if a single-instance guard would refuse it. "
+            "Default false. Flame is effectively single-instance per "
+            "framestore and holds exclusive project locks, so a launch is "
+            "refused while a Flame is already running. Maya is refused when "
+            "an instance is already bound to the Command Port — a second "
+            "Maya would steal the maya-mcp bridge port and leave it talking "
+            "to a stale instance. Pass true to override either guard."
         ),
     )
 

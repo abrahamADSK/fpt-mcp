@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`fpt_launch_app` Maya single-instance guard.** A Maya launch is now
+  refused when an instance is already bound to the Maya Command Port
+  (`MAYA_HOST:MAYA_PORT`, default `localhost:8100`) unless `force=true`,
+  mirroring the existing Flame single-instance guard. fpt-mcp does not own
+  the Maya port — it reads the host/port from the shared environment
+  (maya-mcp's canonical defaults). Launching a second Maya would steal the
+  bridge port and leave the maya-mcp bridge talking to a stale instance.
+  The guard applies to every route (tank/direct/open) and fires under
+  `dry_run`; a crashed Maya releases the port, so it never false-refuses.
+
 ## [1.22.1] — 2026-06-26
 
 ### Fixed
