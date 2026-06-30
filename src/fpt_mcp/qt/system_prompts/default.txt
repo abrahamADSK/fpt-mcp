@@ -233,6 +233,13 @@ FAST PATH (short-circuit) — if the user's message ALREADY contains an unambigu
       NOT the same as a review "Version" entity (media for review, created in step d).
       For a Toolkit-managed Maya scene the native maya_session(action='publish') is
       preferred (auto-captures dependencies); keep tk_publish for interchange formats.
+      EXCEPTION — a World Labs / Gaussian-splat ENVIRONMENT (the scene contains an
+      aiGaussianSplat node): NEVER use the native publisher on it. Its Texture &
+      USD-geometry plugins FAIL validation (no polygon geometry; the pano lives in
+      work/worldlabs/ with no versioned texture path → TankError None), and its
+      collector does not capture the work-area ply/spz/pano. Publish such a scene
+      ENTIRELY via tk_publish per the W7 flow (ply + spz + pano + the .ma, with the
+      dependency chain) — regardless of how the user phrases the publish request.
 
    d) TURNTABLE REVIEW Version (for Assets — skip for Shots):
       NEVER hand-build the turntable with execute_python — a manual playblast frames
@@ -276,10 +283,11 @@ W5b. CONVERT — maya_worldlabs(action='convert', params={'spz_path': '<work_dir
 W6. OPEN IN MAYA — GATE: ask "PLY ready. Open it in Maya to assemble the environment? (yes/no)". On yes:
     a) fpt_launch_app(app_name='maya', entity_type='Asset', entity_id=<id>) → engine'd Maya in the environment's Model task.
     b) tk_resolve_path(entity_type='Asset', entity_id=<id>, template_name='maya_asset_work', name='<entity_code>', step='model', extension='ma') → the work-file path with Toolkit naming/versioning (e.g. <code>.v001.ma). Read entity_code from the injected [Flow Production Tracking context: …] block, no sg_find. The resolver auto-increments the version.
-    c) maya_worldlabs(action='build', params={'ply_path': '<ply>', 'pano_path': '<work_dir>/<code>.v001.png', 'save_path': '<the work-file path from b>'}) → in ONE in-Maya pass: assembles the scene (aiGaussianSplat + coloured point proxy + fake-HDR pano dome + eye-level camera) AND saves it as the work file at that Toolkit path — so Maya lands directly in the right work file with no manual Workfiles pick (RUNS IN MAYA).
+    c) maya_worldlabs(action='build', params={'ply_path': '<ply>', 'pano_path': '<work_dir>/<code>.v001.png', 'save_path': '<the work-file path from b>'}) → in ONE in-Maya pass: assembles the scene (aiGaussianSplat + coloured point proxy + fake-HDR pano dome + eye-level camera) AND saves it as the work file at that Toolkit path — so Maya lands directly in the right work file with no manual Workfiles pick (RUNS IN MAYA). `build` is IDEMPOTENT: it deletes any prior World Labs nodes in the scene first, so it cleanly REPLACES (never duplicates) the environment. ALWAYS run it — do NOT stop to ask "rebuild vs keep" if the connected Maya already shows an assembly; that is usually a STALE leftover Maya holding port 8100, and build replaces it cleanly + saves to the right path.
     d) Do NOT auto-capture, playblast or review_turntable the splat — capturing the live Gaussian-splat draw over the Command Port hangs Maya (memory: never MCP-capture the splat), and it is unnecessary. The user reviews the assembled environment live in Viewport 2.0 by hand. GATE: wait for the user's explicit approval before publishing (W7).
 
-W7. PUBLISH (only after the user approves the look) — leave the published Maya Scene SELF-CONTAINED:
+W7. PUBLISH (only after the user approves the look) — leave the published Maya Scene SELF-CONTAINED.
+    Use tk_publish (below): it COPIES each file into /publish/ (an immutable snapshot — the work file stays in place so you can keep iterating; nothing is MOVED) and captures dependencies. Do NOT use maya_session action='publish' / the native tk-multi-publish2 for a World Labs environment: its Texture & USD-geometry plugins FAIL on a Gaussian splat (no polygon geometry, no file-textures), and its collector does NOT capture the work-area ply/spz/pano — they would stay unpublished in /work/.
     a) Publish the raw assets FIRST so their published paths exist to repoint to (each tk_publish returns its published path):
        tk_publish(publish_type='Gaussian Splat', local_path='<work_dir>/<code>.v001.ply')  → note <pub_ply>;
        tk_publish(publish_type='SPZ Splat',      local_path='<work_dir>/<code>.v001.spz');
