@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-06-30
+
 ### Added
 - **`fpt_launch_app` Maya single-instance guard.** A Maya launch is now
   refused when an instance is already bound to the Maya Command Port
