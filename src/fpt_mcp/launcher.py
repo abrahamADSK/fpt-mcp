@@ -15,6 +15,7 @@ import difflib
 import json
 import os
 import re
+import socket
 import subprocess
 from typing import Any, Optional
 
@@ -32,6 +33,36 @@ _FLAME_PROJECTS_DIR = "/opt/Autodesk/project"
 # bundle): Flame is effectively single-instance per framestore and holds
 # exclusive per-project locks, so launches are refused while one is up.
 _FLAME_PROC_PATTERN = "flame.app/Contents/MacOS/"
+
+# Maya single-instance guard. fpt-mcp does NOT own the Maya Command Port —
+# it reads the host/port from the shared environment, mirroring maya-mcp's
+# canonical localhost:8100 defaults (MAYA_PORT was moved off the historical
+# 7001 to dodge Flame's Stone+Wire services). A running Maya binds this TCP
+# port for the maya-mcp bridge; a crashed Maya releases it.
+_MAYA_HOST = os.environ.get("MAYA_HOST", "localhost")
+_MAYA_PORT = int(os.environ.get("MAYA_PORT", "8100"))
+
+
+def _maya_command_port_open(
+    host: str = _MAYA_HOST, port: int = _MAYA_PORT
+) -> bool:
+    """True when something is listening on the Maya Command Port.
+
+    A running Maya bound to the maya-mcp bridge port (``MAYA_PORT``, default
+    ``8100``) accepts the TCP connection; a crashed or closed Maya has
+    released the port, so the connect fails and we report it free — a
+    crashed Maya never causes a false refusal. Mirrors the ecosystem's
+    ``_tcp_check`` style: a short 2s connect probe that swallows the
+    refusal / timeout / OS errors (all ``OSError`` subclasses —
+    ``ConnectionRefusedError``, ``TimeoutError``, ``socket.gaierror``) as
+    "nothing there".
+    """
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
 
 # sw_listProjects line format (amid noise):
 #   UUID: name, /path/to/project, 1, YYYY-MM-DD HH:MM:SS.ffffff+TZ
@@ -269,6 +300,27 @@ async def fpt_launch_app_impl(params: FptLaunchAppInput) -> str:
         "source_layers": result.source_layers,
         "warnings": list(result.warnings),
     }
+
+    # Maya single-instance guard (parity with the Flame guard in
+    # _compose_flame_direct). Every route — tank, direct, or the bare
+    # 'open' fallback — spawns a FRESH Maya, so this lives before the route
+    # dispatch and applies to all of them. A second Maya stealing the
+    # Command Port would leave the maya-mcp bridge wired to a stale
+    # instance. Refuse up-front (no argv composed) unless force=true, and
+    # fire under dry_run too so a UI preview surfaces the conflict. A
+    # crashed Maya releases the port, so this never false-refuses.
+    if (
+        result.app == "maya"
+        and not params.force
+        and _maya_command_port_open()
+    ):
+        plan["error"] = (
+            f"a Maya instance is already bound to the Command Port "
+            f"({_MAYA_HOST}:{_MAYA_PORT}). Launching a second Maya would "
+            f"leave the maya-mcp bridge talking to a stale instance. Close "
+            f"the running Maya first, or pass force=true to launch anyway."
+        )
+        return json.dumps(plan, default=str)
 
     if result.app == "flame" and params.route in ("auto", "direct"):
         # Flame default route: direct startApplication into the matching

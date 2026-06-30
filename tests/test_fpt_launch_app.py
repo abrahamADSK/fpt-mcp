@@ -412,3 +412,97 @@ class TestRouteParam:
             FptLaunchAppInput(
                 app="maya", entity_type="Asset", entity_id=42, route="ssh"
             )
+
+
+# ---------------------------------------------------------------------------
+# Maya single-instance guard — Command Port already bound (parity w/ Flame)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _maya_port_closed_by_default():
+    """Default every test in this module to "no Maya on the Command Port".
+
+    ``fpt_launch_app`` probes ``_maya_command_port_open`` on every maya
+    launch. Without this, a test run on a workstation with a live Maya (port
+    8100 bound) would hit a real socket and the guard would fire, breaking the
+    happy-path maya tests. We patch the symbol — never a real socket — so the
+    suite is deterministic regardless of what is running locally. The guard
+    tests below patch it again inside their own ``with`` block, which nests
+    inside (and therefore takes precedence over) this default.
+    """
+    with patch(
+        "fpt_mcp.launcher._maya_command_port_open", return_value=False
+    ):
+        yield
+
+
+class TestMayaSingleInstanceGuard:
+    """A running Maya owns the Command Port; a second launch is refused.
+
+    Mirrors ``TestFlameDirectLaunch``'s running-instance tests but for Maya:
+    the guard probes ``_maya_command_port_open`` (patched here, never a real
+    socket) and fires for ALL maya routes before any argv is composed.
+    """
+
+    def _maya(self, **kw) -> FptLaunchAppInput:
+        return FptLaunchAppInput(
+            app="maya", entity_type="Asset", entity_id=42, dry_run=True, **kw
+        )
+
+    def test_running_maya_refused_without_force(self, fake_sg, resolved_tank):
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank), \
+             patch("fpt_mcp.launcher._maya_command_port_open",
+                   return_value=True):
+            data = json.loads(_run(fpt_launch_app_tool(self._maya())))
+        assert "Command Port" in data["error"]
+        assert "force=true" in data["error"]
+        assert "argv" not in data  # refused before any argv is composed
+
+    def test_running_maya_force_overrides(self, fake_sg, resolved_tank):
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank), \
+             patch("fpt_mcp.launcher._maya_command_port_open",
+                   return_value=True):
+            data = json.loads(_run(
+                fpt_launch_app_tool(self._maya(force=True))
+            ))
+        assert "error" not in data
+        assert data["argv"] == [
+            str(resolved_tank.tank_command), "Asset", "42", "maya_2027"
+        ]
+
+    def test_no_running_maya_launches_normally(self, fake_sg, resolved_tank):
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank), \
+             patch("fpt_mcp.launcher._maya_command_port_open",
+                   return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._maya())))
+        assert "error" not in data
+        assert data["argv"] == [
+            str(resolved_tank.tank_command), "Asset", "42", "maya_2027"
+        ]
+
+    def test_guard_scoped_to_maya_only(self, resolved_flame):
+        """A live Command Port must NOT block a Flame launch — the guard is
+        keyed on ``result.app == 'maya'``."""
+        sg = MagicMock()
+        # 1st find_one: entity → owning project; 2nd: Project → name.
+        sg.find_one.side_effect = [
+            {"id": 42, "project": {"type": "Project", "id": 1244}},
+            {"id": 1244, "name": "MyProj"},
+        ]
+        params = FptLaunchAppInput(
+            app="flame", entity_type="Asset", entity_id=42, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MyProj"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False), \
+             patch("fpt_mcp.launcher._maya_command_port_open",
+                   return_value=True):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert "error" not in data
+        assert "--start-project=MyProj" in data["argv"]
