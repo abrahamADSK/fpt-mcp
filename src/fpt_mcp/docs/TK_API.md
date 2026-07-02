@@ -418,6 +418,7 @@ code in ShotGrid, which determines what each DCC's loader can pick up.
 | FBX | fbx_asset_publish | fbx_shot_publish | No |
 | GLB | glb_asset_publish | — | No |
 | OBJ | obj_asset_publish | — | No |
+| ATOM Animation | atom_animation_asset_publish | — | No |
 | Maya Scene | maya_asset_publish | maya_shot_publish | No |
 | Alembic Cache | asset_alembic_cache | — | No |
 | Nuke Script | nuke_asset_publish | nuke_shot_publish | No |
