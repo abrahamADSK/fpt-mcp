@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`fpt_launch_app` now launches a Sequence into its Step Task** (Maya /
+  tank route). Launching a bare Sequence ran `tank Sequence <id> <cmd>`, which
+  boots a step-LESS Toolkit context: the `sequence` environment has no
+  `template_work` (Workfiles reports *"No templates have been defined"* and
+  publish cannot resolve a template), and the `{Step}` folder token falls back
+  to the lowercased Step name — creating a rogue `sequences/<SEQ>/layout/…`
+  instead of the `short_name` `sequences/<SEQ>/LAY/…`. The launcher now resolves
+  a Sequence to its Step Task (new `_resolve_step_task`; new optional `step`
+  param, **default `Layout`**) and launches `tank Task <task_id> <cmd>`, so Maya
+  boots into the `sequence_layout` environment (with work templates + correct
+  `create_folders`). Pass `step="Master Lighting"` to override; a missing Step
+  Task surfaces as an actionable `error` instead of a broken launch; a
+  task-resolution SG error degrades to the entity-level launch. Asset/Shot are
+  unchanged. The plan reports the mapping under `resolved_task`.
+
 ## [1.23.0] — 2026-06-30
 
 ### Added

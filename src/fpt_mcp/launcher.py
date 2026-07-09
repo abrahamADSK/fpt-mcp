@@ -105,6 +105,86 @@ def _project_id_for_entity(entity_type: str, entity_id: int) -> Optional[int]:
     return row["project"].get("id")  # type: ignore[typeddict-item]  # shotgun_api3 BaseEntity stubs are incomplete
 
 
+# Entity types whose Toolkit launch is scoped step-LESS by default, but whose
+# real work happens under a pipeline Step. `tank Sequence <id> <cmd>` boots the
+# base `sequence` environment: workfiles2 has no `template_work` (the app reports
+# "No templates have been defined") and the {Step} folder token falls back to the
+# lowercased Step name (a rogue `.../layout/...` instead of the short_name
+# `.../LAY/...`). Mapping the entity to its default Step lets the launcher target
+# the Task so `tank Task <id> <cmd>` boots the step environment (create_folders +
+# pick_environment). Sequence only today; Asset/Shot keep their entity-level
+# launch (their steps are chosen via Workfiles/context change).
+_DEFAULT_LAUNCH_STEP = {"Sequence": "Layout"}
+
+
+def _resolve_step_task(
+    sg: Any,
+    entity_type: str,
+    entity_id: int,
+    step: Optional[str],
+) -> Any:
+    """Resolve a step-less entity to a concrete Task for a Toolkit launch.
+
+    Looks up the entity's Tasks and returns the one whose Step matches the
+    request (``step`` arg, else the entity's default from
+    ``_DEFAULT_LAUNCH_STEP``) so the caller can launch ``tank Task <id> <cmd>``
+    — booting Maya into the step environment instead of a work-template-less
+    base context.
+
+    Returns:
+        ``("Task", task_id)`` — launch into this Task.
+        ``None``             — no resolution needed/possible; keep the entity
+                               context (unmapped entity, no Step, or SG error).
+        ``{"error": str}``   — actionable failure (no/ambiguous Step Task); the
+                               caller surfaces it instead of launching a broken
+                               step-less context.
+    """
+    desired = step or _DEFAULT_LAUNCH_STEP.get(entity_type)
+    if not desired:
+        return None
+    try:
+        tasks = sg.find(
+            "Task",
+            [["entity", "is", {"type": entity_type, "id": entity_id}]],
+            ["content", "step"],
+        )
+    except Exception:
+        # Never block a launch on a task-resolution SG error — fall back to the
+        # entity context (may still be navigable via Workfiles).
+        return None
+    if not isinstance(tasks, list):
+        return None
+    matches = [
+        t for t in tasks
+        if ((t.get("step") or {}).get("name") or "").lower() == desired.lower()
+    ]
+    if len(matches) == 1:
+        return ("Task", matches[0]["id"])
+    if not matches:
+        available = sorted(
+            {
+                (t.get("step") or {}).get("name")
+                for t in tasks
+                if t.get("step")
+            }
+        )
+        return {
+            "error": (
+                f"{entity_type} {entity_id} has no '{desired}' Task; launching "
+                f"a {entity_type} needs a Step Task so Maya boots into the step "
+                f"environment (which carries work templates). Available steps: "
+                f"{', '.join(a for a in available if a) or 'none'}. Create the "
+                f"'{desired}' Task, or pass step=<name>."
+            )
+        }
+    return {
+        "error": (
+            f"{entity_type} {entity_id} has {len(matches)} '{desired}' Tasks; "
+            f"cannot pick one automatically. Launch on the specific Task."
+        )
+    }
+
+
 def _flame_slug(project_name: str) -> str:
     """SG project name → Flame project name, tk-flame's exact convention.
 
@@ -345,6 +425,29 @@ async def fpt_launch_app_impl(params: FptLaunchAppInput) -> str:
         and result.launch_method == "tank"
         and result.tank_command is not None
     ):
+        # Resolve step-less entities (Sequence) to their Step Task so tank
+        # boots the step environment (create_folders + pick_environment)
+        # instead of a work-template-less base context. Asset/Shot keep their
+        # entity-level launch. An unresolvable Step surfaces as an actionable
+        # error rather than a broken launch.
+        launch_type, launch_id = params.entity_type, params.entity_id
+        if params.entity_type in _DEFAULT_LAUNCH_STEP:
+            resolved = _resolve_step_task(
+                sg, params.entity_type, params.entity_id, params.step
+            )
+            if isinstance(resolved, dict):
+                plan.update(resolved)  # actionable {"error": ...}
+                return json.dumps(plan, default=str)
+            if resolved is not None:
+                launch_type, launch_id = resolved
+                plan["resolved_task"] = {
+                    "requested": f"{params.entity_type} {params.entity_id}",
+                    "launched_as": f"{launch_type} {launch_id}",
+                    "step": (
+                        params.step
+                        or _DEFAULT_LAUNCH_STEP.get(params.entity_type)
+                    ),
+                }
         # tk-multi-launchapp registers its command under two common
         # conventions depending on the pipeline:
         #   1. launch_<app>      — default, single DCC version per config
@@ -361,8 +464,8 @@ async def fpt_launch_app_impl(params: FptLaunchAppInput) -> str:
             cmd_name = f"launch_{result.app}"
         argv = [
             str(result.tank_command),
-            params.entity_type,
-            str(params.entity_id),
+            launch_type,
+            str(launch_id),
             cmd_name,
         ]
     else:
