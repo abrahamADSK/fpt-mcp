@@ -243,6 +243,98 @@ class TestFptLaunchAppTool:
 
 
 # ---------------------------------------------------------------------------
+# Sequence → Step Task resolution (launch into sequence_layout, not base)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def seq_sg():
+    """SG mock for a Sequence launch: find_one → project; find → its Tasks."""
+    sg = MagicMock()
+    sg.find_one.return_value = {
+        "id": 1662, "project": {"type": "Project", "id": 1244}
+    }
+    sg.find.return_value = [
+        {"id": 6753, "content": "Layout",
+         "step": {"type": "Step", "id": 142, "name": "Layout"}},
+        {"id": 6752, "content": "Master Lighting",
+         "step": {"type": "Step", "id": 143, "name": "Master Lighting"}},
+    ]
+    return sg
+
+
+class TestSequenceTaskResolution:
+    def test_sequence_defaults_to_layout_task(self, seq_sg, resolved_tank):
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Sequence", entity_id=1662, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=seq_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        # tank Task 6753 (Layout), NOT the step-less Sequence 1662.
+        assert data["argv"] == [
+            str(resolved_tank.tank_command), "Task", "6753", "maya_2027"
+        ]
+        assert data["resolved_task"]["step"] == "Layout"
+        assert data["resolved_task"]["launched_as"] == "Task 6753"
+
+    def test_sequence_step_override_master_lighting(self, seq_sg, resolved_tank):
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Sequence", entity_id=1662,
+            step="Master Lighting", dry_run=True,
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=seq_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert data["argv"][1:3] == ["Task", "6752"]
+        assert data["resolved_task"]["step"] == "Master Lighting"
+
+    def test_sequence_missing_step_task_errors(self, resolved_tank):
+        sg = MagicMock()
+        sg.find_one.return_value = {"id": 1662, "project": {"id": 1244}}
+        sg.find.return_value = [
+            {"id": 6752, "content": "Master Lighting",
+             "step": {"name": "Master Lighting"}},
+        ]
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Sequence", entity_id=1662, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert "error" in data
+        assert "Layout" in data["error"]
+        assert "argv" not in data  # broken launch refused, not composed
+
+    def test_sequence_sg_error_falls_back_to_entity(self, resolved_tank):
+        """A task-resolution SG failure never blocks: keep the entity launch."""
+        sg = MagicMock()
+        sg.find_one.return_value = {"id": 1662, "project": {"id": 1244}}
+        sg.find.side_effect = RuntimeError("SG down")
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Sequence", entity_id=1662, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert data["argv"][1:3] == ["Sequence", "1662"]
+        assert "resolved_task" not in data
+
+    def test_asset_launch_not_task_resolved(self, fake_sg, resolved_tank):
+        """Asset launches keep entity-level context — no task resolution."""
+        params = FptLaunchAppInput(
+            app="maya", entity_type="Asset", entity_id=42, dry_run=True
+        )
+        with patch("fpt_mcp.server.get_sg", return_value=fake_sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_tank):
+            data = json.loads(_run(fpt_launch_app_tool(params)))
+        assert data["argv"] == [
+            str(resolved_tank.tank_command), "Asset", "42", "maya_2027"
+        ]
+        assert "resolved_task" not in data
+
+
+# ---------------------------------------------------------------------------
 # install.sh — guardrail test for the non-negotiable pre-approve rule
 # ---------------------------------------------------------------------------
 

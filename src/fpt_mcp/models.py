@@ -313,6 +313,17 @@ class FptLaunchAppInput(BaseModel):
     entity_id: int = Field(
         description="ShotGrid entity id."
     )
+    step: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional pipeline Step name to launch INTO for entities that "
+            "resolve to a Task (currently Sequence). Launching a bare Sequence "
+            "boots a step-less Toolkit context with no work templates; the "
+            "launcher resolves the Sequence's Task for this Step (default "
+            "'Layout') and launches `tank Task <id> ...` so Maya opens in the "
+            "step environment. Pass e.g. 'Master Lighting' to override."
+        ),
+    )
     dry_run: bool = Field(
         default=False,
         description=(

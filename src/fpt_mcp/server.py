@@ -580,6 +580,10 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     ``version_names``) is authoritative over "newest installed"; a
     warning names both when the selected one is not installed locally.
 
+    MAYA / Sequence: a bare Sequence launch is step-LESS (no work
+    templates); the tank route resolves it to its Step Task (``step``
+    param, default ``Layout``) so Maya boots the ``sequence_layout`` env.
+
     FLAME (route='auto'/'direct'): composes ``startApplication
     --start-project=<name> ... --closed-libs`` — SG name slugified via
     tk-flame's convention and validated against the local Stone+Wire
