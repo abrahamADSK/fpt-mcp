@@ -277,7 +277,7 @@ shot_root: sequences/{Sequence}/{Shot}/{Step}
 sequence_root: sequences/{Sequence}
 ```
 
-Usage in templates: `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
+Usage in templates: `@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
 
 Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}/{Asset}/{Step}`.
 
@@ -299,7 +299,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Asset publish templates
 
-- `maya_asset_publish`: `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
+- `maya_asset_publish`: `@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
 - `nuke_asset_publish`: `@asset_root/publish/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_asset_publish`: `@asset_root/publish/houdini/{name}.v{version}.{houdini_extension}`
 - `asset_alembic_cache`: `@asset_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
@@ -320,7 +320,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Asset render/image templates
 
-- `asset_alembic_cache`: `@asset_root/publish/caches/{name}.v{version}.abc`
+- `asset_alembic_cache`: `@asset_root/publish/caches/{name}_{Step}.v{version}.abc`
 - `photoshop_asset_jpg_publish`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
 
 ### Editorial templates
@@ -344,7 +344,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Shot publish templates
 
-- `maya_shot_publish`: `@shot_root/publish/maya/{name}.v{version}.{maya_extension}`
+- `maya_shot_publish`: `@shot_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
 - `nuke_shot_publish`: `@shot_root/publish/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_shot_publish`: `@shot_root/publish/houdini/{name}.v{version}.{houdini_extension}`
 - `shot_alembic_cache`: `@shot_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
@@ -390,8 +390,8 @@ whatever templates the project config defines.
 **Asset templates:**
 - `rendered_image_asset_publish`: `@asset_root/publish/renders/{name}/v{version}/{Asset}_{name}_v{version}.{SEQ}.exr`
 - `movie_asset_publish`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
-- `usd_asset_publish`: `@asset_root/publish/usd/{name}.v{version}.usd`
-- `fbx_asset_publish`: `@asset_root/publish/fbx/{name}.v{version}.fbx`
+- `usd_asset_publish`: `@asset_root/publish/usd/{name}_{Step}.v{version}.usd`
+- `fbx_asset_publish`: `@asset_root/publish/fbx/{name}_{Step}.v{version}.fbx`
 - `glb_asset_publish`: `@asset_root/publish/glb/{name}.v{version}.glb`
 - `obj_asset_publish`: `@asset_root/publish/obj/{name}.v{version}.obj`
 - `atom_animation_asset_publish`: `@asset_root/publish/atom/{name}.v{version}.atom` (Maya ATOM animation curves; asset-only)
@@ -400,8 +400,8 @@ whatever templates the project config defines.
 **Shot templates:**
 - `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr` (source: `maya_shot_render` work area, copied by `maya_publish_render.py`; Flame loads via `load_clip`)
 - `movie_shot_publish`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
-- `usd_shot_publish`: `@shot_root/publish/usd/{name}.v{version}.usd`
-- `fbx_shot_publish`: `@shot_root/publish/fbx/{name}.v{version}.fbx`
+- `usd_shot_publish`: `@shot_root/publish/usd/{name}_{Step}.v{version}.usd`
+- `fbx_shot_publish`: `@shot_root/publish/fbx/{name}_{Step}.v{version}.fbx`
 
 ## Publish type to template mapping
 
@@ -433,10 +433,14 @@ code in ShotGrid, which determines what each DCC's loader can pick up.
 
 Given: Asset "hero_robot", type "Character", step "model", version 3
 
-1. Template: `maya_asset_publish` → `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
-2. Expand alias: `assets/{sg_asset_type}/{Asset}/{Step}/publish/maya/{name}.v{version}.{maya_extension}`
-3. Apply fields: `assets/Character/hero_robot/model/publish/maya/main.v003.ma`
-4. Prepend project_root: `/Users/Shared/FPT_MCP/assets/Character/hero_robot/model/publish/maya/main.v003.ma`
+1. Template: `maya_asset_publish` → `@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+2. Expand alias: `assets/{sg_asset_type}/{Asset}/{Step}/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+3. Apply fields: `assets/Character/hero_robot/model/publish/maya/main_model.v003.ma`
+4. Prepend project_root: `/Users/Shared/FPT_MCP/assets/Character/hero_robot/model/publish/maya/main_model.v003.ma`
+
+   (The `{Step}` in the basename — `main_model` — is what makes the ShotGrid
+   PublishedFile `code`/`name` unique per task; a Rig publish of the same asset
+   resolves to `main_rig.v003.ma`, not a colliding `main.v003.ma`.)
 
 ## Shot path resolution example
 
@@ -826,7 +830,7 @@ Templates reference roots explicitly:
 ```yaml
 paths:
   maya_asset_publish:
-    definition: "@asset_root/publish/maya/{name}.v{version}.{maya_extension}"
+    definition: "@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}"
     root_name: primary
   nuke_shot_render:
     definition: "shots/{Sequence}/{Shot}/{Step}/renders/{name}/v{version}/{Shot}.{SEQ}.exr"

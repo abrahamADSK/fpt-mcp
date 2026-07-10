@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`TK_API.md` (RAG corpus): publish templates now document the
+  `{name}_{Step}.v{version}.<ext>` basename.** Paired with
+  `toolkit_config_custom_template` PR #8, which embeds `{Step}` in every
+  scene/geometry publish filename so the ShotGrid PublishedFile `code`/`name` is
+  unique per task (a Model and a Rig publish of the same asset no longer both
+  resolve to `DJ.v003.ma`). Updated: `maya_asset_publish`, `usd_asset_publish`,
+  `fbx_asset_publish`, `asset_alembic_cache`, `maya_shot_publish`,
+  `usd_shot_publish`, `fbx_shot_publish`, plus the two path-resolution examples
+  and the YAML sample. Requires a RAG re-index for `search_sg_docs` to return the
+  new text. No code change.
+
 ### Fixed
 - **`fpt_launch_app` now launches a Sequence into its Step Task** (Maya /
   tank route). Launching a bare Sequence ran `tank Sequence <id> <cmd>`, which
