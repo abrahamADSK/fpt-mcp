@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Publish INVARIANT: the console now MUST publish a Toolkit-managed Maya scene
+  with the NATIVE Toolkit publisher (`maya_session(action='publish')`), never
+  per-format `tk_publish`.** The native tk-multi-publish2 collector publishes the
+  scene plus its interchange outputs in one pass AND captures the reference
+  dependencies (`upstream_published_files`/`downstream_published_files`); a
+  per-format `tk_publish` registers a single file and does NOT capture references,
+  leaving the dependency graph empty and desynced. Both system prompts
+  (`qt/system_prompts/default.txt` + `qwen.txt`, in lockstep) flip step 6c from
+  "tk_publish per format (native preferred)" to the native invariant with
+  `tk_publish` as a fallback (non-engine'd / external file, or the World Labs /
+  Gaussian-splat environment exception where the native Texture/USD plugins fail
+  on the splat). The `tk_publish` tool docstring carries the same warning, and a
+  new guard `test_system_prompts.py::test_publish_native_invariant` enforces it.
+  Motivated by `SEQ001_LAY` in production: published per-format via `tk_publish`,
+  it ended up with **zero** `upstream_published_files` while its natively-published
+  siblings (`SEQ002_LAY`, `SEQ003_LAY`, `SEQ001_MLT`) had complete dependency trees.
 - **`TK_API.md` (RAG corpus): publish templates now document the
   `{name}_{Step}.v{version}.<ext>` basename.** Paired with
   `toolkit_config_custom_template` PR #8, which embeds `{Step}` in every

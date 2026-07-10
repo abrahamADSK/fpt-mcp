@@ -523,15 +523,15 @@ async def tk_resolve_path_tool(params: TkResolvePathInput) -> str:
 
 @mcp.tool(name="tk_publish")
 async def tk_publish_tool(params: TkPublishInput) -> str:
-    """Publish a file to ShotGrid.
+    """Publish ONE file to ShotGrid — FALLBACK publisher, NO dependency capture.
 
-    Two modes:
-    - With PipelineConfiguration: resolves the publish path from Toolkit
-      templates automatically (use tk_resolve_path first to preview the path).
-    - Without PipelineConfiguration: requires an explicit publish_path parameter.
-      The path is stored in the PublishedFile and is accessible by any tool
-      that reads the path field. If the project has a Local File Storage
-      configured in ShotGrid, the file will be browsable from the web UI.
+    For a Toolkit-managed (engine'd) Maya scene use the NATIVE publisher
+    ``maya_session(action='publish')`` instead: it captures reference deps
+    (upstream/downstream_published_files) that per-format tk_publish does NOT.
+    Use tk_publish ONLY for a non-engine'd/external file or a World Labs /
+    Gaussian-splat environment (its splat breaks the native Texture/USD plugins).
+    Path resolves from Toolkit templates when a PipelineConfiguration exists
+    (preview via tk_resolve_path); otherwise pass an explicit publish_path.
     """
     from fpt_mcp.toolkit_tools import tk_publish_impl
     from fpt_mcp.suggestions import maybe_annotate_with_suggestions

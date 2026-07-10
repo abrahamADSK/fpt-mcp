@@ -215,31 +215,35 @@ FAST PATH (short-circuit) — if the user's message ALREADY contains an unambigu
       - FBX: `cmds.file('<path>.fbx', force=True, type='FBX export', exportAll=True)`
       The GLB and OBJ from Vision3D download are already on disk — no re-export needed.
 
-   c) PUBLISH all formats via tk_publish (one call per format):
-      IMPORTANT — entity_type/entity_id/step are OPTIONAL in tk_publish.
-      When local_path points to a Toolkit-managed file (i.e. a path inside the project root
-      like /Users/Shared/FPT_MCP/assets/…), the tool automatically derives entity_type,
-      entity_id, and step from the filesystem path via template matching. NO sg_find needed.
-      Just pass local_path + publish_type:
-      - tk_publish(publish_type="Maya Scene", local_path=<.ma/.mb>)
-      - tk_publish(publish_type="USD", local_path=<.usd>)
-      - tk_publish(publish_type="FBX", local_path=<.fbx>)
-      - tk_publish(publish_type="GLB", local_path=<.glb>)
-      - tk_publish(publish_type="Texture", local_path=<.png>)
-      Template matching is convention-based: publish_type "USD" matches template `usd_asset_publish`.
-      Only provide entity_type+entity_id explicitly when local_path is NOT a Toolkit path.
-      "version" — disambiguate: these tk_publish calls do FILE versioning
-      (PublishedFile.version_number → _v###, auto-incremented per publish). That is
-      NOT the same as a review "Version" entity (media for review, created in step d).
-      For a Toolkit-managed Maya scene the native maya_session(action='publish') is
-      preferred (auto-captures dependencies); keep tk_publish for interchange formats.
-      EXCEPTION — a World Labs / Gaussian-splat ENVIRONMENT (the scene contains an
-      aiGaussianSplat node): NEVER use the native publisher on it. Its Texture &
-      USD-geometry plugins FAIL validation (no polygon geometry; the pano lives in
-      work/worldlabs/ with no versioned texture path → TankError None), and its
-      collector does not capture the work-area ply/spz/pano. Publish such a scene
-      ENTIRELY via tk_publish per the W7 flow (ply + spz + pano + the .ma, with the
-      dependency chain) — regardless of how the user phrases the publish request.
+   c) PUBLISH — INVARIANT: a Toolkit-managed Maya scene MUST be published with the
+      NATIVE Toolkit publisher, NEVER hand-published format-by-format with tk_publish:
+         maya_session(action='publish', params={'mode':'preview'})                    # inspect collected tree
+         maya_session(action='publish', params={'mode':'publish', 'comment':'<why>'}) # validate→publish→finalize
+      The native tk-multi-publish2 collector publishes the scene AND its configured
+      interchange outputs (USD/FBX/Texture) in ONE pass AND captures the reference
+      dependencies automatically (upstream_published_files / downstream_published_files).
+      Per-format tk_publish does NOT capture references: it leaves the PublishedFile
+      dependency graph EMPTY and desynced (a Layout published that way shows zero
+      upstream, breaking Loader/Breakdown lineage). So never publish a Toolkit scene
+      one tk_publish call per format when the scene is engine'd — use the native publisher.
+
+      tk_publish is a FALLBACK, used ONLY when the native publisher cannot run:
+      - the file is NOT engine'd / not under the Toolkit project root (no PublishManager), or
+      - a standalone external artifact with no Maya scene (e.g. a raw Vision3D .glb/.obj), or
+      - EXCEPTION — a World Labs / Gaussian-splat ENVIRONMENT (the scene contains an
+        aiGaussianSplat node): NEVER use the native publisher on it. Its Texture &
+        USD-geometry plugins FAIL validation (no polygon geometry; the pano lives in
+        work/worldlabs/ with no versioned texture path → TankError None), and its
+        collector does not capture the work-area ply/spz/pano. Publish such a scene
+        ENTIRELY via tk_publish per the W7 flow (ply + spz + pano + the .ma, with the
+        dependency chain) — regardless of how the user phrases the publish request.
+      When tk_publish IS the right tool, entity_type/entity_id/step are OPTIONAL: for a
+      path under the project root it derives them from the filesystem via template matching
+      (publish_type "USD" → template usd_asset_publish); pass just local_path + publish_type
+      (Maya Scene/USD/FBX/GLB/Texture). Provide entity_type+entity_id only for a non-Toolkit path.
+      "version" — native publish and tk_publish both do FILE versioning
+      (PublishedFile.version_number → _v###, auto-incremented). That is NOT the review
+      "Version" entity (media for review, created in step d).
 
    d) TURNTABLE REVIEW Version (for Assets — skip for Shots):
       NEVER hand-build the turntable with execute_python — a manual playblast frames

@@ -337,8 +337,21 @@ Then execute:
 
 ### Step 6: Post-creation
 ```
-Offer maya_session(action="save_scene") and tk_publish
+Save via maya_session(action="save_scene"); then PUBLISH.
 ```
+
+**Publish INVARIANT (Chat 82).** A Toolkit-managed (engine'd) Maya scene MUST be
+published with the NATIVE Toolkit publisher `maya_session(action='publish')`,
+NEVER hand-published format-by-format with `tk_publish`. The native
+tk-multi-publish2 collector publishes the scene + its interchange outputs in one
+pass AND captures reference dependencies
+(`upstream_published_files`/`downstream_published_files`); per-format `tk_publish`
+does NOT capture references and leaves the dependency graph empty (in production
+`SEQ001_LAY` was published this way and had zero upstream deps). `tk_publish` is a
+FALLBACK only: a non-engine'd/external file, or the World Labs / Gaussian-splat
+environment exception (its splat breaks the native Texture/USD plugins → publish
+via `tk_publish` per the W7 flow). Both `default.txt` and `qwen.txt` carry this in
+step 6c (lockstep); guarded by `test_system_prompts.py::test_publish_native_invariant`.
 
 **Turntable + "version" (Chat 73 — aligned with the maya-mcp console).** The
 POST-CREATION turntable recipe in `system_prompts/default.txt` (and `qwen.txt`,

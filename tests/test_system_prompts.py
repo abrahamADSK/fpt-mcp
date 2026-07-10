@@ -174,6 +174,28 @@ def test_dispatcher_tools_documented(both_prompts):
         ), f"{name}: dispatchers not shown with action= form"
 
 
+def test_publish_native_invariant(both_prompts):
+    """T7b (Chat 82): Both prompts mandate the NATIVE Toolkit publisher for a
+    Toolkit-managed Maya scene (so reference dependencies are captured), demote
+    tk_publish to a fallback stating it does NOT capture references, and preserve
+    the World Labs / Gaussian-splat exception. Regression guard: SEQ001_LAY was
+    published per-format via tk_publish and ended up with zero upstream deps."""
+    for name, prompt in both_prompts:
+        assert re.search(r"PUBLISH\s*[—-]\s*INVARIANT", prompt), (
+            f"{name}: publish section is not marked INVARIANT"
+        )
+        assert "maya_session(action='publish'" in prompt, (
+            f"{name}: native publisher maya_session(action='publish') not mandated"
+        )
+        assert re.search(r"does\s+NOT\s+capture\s+ref", prompt, re.IGNORECASE), (
+            f"{name}: missing 'tk_publish does not capture references' rationale"
+        )
+        assert "FALLBACK" in prompt, f"{name}: tk_publish not marked as a FALLBACK"
+        assert "aiGaussianSplat" in prompt, (
+            f"{name}: World Labs / Gaussian-splat publish exception dropped"
+        )
+
+
 def test_adaptive_bullets_rule_present(both_prompts):
     """T8: 'at most TWICE' and self-describing-keyword rules present in both."""
     for name, prompt in both_prompts:
