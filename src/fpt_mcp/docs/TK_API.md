@@ -285,7 +285,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Asset work templates
 
-- `maya_asset_work`: `@asset_root/work/maya/{name}.v{version}.{maya_extension}`
+- `maya_asset_work`: `@asset_root/work/maya/{name}_{Step}.v{version}.{maya_extension}`
 - `nuke_asset_work`: `@asset_root/work/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_asset_work`: `@asset_root/work/houdini/{name}.v{version}.{houdini_extension}`
 - `houdini_asset_work_alembic_cache`: `@asset_root/work/houdini/{name}/v{version}/abc/{node}.abc`
@@ -313,7 +313,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Asset snapshot/backup templates
 
-- `maya_asset_snapshot`: `@asset_root/work/maya/snapshots/{name}.v{version}.{timestamp}.{maya_extension}`
+- `maya_asset_snapshot`: `@asset_root/work/maya/snapshots/{name}_{Step}.v{version}.{timestamp}.{maya_extension}`
 - `nuke_asset_snapshot`: `@asset_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.{nuke_extension}`
 - `houdini_asset_snapshot`: `@asset_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.{houdini_extension}`
 - `photoshop_asset_snapshot`: `@asset_root/work/photoshop/snapshots/{name}.v{version}.{timestamp}.psd`
@@ -330,7 +330,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Shot work templates
 
-- `maya_shot_work`: `@shot_root/work/maya/{name}.v{version}.{maya_extension}`
+- `maya_shot_work`: `@shot_root/work/maya/{name}_{Step}.v{version}.{maya_extension}`
 - `nuke_shot_work`: `@shot_root/work/nuke/{name}.v{version}.{nuke_extension}`
 - `houdini_shot_work`: `@shot_root/work/houdini/{name}.v{version}.{houdini_extension}`
 - `houdini_shot_work_alembic_cache`: `@shot_root/work/houdini/{name}/v{version}/abc/{node}.abc`
@@ -357,7 +357,7 @@ Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}
 
 ### Shot snapshot templates
 
-- `maya_shot_snapshot`: `@shot_root/work/maya/snapshots/{name}.v{version}.{timestamp}.{maya_extension}`
+- `maya_shot_snapshot`: `@shot_root/work/maya/snapshots/{name}_{Step}.v{version}.{timestamp}.{maya_extension}`
 - `nuke_shot_snapshot`: `@shot_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.{nuke_extension}`
 - `houdini_shot_snapshot`: `@shot_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.{houdini_extension}`
 
