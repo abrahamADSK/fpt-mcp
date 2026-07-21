@@ -144,6 +144,40 @@ class SgUploadInput(BaseModel):
     display_name: Optional[str] = Field(default=None, description="Display name for the attachment.")
 
 
+class CutToEdlInput(BaseModel):
+    model_config = _STRICT_CONFIG
+    cut_id: int = Field(description="ShotGrid Cut entity id to export.")
+    output_path: str = Field(
+        description="Absolute path for the generated .edl file. Must be "
+        "chosen by the caller (a pipeline location) — the tool never invents "
+        "destinations."
+    )
+    clip_publish_type: str = Field(
+        default="Rendered Image",
+        description="PublishedFileType whose latest per-shot publish names "
+        "the EDL's FROM CLIP NAME comments (matches Flame conform sources).",
+    )
+
+
+class OpenclipCreateInput(BaseModel):
+    model_config = _STRICT_CONFIG
+    shot_id: int = Field(description="ShotGrid Shot entity id.")
+    output_path: str = Field(
+        description="Absolute path for the generated .clip file. Never place "
+        "it in the same directory as the media files (Flame conform "
+        "ambiguity, per the official Open Clip docs)."
+    )
+    publish_type: str = Field(
+        default="Rendered Image",
+        description="PublishedFileType whose versions populate the clip.",
+    )
+    clip_name: Optional[str] = Field(
+        default=None,
+        description="Clip display name; defaults to the output filename.",
+    )
+    fps: int = Field(default=25, description="Feed sample rate.")
+
+
 class SgDownloadInput(BaseModel):
     model_config = _STRICT_CONFIG
     entity_type: str = Field(description="Entity type.")

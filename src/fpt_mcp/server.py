@@ -71,6 +71,8 @@ from fpt_mcp.filters import (
     _validate_filter_triples,
 )
 from fpt_mcp.models import (
+    CutToEdlInput,
+    OpenclipCreateInput,
     _STRICT_CONFIG,
     # Direct ShotGrid tool inputs
     SgFindInput, SgCreateInput, SgUpdateInput, SgDeleteInput,
@@ -561,6 +563,36 @@ from fpt_mcp.shotgrid import (  # noqa: E402,F401
 from fpt_mcp.reporting import (  # noqa: E402,F401
     _do_sg_activity, _do_sg_note_thread, _do_sg_summarize, _do_sg_text_search,
 )
+
+
+@mcp.tool(name="cut_to_edl")
+async def cut_to_edl_tool(params: CutToEdlInput) -> str:
+    """Generate a CMX 3600 EDL from a ShotGrid Cut + CutItems (drives Flame's
+    native Conform). Source ranges = cut_item_in + cut_item_duration; record
+    positions = edit_in over the Cut's base timecode; FROM CLIP NAME = latest
+    per-shot publish of clip_publish_type."""
+    from fpt_mcp.shotgrid import cut_to_edl_impl
+    _track_call()
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.cut_id} {params.output_path}")
+    out = await cut_to_edl_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
+
+
+@mcp.tool(name="openclip_create")
+async def openclip_create_tool(params: OpenclipCreateInput) -> str:
+    """Write a versioned Flame Open Clip (.clip) for a shot's published render
+    sequences: one <feed> per publish version (frame ranges read from disk),
+    current = highest. Gives a conformed Flame timeline Source Versions;
+    regenerate after each new publish version (static documented form)."""
+    from fpt_mcp.shotgrid import openclip_create_impl
+    _track_call()
+    _stats["exec_calls"] += 1
+    _stats["tokens_in"] += _tok(f"{params.shot_id} {params.output_path}")
+    out = await openclip_create_impl(params)
+    _stats["tokens_out"] += _tok(out)
+    return out
 
 
 @mcp.tool(name="fpt_launch_app")
