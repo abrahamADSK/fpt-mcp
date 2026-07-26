@@ -33,6 +33,8 @@ from typing import Any
 
 from fpt_mcp.editorial import compute_editorial_cut
 from fpt_mcp.models import (
+    CutToEdlInput,
+    OpenclipCreateInput,
     SgBatchInput,
     SgCreateInput,
     SgDeleteInput,
@@ -544,3 +546,156 @@ async def _do_sg_editorial(params: dict) -> str:
         },
         default=str,
     )
+
+
+async def cut_to_edl_impl(params: CutToEdlInput) -> str:
+    """Body of cut_to_edl. Generates a CMX 3600 EDL from a ShotGrid Cut.
+
+    Reads the Cut (fps, base timecode), its CutItems ordered by cut_order,
+    and — for the FROM CLIP NAME comments that drive Flame's conform
+    matching — the latest PublishedFile of ``clip_publish_type`` on each
+    shot. The EDL math itself lives in ``editorial.build_edl`` (pure,
+    unit-tested); this layer is I/O only.
+    """
+    import os
+
+    from fpt_mcp.editorial import build_edl
+    from fpt_mcp.server import sg_find
+
+    cuts = await sg_find(
+        "Cut", [["id", "is", params.cut_id]],
+        ["code", "fps", "timecode_start_text", "revision_number"], limit=1,
+    )
+    if not cuts:
+        return json.dumps({"error": f"Cut {params.cut_id} not found"})
+    cut = cuts[0]
+    fps = int(cut.get("fps") or 25)
+    base_tc = cut.get("timecode_start_text") or "01:00:00:00"
+
+    items = await sg_find(
+        "CutItem", [["cut", "is", {"type": "Cut", "id": params.cut_id}]],
+        ["code", "shot", "cut_order", "cut_item_in", "cut_item_duration",
+         "edit_in"],
+        order=[{"field_name": "cut_order", "direction": "asc"}], limit=500,
+    )
+    if not items:
+        return json.dumps({"error": f"Cut {params.cut_id} has no CutItems"})
+
+    events = []
+    for it in items:
+        shot = it.get("shot") or {}
+        clip_name = None
+        if shot:
+            pubs = await sg_find(
+                "PublishedFile",
+                [["entity", "is", {"type": "Shot", "id": shot["id"]}],
+                 ["published_file_type.PublishedFileType.code", "is",
+                  params.clip_publish_type]],
+                ["code", "version_number"],
+                order=[{"field_name": "version_number", "direction": "desc"}],
+                limit=1,
+            )
+            if pubs:
+                # strip frame token + extension: the conform matches by name
+                clip_name = pubs[0]["code"].split(".%")[0].split(".#")[0]
+        events.append({
+            "tape": (shot.get("name") or it.get("code") or "UNKNOWN"),
+            "clip_name": clip_name,
+            "src_in_frame": int(it.get("cut_item_in") or 0),
+            "duration": int(it.get("cut_item_duration") or 0),
+            "rec_in_frame": int(it.get("edit_in") or 0),
+        })
+
+    edl = build_edl(cut.get("code") or f"Cut {params.cut_id}", fps, base_tc, events)
+    os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
+    with open(params.output_path, "w", encoding="ascii", errors="replace") as fh:
+        fh.write(edl)
+    return json.dumps({
+        "edl_path": params.output_path,
+        "cut": cut.get("code"),
+        "revision": cut.get("revision_number"),
+        "fps": fps,
+        "base_timecode": base_tc,
+        "events": len(events),
+        "missing_clip_names": [e["tape"] for e in events if not e["clip_name"]],
+    })
+
+
+async def openclip_create_impl(params: OpenclipCreateInput) -> str:
+    """Body of openclip_create. Writes a versioned Flame Open Clip for a
+    shot's published render sequences.
+
+    Finds every version of the shot's ``publish_type`` PublishedFiles,
+    resolves each one's frame range FROM DISK (globbing the actual EXRs —
+    the files are the truth, publish metadata may lag), and generates the
+    .clip via ``openclip.build_openclip`` (pure, unit-tested).
+    """
+    import glob as _glob
+    import os
+    import re as _re
+
+    from fpt_mcp.openclip import build_openclip
+    from fpt_mcp.server import sg_find
+
+    pubs = await sg_find(
+        "PublishedFile",
+        [["entity", "is", {"type": "Shot", "id": params.shot_id}],
+         ["published_file_type.PublishedFileType.code", "is",
+          params.publish_type]],
+        ["code", "version_number", "path"],
+        order=[{"field_name": "version_number", "direction": "asc"}],
+        limit=200,
+    )
+    if not pubs:
+        return json.dumps({"error": (
+            f"no {params.publish_type!r} publishes on Shot {params.shot_id}")})
+
+    versions, skipped = [], []
+    for p in pubs:
+        local = (p.get("path") or {}).get("local_path")
+        if not local:
+            skipped.append({"code": p.get("code"), "reason": "no local path"})
+            continue
+        # publish paths store the frame field as a token (%04d / ####)
+        frame_re = _re.sub(r"%0(\d)d|#{2,}", r"*", local)
+        frames = sorted(_glob.glob(frame_re))
+        if not frames:
+            skipped.append({"code": p.get("code"), "reason": "no frames on disk"})
+            continue
+
+        def _frame_num(f: str) -> str:
+            m = _re.search(r"\.(\d+)\.[A-Za-z]+$", f)
+            return m.group(1) if m else ""
+
+        first, last = _frame_num(frames[0]), _frame_num(frames[-1])
+        if not first or not last:
+            skipped.append({"code": p.get("code"), "reason": "unparsable frames"})
+            continue
+        bracket_path = _re.sub(r"%0\d+d|#{2,}", f"[{first}-{last}]", local)
+        versions.append({
+            "uid": f"v{int(p['version_number']):03d}",
+            "path": bracket_path,
+            "frames": len(frames),
+        })
+
+    if not versions:
+        return json.dumps({"error": "no publish version had frames on disk",
+                           "skipped": skipped})
+
+    xml = build_openclip(
+        params.clip_name or os.path.splitext(
+            os.path.basename(params.output_path))[0],
+        [{"uid": v["uid"], "path": v["path"]} for v in versions],
+        fps=params.fps,
+    )
+    os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
+    with open(params.output_path, "w", encoding="utf-8") as fh:
+        fh.write(xml)
+    return json.dumps({
+        "clip_path": params.output_path,
+        "versions": [{k: v[k] for k in ("uid", "frames")} for v in versions],
+        "current": versions[-1]["uid"],
+        "skipped": skipped,
+        "note": ("regenerate this .clip after each new publish version "
+                 "(static mode; deterministic)"),
+    })

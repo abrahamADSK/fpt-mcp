@@ -206,7 +206,7 @@ Claude → search_sg_docs (status filter operators, Version entity) → Returns 
 ```
 
 <!-- concept:mcp_tool_count start -->
-## Tools (16 MCP tool registrations — dispatcher pattern)
+## Tools (18 MCP tool registrations — dispatcher pattern)
 <!-- concept:mcp_tool_count end -->
 
 General-purpose tools with no entity restrictions — works with any ShotGrid entity type and field. Bulk and reporting operations are consolidated behind two dispatcher tools to reduce tool-count overhead for the LLM.
@@ -257,6 +257,8 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 |------|-------------|
 | `tk_resolve_path` | Resolve publish path from the project's real PipelineConfiguration |
 | `tk_publish` | Publish file: resolve path, copy file, find/create PublishedFileType, link Task, register in ShotGrid |
+| `cut_to_edl` | Generate a CMX 3600 EDL from a ShotGrid Cut + CutItems (drives Flame's native Conform) |
+| `openclip_create` | Write a versioned Flame Open Clip (.clip) from a shot's published render sequences (Source Versions in the conformed timeline) |
 
 ### Launcher (1 tool)
 

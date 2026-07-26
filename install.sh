@@ -638,6 +638,7 @@ TOOLS = [
     "sg_resolve_source",
     "fpt_bulk", "fpt_reporting",
     "tk_resolve_path", "tk_publish",
+    "cut_to_edl", "openclip_create",
     "fpt_launch_app",
     "search_sg_docs", "learn_pattern", "session_stats", "reset_session_stats",
 ]

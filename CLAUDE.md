@@ -19,7 +19,7 @@ Claude Desktop / Claude Code / Terminal
 ```
 
 <!-- concept:mcp_tool_count start -->
-### MCP Server: fpt-mcp (16 @mcp.tool registrations — dispatcher pattern)
+### MCP Server: fpt-mcp (18 @mcp.tool registrations — dispatcher pattern)
 <!-- concept:mcp_tool_count end -->
 
 **ShotGrid API tools** (6 direct tools, unrestricted access to any entity):
@@ -45,6 +45,10 @@ Claude Desktop / Claude Code / Terminal
 **Toolkit tools** (2 direct tools):
 - `tk_resolve_path` — resolve publish paths from the project's real PipelineConfiguration
 - `tk_publish` — publish file: resolve path, copy file, find/create PublishedFileType, link Task, register PublishedFile in ShotGrid
+
+**Flame conform tools** (2 direct tools, Chat 91):
+- `cut_to_edl` — CMX 3600 EDL from a ShotGrid Cut + CutItems (source ranges from cut_item_in/duration, record positions from edit_in over the Cut base timecode, FROM CLIP NAME from the latest per-shot publish)
+- `openclip_create` — versioned Flame Open Clip (.clip) from a shot's published render sequences (one feed per publish version, frame ranges read from disk; regenerate after each new version)
 
 **Launcher** (1 direct tool):
 - `fpt_launch_app` — launch a DCC scoped to a ShotGrid entity (OS-first discovery; FPT-selected Software version is authoritative; Maya via Toolkit tank, Flame via direct `startApplication --start-project` with local-project validation; `route` param: auto/direct/toolkit; a **Sequence** launch resolves to its **Layout** Step Task — optional `step` param overrides (e.g. `Master Lighting`) — and launches `tank Task <id> …` so Maya boots the `sequence_layout` env instead of a step-less base context with no work templates). **Single-instance guards** refuse a second launch unless `force=true`: **Flame** when an instance is already running (single-instance per framestore + exclusive project locks); **Maya** when an instance is already bound to the Command Port (`MAYA_HOST:MAYA_PORT`, read from the shared env, default `localhost:8100`) — a second Maya would steal the maya-mcp bridge port and leave it talking to a stale instance. Both guards fire under `dry_run`; a crashed app releases its lock/port so neither false-refuses.
@@ -400,11 +404,12 @@ In `~/.claude/settings.json`, enable all these tools:
 - Dispatchers (2): `mcp__maya-mcp__maya_session` (9 actions: ping, launch, list_scene, new_scene, save_scene, execute_python, delete, get_attribute, set_attribute), `mcp__maya-mcp__maya_vision3d` (7 actions: select_server, health, generate_image, generate_text, texture, poll, download)
 - RAG (3): `mcp__maya-mcp__search_maya_docs`, `mcp__maya-mcp__learn_pattern`, `mcp__maya-mcp__session_stats`
 
-**fpt-mcp** (16 tools — dispatcher pattern):
+**fpt-mcp** (18 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
 - Source resolver: sg_resolve_source (best Asset generation input — image>description; video deferred)
 - Dispatchers: fpt_bulk (delete/revive/batch/editorial), fpt_reporting (text_search/summarize/note_thread/activity)
 - Toolkit: tk_resolve_path, tk_publish
+- Flame conform: cut_to_edl, openclip_create
 - Launcher: fpt_launch_app
 - RAG: search_sg_docs, learn_pattern, session_stats, reset_session_stats
 
@@ -447,12 +452,13 @@ All three repos are on the local Mac (M4 Pro):
   - Returns job_id for polling
 
 - **fpt-mcp**: this repo (ShotGrid + Toolkit + Qt console)
-  - 16 @mcp.tool registrations using dispatcher pattern:
+  - 18 @mcp.tool registrations using dispatcher pattern:
     - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
     - 1 source resolver: sg_resolve_source (World Labs / Vision3D entry — image>description, video deferred)
     - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch, editorial)
     - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
     - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery
+    - 2 Flame conform tools (cut_to_edl, openclip_create)
     - 1 launcher tool (fpt_launch_app)
     - 4 RAG tools (search_sg_docs, learn_pattern, session_stats, reset_session_stats)
   - Native Qt console running Claude Code CLI

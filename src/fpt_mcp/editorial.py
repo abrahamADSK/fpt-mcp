@@ -152,3 +152,84 @@ def compute_editorial_cut(
         edit_in = edit_out  # next item starts where this one ended
 
     return cut_fields, cut_item_fields
+
+
+# ---------------------------------------------------------------------------
+# EDL generation (CMX 3600) — Chat 91 conform workflow
+# ---------------------------------------------------------------------------
+
+def frames_to_timecode(frame: int, fps: int) -> str:
+    """Convert an absolute frame count to a non-drop SMPTE timecode string.
+
+    Args:
+        frame: absolute frame number (0-based within the timecode space).
+        fps:   integer frames per second (25 for PAL — this pipeline's rate).
+
+    Returns:
+        ``HH:MM:SS:FF`` non-drop timecode.
+    """
+    ff = frame % fps
+    total_seconds = frame // fps
+    ss = total_seconds % 60
+    mm = (total_seconds // 60) % 60
+    hh = total_seconds // 3600
+    return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
+
+
+def timecode_to_frames(tc: str, fps: int) -> int:
+    """Inverse of :func:`frames_to_timecode` for ``HH:MM:SS:FF`` strings."""
+    hh, mm, ss, ff = (int(p) for p in tc.split(":"))
+    return ((hh * 3600 + mm * 60 + ss) * fps) + ff
+
+
+def build_edl(
+    title: str,
+    fps: int,
+    record_base_tc: str,
+    events: list[dict],
+) -> str:
+    """Build a CMX 3600 EDL from Cut/CutItem-derived event dicts.
+
+    PURE function: no ShotGrid I/O. The SG data conventions handled here
+    (see the module docstring): ``edit_in`` is 0-based record position with
+    exclusive out; the SOURCE range is anchored at ``src_in_frame`` and its
+    length is ``duration`` (``cut_item_duration`` is authoritative — stored
+    ``cut_item_out`` may be inclusive OR exclusive depending on who created
+    the Cut, so it is deliberately not used here). EDL out-points are
+    exclusive per the CMX convention.
+
+    Args:
+        title:          EDL title line (the Cut code).
+        fps:            integer frame rate (25 for this project).
+        record_base_tc: timeline start timecode (``Cut.timecode_start_text``).
+        events: ordered list (by cut_order) of dicts with keys:
+            ``tape``         — tape/reel name (the Shot code),
+            ``clip_name``    — source clip display name (published file base),
+            ``src_in_frame`` — first source frame (``cut_item_in``),
+            ``duration``     — event length in frames (``cut_item_duration``),
+            ``rec_in_frame`` — record position (``edit_in``, 0-based).
+
+    Returns:
+        The EDL file content as a string (trailing newline included).
+    """
+    base = timecode_to_frames(record_base_tc, fps)
+    lines = [f"TITLE: {title}", "FCM: NON-DROP FRAME", ""]
+    for idx, ev in enumerate(events, start=1):
+        src_in = int(ev["src_in_frame"])
+        dur = int(ev["duration"])
+        rec_in = base + int(ev["rec_in_frame"])
+        lines.append(
+            "{:03d}  {:<8s} V     C        {} {} {} {}".format(
+                idx,
+                str(ev["tape"])[:32],
+                frames_to_timecode(src_in, fps),
+                frames_to_timecode(src_in + dur, fps),
+                frames_to_timecode(rec_in, fps),
+                frames_to_timecode(rec_in + dur, fps),
+            )
+        )
+        clip = ev.get("clip_name")
+        if clip:
+            lines.append(f"* FROM CLIP NAME: {clip}")
+        lines.append("")
+    return "\n".join(lines) + "\n"

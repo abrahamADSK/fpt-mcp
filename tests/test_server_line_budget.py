@@ -28,7 +28,12 @@ def test_server_py_under_line_budget():
     # an irreducible thin wrapper here (the decorator MUST live in server.py for
     # the install.sh AST extraction + .concepts.yml tool-inventory invariants);
     # all of its logic is in source_resolver.py + shotgrid.py::sg_resolve_source_impl.
-    BUDGET = 820  # lines — raise only with a commit explaining why.
+    # 820 -> 860 (Flame conform, Chat 91): tools 17-18 (cut_to_edl,
+    # openclip_create) add two irreducible thin wrappers here (decorators must
+    # live in server.py for the install.sh AST extraction + .concepts.yml
+    # tool-inventory invariants); ALL logic lives in editorial.py::build_edl,
+    # openclip.py::build_openclip (pure) + shotgrid.py::*_impl (I/O).
+    BUDGET = 860  # lines — raise only with a commit explaining why.
     server_py = Path(__file__).resolve().parent.parent / "src" / "fpt_mcp" / "server.py"
     line_count = sum(1 for _ in server_py.open(encoding="utf-8"))
     assert line_count < BUDGET, (

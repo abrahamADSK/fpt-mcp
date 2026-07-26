@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Flame conform tools** (`cut_to_edl`, `openclip_create`) for the Cut-driven
+  conform workflow (Chat 91): `cut_to_edl` generates a CMX 3600 EDL from a
+  ShotGrid Cut + CutItems (source ranges from `cut_item_in` +
+  `cut_item_duration` — authoritative over the stored, possibly-inclusive
+  `cut_item_out` — record positions from `edit_in` over the Cut's base
+  timecode, FROM CLIP NAME comments from the latest per-shot publish);
+  `openclip_create` writes a versioned Flame Open Clip (.clip, official XML
+  schema, static documented form) from a shot's published render sequences,
+  one feed per publish version with frame ranges read from the EXRs on disk.
+  Pure math/XML in `editorial.py` / `openclip.py` (unit-tested); I/O in
+  `shotgrid.py`. Needs in-vivo conform validation in Flame before release.
+
 ### Fixed
 - **`fpt_launch_app` now launches a Sequence into its Step Task** (Maya /
   tank route). Launching a bare Sequence ran `tank Sequence <id> <cmd>`, which
