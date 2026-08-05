@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    "mcp[cli]>=1.0.0,<2",  # 2.x drops mcp.server.fastmcp (CI drift, Chat 92)
     "shotgun-api3>=3.4.0",
     # Pydantic v3 has breaking changes; pin to v2.x until we audit the
     # ConfigDict / Field / validator surface for v3 compatibility.

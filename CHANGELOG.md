@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- CI hardening against environment drift: `ruff` pinned (0.15.11) and the
+  `mcp` dependency bounded `<2` (mcp 2.x removes `mcp.server.fastmcp`;
+  unpinned tools broke the first CI run after 5 idle weeks).
 - Qt console: prompt is fed to the Claude CLI via stdin (argv broke on dash-prefixed messages: `error: unknown option`; empty prompts aborted with the `--print` stdin error) and empty messages are rejected client-side.
 - **`openclip_create` rebuilt on Autodesk's canonical generator** (in-vivo
   Chat 92): Flame 2027 SILENTLY rejects the hand-rolled static XML (schema
