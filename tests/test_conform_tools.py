@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from fpt_mcp.editorial import build_edl, frames_to_timecode, timecode_to_frames
-from fpt_mcp.openclip import build_openclip
+from fpt_mcp.openclip import splice_openclips
 
 SHOTS = ["SEQ001_SH001", "SEQ001_SH002", "SEQ002_SH001",
          "SEQ002_SH002", "SEQ003_SH001", "SEQ003_SH002"]
@@ -85,37 +85,78 @@ class TestBuildEdl:
         assert "00:00:44:01" in edl  # 1101 @ 25fps, not 1100
 
 
-class TestBuildOpenclip:
-    def _two_versions(self):
+class TestSpliceOpenclips:
+    """splice_openclips merges single-version canonical documents (the
+    dl_get_media_info output tags everything ``v0``) into one versioned clip.
+
+    The fixtures are trimmed canonical documents: same element structure
+    Flame 2027 accepts (schema v8), minus the bulky handler blocks that the
+    splice never touches.
+    """
+
+    def _doc(self, path, tracks=("BEAUTY:MasterBeauty", "Z:Z")):
+        track_xml = "".join(
+            f'<track uid="{uid}"><trackType>video</trackType>'
+            f'<feeds currentVersion="v0"><feed vuid="v0"><spans><span>'
+            f'<path encoding="pattern">{path}</path>'
+            f"</span></spans></feed></feeds></track>"
+            for uid in tracks
+        )
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<clip type="clip" version="8"><name type="string">S_light</name>'
+            f"<tracks>{track_xml}</tracks>"
+            '<versions currentVersion="v0"><version uid="v0"/></versions>'
+            "</clip>"
+        )
+
+    def _two(self):
         return [
-            {"uid": "v001", "path": "/renders/light/v001/S_light_v001.[1001-1100].exr"},
-            {"uid": "v002", "path": "/renders/light/v002/S_light_v002.[1001-1100].exr"},
+            ("v001", self._doc("/renders/light/v001/S_light_v001.[1001-1100].exr")),
+            ("v002", self._doc("/renders/light/v002/S_light_v002.[1001-1100].exr")),
         ]
 
-    def test_valid_xml_with_versions_block(self):
-        xml = build_openclip("S_light", self._two_versions(), fps=25)
+    def test_single_version_retagged_from_v0(self):
+        xml = splice_openclips([self._two()[0]])
+        assert xml.startswith('<?xml version="1.0" encoding="UTF-8"?>')
         root = ET.fromstring(xml)
-        assert root.tag == "clip"
+        for feeds in root.iter("feeds"):
+            assert feeds.get("currentVersion") == "v001"
+            assert [f.get("vuid") for f in feeds.findall("feed")] == ["v001"]
         versions = root.find("versions")
-        assert versions.get("nbVersions") == "2"
+        assert versions.get("currentVersion") == "v001"
+        assert [v.get("uid") for v in versions] == ["v001"]
+
+    def test_two_versions_feeds_merged_per_track(self):
+        root = ET.fromstring(splice_openclips(self._two()))
+        tracks = root.find("tracks").findall("track")
+        assert len(tracks) == 2
+        for track in tracks:
+            feeds = track.find("feeds")
+            assert feeds.get("currentVersion") == "v002"
+            assert [f.get("vuid") for f in feeds.findall("feed")] == ["v001", "v002"]
+            paths = [f.find("spans/span/path") for f in feeds.findall("feed")]
+            assert all(p.get("encoding") == "pattern" for p in paths)
+            assert "v001" in paths[0].text and "v002" in paths[1].text
+        versions = root.find("versions")
         assert versions.get("currentVersion") == "v002"
         assert [v.get("uid") for v in versions] == ["v001", "v002"]
 
-    def test_feeds_carry_pattern_paths_and_fps(self):
-        xml = build_openclip("S_light", self._two_versions(), fps=25)
-        root = ET.fromstring(xml)
-        feeds = root.find("tracks/track/feeds")
-        assert feeds.get("currentVersion") == "v002"
-        paths = [f.find("spans/span/path") for f in feeds]
-        assert all(p.get("encoding") == "pattern" for p in paths)
-        assert "[1001-1100]" in paths[0].text
-        rates = [f.find("sampleRate").text for f in feeds]
-        assert rates == ["25", "25"]
+    def test_track_missing_from_master_is_ignored(self):
+        v1 = ("v001", self._doc("/r/v001/a.[1-2].exr", tracks=("BEAUTY:MasterBeauty",)))
+        v2 = ("v002", self._doc("/r/v002/a.[1-2].exr", tracks=("BEAUTY:MasterBeauty", "N:N")))
+        root = ET.fromstring(splice_openclips([v1, v2]))
+        tracks = root.find("tracks").findall("track")
+        assert [t.get("uid") for t in tracks] == ["BEAUTY:MasterBeauty"]
+        feeds = tracks[0].find("feeds")
+        assert [f.get("vuid") for f in feeds.findall("feed")] == ["v001", "v002"]
 
     def test_current_override_and_validation(self):
-        xml = build_openclip("S", self._two_versions(), current="v001")
+        xml = splice_openclips(self._two(), current="v001")
         assert 'currentVersion="v001"' in xml
         with pytest.raises(ValueError):
-            build_openclip("S", self._two_versions(), current="v999")
+            splice_openclips(self._two(), current="v999")
         with pytest.raises(ValueError):
-            build_openclip("S", [])
+            splice_openclips([])
+        with pytest.raises(ValueError):
+            splice_openclips([self._two()[0], self._two()[0]])

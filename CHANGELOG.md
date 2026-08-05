@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 - Qt console: prompt is fed to the Claude CLI via stdin (argv broke on dash-prefixed messages: `error: unknown option`; empty prompts aborted with the `--print` stdin error) and empty messages are rejected client-side.
+- **`openclip_create` rebuilt on Autodesk's canonical generator** (in-vivo
+  Chat 92): Flame 2027 SILENTLY rejects the hand-rolled static XML (schema
+  v4) the tool used to emit — `flame.import_clips` returns 0 clips and the
+  app log shows a clean Entering/Exiting with no error. The tool now runs
+  `dl_get_media_info` (env `FPT_DL_GET_MEDIA_INFO` override, else newest
+  `/opt/Autodesk/mio/*`) once per publish-version media dir and merges the
+  single-version documents via the new pure `openclip.splice_openclips`
+  (feeds appended per matching track uid, `v0` retagged to the real publish
+  version, `currentVersion` = highest). Canonical schema (v8, per-channel
+  tracks) validated importing 6/6 clips + a retagged single-version clip on
+  a live Flame 2027; splice covered by unit tests. `build_openclip` (the
+  rejected form) is removed; `clip_name`/`fps` params are now deprecated
+  no-ops (name/rate come from the media). Requires a Flame/mio install on
+  the host — a clear error says so when absent.
+
 ## [1.24.0] — 2026-08-05
 - Release tooling: `commits_since_tag` now tolerates the release-in-progress
   commit via the `CUT_RELEASE_VERSION` anchor (same mechanism as

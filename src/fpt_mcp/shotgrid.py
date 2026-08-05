@@ -621,21 +621,53 @@ async def cut_to_edl_impl(params: CutToEdlInput) -> str:
     })
 
 
+def _find_dl_media_binary() -> str | None:
+    """Locate Autodesk's ``dl_get_media_info`` (canonical Open Clip generator).
+
+    ``$FPT_DL_GET_MEDIA_INFO`` overrides (an invalid override fails loud by
+    returning None); otherwise the newest ``/opt/Autodesk/mio/<version>``
+    wins — lexicographic sort is correct for 4-digit-year version dirs.
+    """
+    import glob as _glob
+    import os
+
+    env = os.environ.get("FPT_DL_GET_MEDIA_INFO")
+    if env:
+        return env if (os.path.isfile(env) and os.access(env, os.X_OK)) else None
+    cands = sorted(_glob.glob("/opt/Autodesk/mio/*/dl_get_media_info"))
+    return cands[-1] if cands else None
+
+
 async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     """Body of openclip_create. Writes a versioned Flame Open Clip for a
     shot's published render sequences.
 
     Finds every version of the shot's ``publish_type`` PublishedFiles,
     resolves each one's frame range FROM DISK (globbing the actual EXRs —
-    the files are the truth, publish metadata may lag), and generates the
-    .clip via ``openclip.build_openclip`` (pure, unit-tested).
+    the files are the truth, publish metadata may lag), describes each
+    version's media directory with Autodesk's canonical generator
+    (``dl_get_media_info``) and merges the per-version documents via
+    ``openclip.splice_openclips`` (pure, unit-tested). The canonical route
+    is MANDATORY: the previous hand-rolled static XML (schema v4) is
+    silently rejected by Flame 2027 — ``flame.import_clips`` returns 0
+    clips with no logged error (in-vivo 2026-08-05).
     """
+    import asyncio
     import glob as _glob
     import os
     import re as _re
 
-    from fpt_mcp.openclip import build_openclip
+    from fpt_mcp.openclip import splice_openclips
     from fpt_mcp.server import sg_find
+
+    binary = _find_dl_media_binary()
+    if binary is None:
+        return json.dumps({"error": (
+            "dl_get_media_info not found (checked $FPT_DL_GET_MEDIA_INFO and "
+            "/opt/Autodesk/mio/*/dl_get_media_info). openclip_create requires "
+            "an Autodesk Flame/mio installation on this host — Flame 2027 "
+            "silently rejects the hand-rolled static XML form, so the "
+            "canonical generator is mandatory.")})
 
     pubs = await sg_find(
         "PublishedFile",
@@ -671,10 +703,9 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         if not first or not last:
             skipped.append({"code": p.get("code"), "reason": "unparsable frames"})
             continue
-        bracket_path = _re.sub(r"%0\d+d|#{2,}", f"[{first}-{last}]", local)
         versions.append({
             "uid": f"v{int(p['version_number']):03d}",
-            "path": bracket_path,
+            "dir": os.path.dirname(local),
             "frames": len(frames),
         })
 
@@ -682,12 +713,28 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         return json.dumps({"error": "no publish version had frames on disk",
                            "skipped": skipped})
 
-    xml = build_openclip(
-        params.clip_name or os.path.splitext(
-            os.path.basename(params.output_path))[0],
-        [{"uid": v["uid"], "path": v["path"]} for v in versions],
-        fps=params.fps,
-    )
+    per_version: list[tuple[str, str]] = []
+    for v in versions:
+        proc = await asyncio.create_subprocess_exec(
+            binary, v["dir"],
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, err = await proc.communicate()
+        if proc.returncode != 0 or not out.strip():
+            skipped.append({
+                "code": v["uid"],
+                "reason": ("dl_get_media_info failed: "
+                           + err.decode(errors="replace")[:200]),
+            })
+            continue
+        per_version.append((v["uid"], out.decode()))
+    if not per_version:
+        return json.dumps({"error": (
+            "dl_get_media_info produced no usable document for any version"),
+            "skipped": skipped})
+    kept = {u for u, _ in per_version}
+    versions = [v for v in versions if v["uid"] in kept]
+
+    xml = splice_openclips(per_version)
     os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
     with open(params.output_path, "w", encoding="utf-8") as fh:
         fh.write(xml)
@@ -695,7 +742,9 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         "clip_path": params.output_path,
         "versions": [{k: v[k] for k in ("uid", "frames")} for v in versions],
         "current": versions[-1]["uid"],
+        "generator": binary,
         "skipped": skipped,
         "note": ("regenerate this .clip after each new publish version "
-                 "(static mode; deterministic)"),
+                 "(canonical dl_get_media_info + version splice; "
+                 "deterministic)"),
     })

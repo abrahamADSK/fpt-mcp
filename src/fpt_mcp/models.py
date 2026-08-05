@@ -173,9 +173,16 @@ class OpenclipCreateInput(BaseModel):
     )
     clip_name: Optional[str] = Field(
         default=None,
-        description="Clip display name; defaults to the output filename.",
+        description="DEPRECATED (kept for API compatibility): the canonical "
+        "generator derives the clip name from the media; this value is "
+        "ignored.",
     )
-    fps: int = Field(default=25, description="Feed sample rate.")
+    fps: int = Field(
+        default=25,
+        description="DEPRECATED (kept for API compatibility): the canonical "
+        "generator derives the rate from the media headers/handler; this "
+        "value is ignored.",
+    )
 
 
 class SgDownloadInput(BaseModel):

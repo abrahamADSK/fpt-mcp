@@ -583,9 +583,12 @@ async def cut_to_edl_tool(params: CutToEdlInput) -> str:
 @mcp.tool(name="openclip_create")
 async def openclip_create_tool(params: OpenclipCreateInput) -> str:
     """Write a versioned Flame Open Clip (.clip) for a shot's published render
-    sequences: one <feed> per publish version (frame ranges read from disk),
+    sequences: one feed per publish version (frame ranges read from disk),
     current = highest. Gives a conformed Flame timeline Source Versions;
-    regenerate after each new publish version (static documented form)."""
+    regenerate after each new publish version. Generation runs Autodesk's
+    canonical dl_get_media_info per version dir + merges the documents
+    (requires a Flame/mio install on this host — Flame 2027 silently rejects
+    hand-rolled minimal XML, validated in-vivo 2026-08-05)."""
     from fpt_mcp.shotgrid import openclip_create_impl
     _track_call()
     _stats["exec_calls"] += 1
