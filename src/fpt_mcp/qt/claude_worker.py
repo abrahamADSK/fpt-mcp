@@ -580,6 +580,12 @@ class ClaudeWorker(QThread):
             parts.append(f"[Flow Production Tracking context: {json.dumps(self._context)}]")
 
         prompt = "\n".join(parts)
+        if not prompt.strip():
+            # Never spawn the CLI with an empty prompt: `--print` aborts with
+            # "Input must be provided either through stdin or as a prompt
+            # argument" and the console surfaces a cryptic error instead.
+            self.finished.emit("Mensaje vacío — escribe algo antes de enviar.", True)
+            return
 
         try:
             # Build environment with backend-specific overrides
@@ -626,7 +632,13 @@ class ClaudeWorker(QThread):
                     keep_alive=resolve_keep_alive(),
                 )
 
-            cmd = [CLAUDE_BIN, "-p", prompt,
+            # The prompt goes through STDIN, never argv: a message that starts
+            # with "-" (a bulleted list, "--help", ...) is parsed as a CLI
+            # option ("error: unknown option"), and an empty argv prompt makes
+            # the CLI abort with "Input must be provided either through stdin
+            # or as a prompt argument when using --print" (Chat 91, Flame
+            # console incident). stdin is immune to dashes/quotes/newlines.
+            cmd = [CLAUDE_BIN, "-p",
                    "--output-format", "stream-json", "--verbose",
                    "--append-system-prompt", system_prompt]
             if self._model_id:
@@ -640,12 +652,17 @@ class ClaudeWorker(QThread):
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(_PROJECT_ROOT),  # must run from repo root so Claude finds .mcp.json
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=1,  # line-buffered
                 text=True,
                 env=run_env,
             )
+            # Feed the prompt and close stdin so the CLI knows input is done.
+            assert proc.stdin is not None
+            proc.stdin.write(prompt)
+            proc.stdin.close()
 
             text_parts: list[str] = []
             active_tools: dict[int, str] = {}  # index → tool_name
