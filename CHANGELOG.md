@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **`openclip_create` Task/Step selection contract** (zero silent defaults,
+  Chat 93): new optional `task_id` / `step` selectors (step matches the
+  Step's `code` OR `short_name`). With neither, the tool no longer builds —
+  it returns `choice_required` with the shot's candidate Tasks (publish
+  counts, latest version, untasked count) plus a dependency-based
+  suggestion from `Task.upstream_tasks` when the production fills task
+  dependencies; the caller confirms with the user and re-calls. Prevents
+  LGT and comp renders (which share the "Rendered Image" publish type by
+  design, for cross-DCC loader interop) from ever mixing in one clip.
+  Discovery mode is pure ShotGrid I/O and works on hosts without a
+  Flame/mio install; a zero-match explicit selector errors WITH the real
+  candidates listed. (+10 tests)
 - CI hardening against environment drift: `ruff` pinned (0.15.11) and the
   `mcp` dependency bounded `<2` (mcp 2.x removes `mcp.server.fastmcp`;
   unpinned tools broke the first CI run after 5 idle weeks).
