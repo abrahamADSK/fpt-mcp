@@ -485,6 +485,51 @@ class TestFlameDirectLaunch:
             data = json.loads(_run(fpt_launch_app_tool(self._params())))
         assert data["flame_project"] == "MyProj"
 
+    def test_list_projects_enumerates_without_launching(self, resolved_flame):
+        """Chat 93 native-link workflow: list local projects, never spawn."""
+        sg = self._sg("mcp_project_abraham")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["AUTODESK_UNIVERSITY_2026_MCP",
+                                 "MCP_PROJECT_ABRAHAM"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(
+                self._params(list_projects=True))))
+        assert data["choice_required"] is True
+        assert data["local_flame_projects"] == [
+            "AUTODESK_UNIVERSITY_2026_MCP", "MCP_PROJECT_ABRAHAM"]
+        assert data["sg_project_name"] == "mcp_project_abraham"
+        assert "argv" not in data  # nothing composed, nothing launched
+        assert "fpt_link" in data["hint"]
+
+    def test_flame_project_overrides_derived_slug(self, resolved_flame):
+        """Explicit choice wins over the SG-derived name (case-insensitive)."""
+        sg = self._sg("mcp_project_abraham")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["AUTODESK_UNIVERSITY_2026_MCP",
+                                 "MCP_PROJECT_ABRAHAM"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._params(
+                flame_project="autodesk_university_2026_mcp"))))
+        assert "error" not in data
+        assert data["flame_project"] == "AUTODESK_UNIVERSITY_2026_MCP"
+        assert data["argv"][1] == "--start-project=AUTODESK_UNIVERSITY_2026_MCP"
+
+    def test_flame_project_unknown_errors_with_local_list(self, resolved_flame):
+        sg = self._sg("mcp_project_abraham")
+        with patch("fpt_mcp.server.get_sg", return_value=sg), \
+             patch("fpt_mcp.server.resolve_app", return_value=resolved_flame), \
+             patch("fpt_mcp.launcher._local_flame_projects",
+                   return_value=["MCP_PROJECT_ABRAHAM"]), \
+             patch("fpt_mcp.launcher._flame_running", return_value=False):
+            data = json.loads(_run(fpt_launch_app_tool(self._params(
+                flame_project="NO_SUCH_PROJECT"))))
+        assert "error" in data
+        assert "MCP_PROJECT_ABRAHAM" in data["error"]
+
 
 class TestRouteParam:
     def test_maya_route_direct_skips_tank(self, fake_sg, resolved_tank):

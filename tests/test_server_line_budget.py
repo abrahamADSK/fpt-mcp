@@ -33,7 +33,12 @@ def test_server_py_under_line_budget():
     # live in server.py for the install.sh AST extraction + .concepts.yml
     # tool-inventory invariants); ALL logic lives in editorial.py::build_edl,
     # openclip.py::build_openclip (pure) + shotgrid.py::*_impl (I/O).
-    BUDGET = 860  # lines — raise only with a commit explaining why.
+    BUDGET = 880  # lines — raise only with a commit explaining why.
+    # 860→880 (Chat 93): two LLM-facing tool-contract docstrings added
+    # (openclip_create Task/Step selection; fpt_launch_app native-link
+    # workflow). Docstrings must live on the @mcp.tool defs in server.py —
+    # they cannot be extracted to subject modules, which is what this
+    # budget exists to force for CODE.
     server_py = Path(__file__).resolve().parent.parent / "src" / "fpt_mcp" / "server.py"
     line_count = sum(1 for _ in server_py.open(encoding="utf-8"))
     assert line_count < BUDGET, (

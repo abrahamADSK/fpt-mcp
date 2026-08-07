@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **`fpt_launch_app` Flame native-link workflow** (Chat 93): new
+  `list_projects=true` mode returns the local Stone+Wire Flame project list
+  without launching (choice_required — the caller asks the user; a
+  name-derived match is NOT evidence of a native FPT link), and
+  `flame_project=<name>` opens an explicit local project (case-insensitive)
+  overriding the SG-derived slug. Pairs with flame-mcp's new `fpt_link`
+  tool (read/set/break the native `shotgun_project_name` link once the
+  project is loaded). Console system prompts (both variants) carry the
+  5-step workflow. (+3 tests)
 - **`openclip_create` Task/Step selection contract** (zero silent defaults,
   Chat 93): new optional `task_id` / `step` selectors (step matches the
   Step's `code` OR `short_name`). With neither, the tool no longer builds —

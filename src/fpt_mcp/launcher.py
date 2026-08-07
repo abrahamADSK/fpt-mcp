@@ -286,25 +286,62 @@ def _compose_flame_direct(
 
     slug = _flame_slug(sg_name)
     local = _local_flame_projects()
-    match = slug if slug in local else next(
-        (p for p in local if p.lower() == slug.lower()), None
-    )
-    plan["sg_project_name"] = sg_name
-    plan["flame_project"] = match or slug
 
-    if match is None:
-        suggestions = difflib.get_close_matches(slug, local, n=3, cutoff=0.6)
-        hint = (
-            f" Closest local projects: {', '.join(suggestions)}."
-            if suggestions else ""
-        )
-        plan["error"] = (
-            f"Flame project '{slug}' (derived from SG project '{sg_name}') "
-            f"does not exist on this workstation.{hint} Create it in Flame "
-            f"first, or launch with route='toolkit' — the tk-flame route "
-            f"pre-creates missing projects via Wiretap."
+    if params.list_projects:
+        # Enumeration mode (Chat 93, native-link workflow): report the real
+        # local options so the caller can ASK the user which Flame project
+        # to open/link. A slug match is NOT evidence of a native FPT link —
+        # the link attribute is only readable with the project loaded
+        # (flame-mcp fpt_link), so the choice is always the user's.
+        plan["sg_project_name"] = sg_name
+        plan["derived_slug"] = slug
+        plan["local_flame_projects"] = local
+        plan["choice_required"] = True
+        plan["hint"] = (
+            "re-call with flame_project=<name> to open one; after the "
+            "project loads, verify/set the native link with flame-mcp's "
+            "fpt_link tool"
         )
         return json.dumps(plan, default=str)
+
+    if params.flame_project:
+        # Explicit user choice — case-insensitive exact match only.
+        wanted = params.flame_project
+        match = next(
+            (p for p in local if p.lower() == wanted.lower()), None
+        )
+        plan["sg_project_name"] = sg_name
+        plan["flame_project"] = match or wanted
+        if match is None:
+            plan["error"] = (
+                f"Flame project '{wanted}' does not exist on this "
+                f"workstation. Local projects: {', '.join(local) or '(none)'}."
+            )
+            return json.dumps(plan, default=str)
+    else:
+        match = slug if slug in local else next(
+            (p for p in local if p.lower() == slug.lower()), None
+        )
+        plan["sg_project_name"] = sg_name
+        plan["flame_project"] = match or slug
+
+        if match is None:
+            suggestions = difflib.get_close_matches(
+                slug, local, n=3, cutoff=0.6
+            )
+            hint = (
+                f" Closest local projects: {', '.join(suggestions)}."
+                if suggestions else ""
+            )
+            plan["error"] = (
+                f"Flame project '{slug}' (derived from SG project "
+                f"'{sg_name}') does not exist on this workstation.{hint} "
+                f"Create it in Flame first, or launch with route='toolkit' "
+                f"— the tk-flame route pre-creates missing projects via "
+                f"Wiretap. To open a DIFFERENT existing project pass "
+                f"flame_project=<name> (list with list_projects=true)."
+            )
+            return json.dumps(plan, default=str)
 
     if _flame_running() and not params.force:
         plan["error"] = (

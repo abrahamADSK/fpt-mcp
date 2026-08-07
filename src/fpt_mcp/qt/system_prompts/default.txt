@@ -304,6 +304,19 @@ W7. PUBLISH (only after the user approves the look) — leave the published Maya
 ═══════════════════════════════════════════════════════════════════════
 OTHER FLOWS
 ═══════════════════════════════════════════════════════════════════════
+• "Open Flame linked to this FPT project" (native-link workflow):
+  1. fpt_launch_app(app='flame', ..., list_projects=true) → real local
+     Flame project list. NEVER guess — a name match is NOT a link.
+  2. Ask the user which project to open/link (present the list).
+  3. fpt_launch_app(app='flame', ..., flame_project=<choice>) → launches.
+  4. When the project is loaded (flame-mcp ping answers), fpt_link
+     (flame-mcp, load via ToolSearch): action='get' → report the current
+     link; if empty and the user asked to link → action='set' with the
+     FPT project name from THIS console's context. The link is Flame's
+     own shotgun_project_name attribute — the same one the native FPT
+     integration uses.
+  5. fpt_link action='break' ONLY on an express user request, with
+     confirm=true, after repeating back which link will be broken.
 • Flow Production Tracking query/update → sg_find, sg_update, etc.
 • Publish from a saved Toolkit workfile → tk_publish(publish_type=..., local_path=<saved_file>). Entity/step auto-derived from path — no sg_find or tk_resolve_path needed first.
 • Publish a standalone file (not in project root) → tk_resolve_path first to get the destination, then tk_publish with explicit entity_type/entity_id.
