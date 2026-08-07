@@ -171,6 +171,20 @@ class OpenclipCreateInput(BaseModel):
         default="Rendered Image",
         description="PublishedFileType whose versions populate the clip.",
     )
+    task_id: Optional[int] = Field(
+        default=None,
+        description="Explicit ShotGrid Task id whose publishes populate the "
+        "clip. Strongest selector — takes precedence over 'step'.",
+    )
+    step: Optional[str] = Field(
+        default=None,
+        description="Pipeline Step selector: matches the publish Task's Step "
+        "by code OR short_name (e.g. 'Light' / 'LGT'). Ignored when task_id "
+        "is given. When BOTH are omitted the tool never builds: it returns "
+        "a choice_required listing of the shot's candidate Tasks (publish "
+        "counts + a dependency-based suggestion when the task graph "
+        "provides one) for the caller to confirm.",
+    )
     clip_name: Optional[str] = Field(
         default=None,
         description="DEPRECATED (kept for API compatibility): the canonical "

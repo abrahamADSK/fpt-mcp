@@ -638,17 +638,115 @@ def _find_dl_media_binary() -> str | None:
     return cands[-1] if cands else None
 
 
+def _openclip_base_filters(params: OpenclipCreateInput) -> list:
+    """Shot + publish-type filters shared by every openclip query."""
+    return [
+        ["entity", "is", {"type": "Shot", "id": params.shot_id}],
+        ["published_file_type.PublishedFileType.code", "is",
+         params.publish_type],
+    ]
+
+
+async def _openclip_candidates(params: OpenclipCreateInput, sg_find) -> dict:
+    """Group the shot's ``publish_type`` publishes by their linked Task.
+
+    Returns {"candidates": [...], "untasked": N, "total": N} where each
+    candidate carries task_id/task/step/publishes/latest_version. Publishes
+    with no Task link are counted (never silently dropped) but cannot be
+    selected by the task/step filter.
+    """
+    pubs = await sg_find(
+        "PublishedFile",
+        _openclip_base_filters(params),
+        ["code", "version_number", "task", "task.Task.step"],
+        order=[{"field_name": "version_number", "direction": "asc"}],
+        limit=200,
+    )
+    by_task: dict[int, dict] = {}
+    untasked = 0
+    for p in pubs:
+        task = p.get("task")
+        if not task:
+            untasked += 1
+            continue
+        step = p.get("task.Task.step") or {}
+        entry = by_task.setdefault(task["id"], {
+            "task_id": task["id"],
+            "task": task.get("name"),
+            "step": step.get("name"),
+            "publishes": 0,
+            "latest_version": 0,
+        })
+        entry["publishes"] += 1
+        entry["latest_version"] = max(
+            entry["latest_version"], int(p.get("version_number") or 0))
+    return {"candidates": list(by_task.values()), "untasked": untasked,
+            "total": len(pubs)}
+
+
+async def _openclip_discover(params: OpenclipCreateInput, sg_find) -> str:
+    """No-selector branch: enumerate the shot's real options and ask.
+
+    Contract (Chat 93): the tool NEVER guesses which pipeline step feeds
+    the conform — different pipelines have different upstream steps, and
+    LGT + comp renders deliberately share one publish_type. If the Shot's
+    task graph (Task.upstream_tasks) singles out a candidate that feeds
+    downstream work it is offered as a suggestion, never auto-selected.
+    """
+    listing = await _openclip_candidates(params, sg_find)
+    if not listing["total"]:
+        return json.dumps({"error": (
+            f"no {params.publish_type!r} publishes on Shot {params.shot_id}")})
+
+    candidates = listing["candidates"]
+    suggested = None
+    tasks = await sg_find(
+        "Task",
+        [["entity", "is", {"type": "Shot", "id": params.shot_id}]],
+        ["content", "step", "upstream_tasks"],
+    )
+    upstream_hits: dict[int, list] = {}
+    for t in tasks:
+        for up in t.get("upstream_tasks") or []:
+            if any(c["task_id"] == up["id"] for c in candidates):
+                upstream_hits.setdefault(up["id"], []).append(t.get("content"))
+    if len(upstream_hits) == 1:
+        up_id, consumers = next(iter(upstream_hits.items()))
+        cand = next(c for c in candidates if c["task_id"] == up_id)
+        suggested = {**cand, "reason": (
+            "upstream dependency of " + ", ".join(c for c in consumers if c))}
+
+    return json.dumps({
+        "choice_required": True,
+        "message": (
+            "openclip_create never guesses which Task's renders feed the "
+            "conform. Confirm one candidate with the user and re-call with "
+            "task_id=<id> (or step=<name>)."),
+        "candidates": candidates,
+        "untasked_publishes": listing["untasked"],
+        "suggested": suggested,
+    })
+
+
 async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     """Body of openclip_create. Writes a versioned Flame Open Clip for a
     shot's published render sequences.
 
-    Finds every version of the shot's ``publish_type`` PublishedFiles,
-    resolves each one's frame range FROM DISK (globbing the actual EXRs —
-    the files are the truth, publish metadata may lag), describes each
-    version's media directory with Autodesk's canonical generator
-    (``dl_get_media_info``) and merges the per-version documents via
-    ``openclip.splice_openclips`` (pure, unit-tested). The canonical route
-    is MANDATORY: the previous hand-rolled static XML (schema v4) is
+    Task/Step selection contract (zero silent defaults, Chat 93): with
+    ``task_id`` (or ``step``, matched against the Step's code OR
+    short_name) the clip is built from that Task's publishes only; with
+    neither, the tool returns ``choice_required`` with the shot's
+    candidate Tasks so the caller confirms — it never mixes pipeline
+    steps into one clip (LGT and comp renders share ``publish_type`` by
+    design).
+
+    Finds every matching version of the shot's ``publish_type``
+    PublishedFiles, resolves each one's frame range FROM DISK (globbing
+    the actual EXRs — the files are the truth, publish metadata may lag),
+    describes each version's media directory with Autodesk's canonical
+    generator (``dl_get_media_info``) and merges the per-version documents
+    via ``openclip.splice_openclips`` (pure, unit-tested). The canonical
+    route is MANDATORY: the previous hand-rolled static XML (schema v4) is
     silently rejected by Flame 2027 — ``flame.import_clips`` returns 0
     clips with no logged error (in-vivo 2026-08-05).
     """
@@ -660,6 +758,11 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     from fpt_mcp.openclip import splice_openclips
     from fpt_mcp.server import sg_find
 
+    # Discovery runs BEFORE the mio check: enumerating options is pure
+    # ShotGrid I/O and must work on hosts without a Flame install.
+    if params.task_id is None and params.step is None:
+        return await _openclip_discover(params, sg_find)
+
     binary = _find_dl_media_binary()
     if binary is None:
         return json.dumps({"error": (
@@ -669,18 +772,36 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             "silently rejects the hand-rolled static XML form, so the "
             "canonical generator is mandatory.")})
 
+    filters = _openclip_base_filters(params)
+    if params.task_id is not None:
+        selector = f"task_id={params.task_id}"
+        filters.append(["task", "is", {"type": "Task", "id": params.task_id}])
+    else:
+        selector = f"step={params.step!r}"
+        filters.append({
+            "filter_operator": "any",
+            "filters": [
+                ["task.Task.step.Step.code", "is", params.step],
+                ["task.Task.step.Step.short_name", "is", params.step],
+            ],
+        })
+
     pubs = await sg_find(
         "PublishedFile",
-        [["entity", "is", {"type": "Shot", "id": params.shot_id}],
-         ["published_file_type.PublishedFileType.code", "is",
-          params.publish_type]],
+        filters,
         ["code", "version_number", "path"],
         order=[{"field_name": "version_number", "direction": "asc"}],
         limit=200,
     )
     if not pubs:
-        return json.dumps({"error": (
-            f"no {params.publish_type!r} publishes on Shot {params.shot_id}")})
+        listing = await _openclip_candidates(params, sg_find)
+        return json.dumps({
+            "error": (
+                f"no {params.publish_type!r} publishes matched {selector} "
+                f"on Shot {params.shot_id}"),
+            "candidates": listing["candidates"],
+            "untasked_publishes": listing["untasked"],
+        })
 
     versions, skipped = [], []
     for p in pubs:
@@ -740,6 +861,7 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         fh.write(xml)
     return json.dumps({
         "clip_path": params.output_path,
+        "task_filter": selector,
         "versions": [{k: v[k] for k in ("uid", "frames")} for v in versions],
         "current": versions[-1]["uid"],
         "generator": binary,

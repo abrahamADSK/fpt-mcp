@@ -258,7 +258,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `tk_resolve_path` | Resolve publish path from the project's real PipelineConfiguration |
 | `tk_publish` | Publish file: resolve path, copy file, find/create PublishedFileType, link Task, register in ShotGrid |
 | `cut_to_edl` | Generate a CMX 3600 EDL from a ShotGrid Cut + CutItems (drives Flame's native Conform) |
-| `openclip_create` | Write a versioned Flame Open Clip (.clip) from a shot's published render sequences (Source Versions in the conformed timeline) |
+| `openclip_create` | Write a versioned Flame Open Clip (.clip) from a shot's published render sequences (Source Versions in the conformed timeline). Task/Step selection is explicit (`task_id` / `step`); with neither it returns the shot's candidate Tasks (+ dependency suggestion) to confirm — never guesses which step feeds the conform |
 
 ### Launcher (1 tool)
 

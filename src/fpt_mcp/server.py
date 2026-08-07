@@ -588,7 +588,12 @@ async def openclip_create_tool(params: OpenclipCreateInput) -> str:
     regenerate after each new publish version. Generation runs Autodesk's
     canonical dl_get_media_info per version dir + merges the documents
     (requires a Flame/mio install on this host — Flame 2027 silently rejects
-    hand-rolled minimal XML, validated in-vivo 2026-08-05)."""
+    hand-rolled minimal XML, validated in-vivo 2026-08-05).
+
+    Task/Step selection (zero silent defaults): pass task_id (or step = Step
+    code/short_name) to build. With neither it returns choice_required with
+    candidate Tasks (+ Task.upstream_tasks suggestion) — confirm with the
+    user, re-call. Never assumes which step feeds the conform."""
     from fpt_mcp.shotgrid import openclip_create_impl
     _track_call()
     _stats["exec_calls"] += 1
