@@ -11,7 +11,6 @@ helpers to a neutral module and retire the lazy-import pattern.
 
 from __future__ import annotations
 
-import difflib
 import json
 import os
 import re
@@ -185,47 +184,103 @@ def _resolve_step_task(
     }
 
 
-def _flame_slug(project_name: str) -> str:
-    """SG project name → Flame project name, tk-flame's exact convention.
-
-    tk-flame's ``project_startup.py::get_project_name`` derives the local
-    Flame project name as ``re.sub(r"\\W+", "_", context.project["name"])``
-    — every run of non-word characters collapses to one underscore. Using
-    the identical rule means our direct launch resolves the same project
-    that a Toolkit launch would have created.
-    """
-    return re.sub(r"\W+", "_", project_name)
-
-
 def _local_flame_projects() -> list[str]:
     """List Flame project names existing on this workstation.
 
-    Primary: ``sw_listProjects`` (Stone+Wire DB — all volumes, no GUI
-    needed). Fallback: scan ``/opt/Autodesk/project``. Returns ``[]`` when
-    neither source is available (no Flame install / S+W down), which the
-    caller reports as "cannot verify" rather than guessing.
+    Thin name-only view over ``_local_flame_projects_with_paths`` (same
+    Stone+Wire source and dir-scan fallback).
+    """
+    pairs, _source = _local_flame_projects_with_paths()
+    return [name for name, _path in pairs]
+
+
+def _local_flame_projects_with_paths() -> tuple[list[tuple[str, str]], str]:
+    """List local Flame projects as ``((name, project_home), source)``.
+
+    Project homes live on DIFFERENT volumes per project (framestore
+    configuration) — the Stone+Wire DB is the authority for where each
+    one's metadata clib lives. ``source`` is ``"stone_wire"`` (complete),
+    ``"dir-scan"`` (degraded fallback — projects on other volumes are
+    MISSING; callers must surface this, never hide it) or ``"none"``.
     """
     try:
+        # 30s: Stone+Wire stalls up to ~20s validating dead network mounts
+        # (/hosts/<name> over a stale interface) before answering — a 10s
+        # timeout silently degraded to the dir-scan fallback (Chat 93).
         proc = subprocess.run(
-            [_SW_LIST_PROJECTS], capture_output=True, text=True, timeout=10
+            [_SW_LIST_PROJECTS], capture_output=True, text=True, timeout=30
         )
-        names = [
-            m.group(2).strip()
+        pairs = [
+            (m.group(2).strip(), m.group(3).strip())
             for line in proc.stdout.splitlines()
             if (m := _SW_PROJECT_LINE.match(line.strip()))
         ]
-        if names:
-            return names
+        if pairs:
+            return pairs, "stone_wire"
     except Exception:
         pass
     try:
-        return sorted(
-            e for e in os.listdir(_FLAME_PROJECTS_DIR)
+        scan = sorted(
+            (e, os.path.join(_FLAME_PROJECTS_DIR, e))
+            for e in os.listdir(_FLAME_PROJECTS_DIR)
             if not e.startswith(".")
             and os.path.isdir(os.path.join(_FLAME_PROJECTS_DIR, e))
         )
+        return scan, "dir-scan"
     except Exception:
-        return []
+        return [], "none"
+
+
+# Marker anchoring the FPT-link slot inside the project metadata clib: the
+# shotgunProjectName field sits IMMEDIATELY before the Dolby Vision project
+# setting (validated on 2025/2026/2027 specimens, Chat 93). Strings are
+# 4-byte big-endian length-prefixed; length 0 = not linked.
+_CLIB_LINK_MARKER = b"Dolby Vision"
+
+
+def _read_fpt_link(project_name: str, project_home: str) -> Optional[str]:
+    """Read the NATIVE Flame↔FPT link for a project from disk (READ-ONLY).
+
+    Parses the project metadata clib — ``<home>/catalog/.#project.000.clib``
+    (2027 layout) or ``/opt/Autodesk/clip/stonefs/<name>.prj/`` (older) —
+    for the ``shotgunProjectName`` slot: the length-prefixed string right
+    before the Dolby Vision settings field. Returns the linked SG project
+    name, ``""`` when unlinked, or ``None`` when the clib is missing or the
+    layout is not recognised (caller treats None as "cannot verify").
+
+    Writes NEVER go through this path — links are only ever set/broken via
+    Flame's own attribute (flame-mcp ``fpt_link``), exactly like the native
+    integration does.
+    """
+    candidates = [
+        os.path.join(project_home, "catalog", ".#project.000.clib"),
+        os.path.join(
+            "/opt/Autodesk/clip/stonefs", f"{project_name}.prj",
+            ".#project.000.clib",
+        ),
+    ]
+    path = next((c for c in candidates if os.path.isfile(c)), None)
+    if path is None:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(1 << 20)
+    except OSError:
+        return None
+    i = data.find(_CLIB_LINK_MARKER)
+    if i < 4:
+        return None
+    end = i - 4  # the marker's own length prefix starts at i-4
+    for k in range(0, 256):
+        start = end - k
+        if start - 4 < 0:
+            break
+        if int.from_bytes(data[start - 4:start], "big") == k:
+            try:
+                return data[start:end].decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+    return None
 
 
 def _flame_running() -> bool:
@@ -284,23 +339,24 @@ def _compose_flame_direct(
         )
         return json.dumps(plan, default=str)
 
-    slug = _flame_slug(sg_name)
-    local = _local_flame_projects()
+    pairs, source = _local_flame_projects_with_paths()
+    local = [n for n, _p in pairs]
+    plan["sg_project_name"] = sg_name
+    plan["project_source"] = source
+
+    def _listing() -> list[dict[str, Any]]:
+        return [
+            {"name": n, "fpt_link": _read_fpt_link(n, p)} for n, p in pairs
+        ]
 
     if params.list_projects:
-        # Enumeration mode (Chat 93, native-link workflow): report the real
-        # local options so the caller can ASK the user which Flame project
-        # to open/link. A slug match is NOT evidence of a native FPT link —
-        # the link attribute is only readable with the project loaded
-        # (flame-mcp fpt_link), so the choice is always the user's.
-        plan["sg_project_name"] = sg_name
-        plan["derived_slug"] = slug
-        plan["local_flame_projects"] = local
+        # Enumeration mode: the real local options WITH each project's
+        # native link read from its metadata clib (READ-ONLY).
+        plan["local_flame_projects"] = _listing()
         plan["choice_required"] = True
         plan["hint"] = (
-            "re-call with flame_project=<name> to open one; after the "
-            "project loads, verify/set the native link with flame-mcp's "
-            "fpt_link tool"
+            "re-call with flame_project=<name> to open one; links are "
+            "set/broken only via flame-mcp's fpt_link tool once loaded"
         )
         return json.dumps(plan, default=str)
 
@@ -308,9 +364,8 @@ def _compose_flame_direct(
         # Explicit user choice — case-insensitive exact match only.
         wanted = params.flame_project
         match = next(
-            (p for p in local if p.lower() == wanted.lower()), None
+            (n for n in local if n.lower() == wanted.lower()), None
         )
-        plan["sg_project_name"] = sg_name
         plan["flame_project"] = match or wanted
         if match is None:
             plan["error"] = (
@@ -319,28 +374,44 @@ def _compose_flame_direct(
             )
             return json.dumps(plan, default=str)
     else:
-        match = slug if slug in local else next(
-            (p for p in local if p.lower() == slug.lower()), None
-        )
-        plan["sg_project_name"] = sg_name
-        plan["flame_project"] = match or slug
-
-        if match is None:
-            suggestions = difflib.get_close_matches(
-                slug, local, n=3, cutoff=0.6
-            )
-            hint = (
-                f" Closest local projects: {', '.join(suggestions)}."
-                if suggestions else ""
-            )
+        # NATIVE LINK DISCOVERY (Chat 93, user-approved contract): read
+        # each local project's shotgunProjectName from its clib. The
+        # FPT↔Flame relation is 1:1 — exactly one linked project opens
+        # directly; several is an INCONSISTENT state (never a menu); none
+        # → the caller asks the user which project to open/link.
+        linked = [
+            (n, p) for n, p in pairs
+            if (_read_fpt_link(n, p) or "").lower() == sg_name.lower()
+        ]
+        if len(linked) == 1:
+            match = linked[0][0]
+            plan["flame_project"] = match
+            plan["fpt_linked"] = True
+        elif len(linked) > 1:
             plan["error"] = (
-                f"Flame project '{slug}' (derived from SG project "
-                f"'{sg_name}') does not exist on this workstation.{hint} "
-                f"Create it in Flame first, or launch with route='toolkit' "
-                f"— the tk-flame route pre-creates missing projects via "
-                f"Wiretap. To open a DIFFERENT existing project pass "
-                f"flame_project=<name> (list with list_projects=true)."
+                f"INCONSISTENT native-link state: {len(linked)} Flame "
+                f"projects claim the FPT link to '{sg_name}': "
+                f"{', '.join(n for n, _ in linked)}. The FPT↔Flame relation "
+                f"is 1:1 — break the wrong project's link with flame-mcp's "
+                f"fpt_link (action='break', express user confirmation) and "
+                f"retry. Nothing was launched."
             )
+            return json.dumps(plan, default=str)
+        else:
+            plan["local_flame_projects"] = _listing()
+            plan["choice_required"] = True
+            plan["hint"] = (
+                f"no local Flame project is linked to '{sg_name}'. Ask the "
+                f"user which project to open, re-call with "
+                f"flame_project=<name>, then set the native link with "
+                f"flame-mcp's fpt_link (action='set') once the project "
+                f"is loaded."
+            )
+            if source != "stone_wire":
+                plan["warning"] = (
+                    "project list came from the degraded dir-scan fallback "
+                    "— projects on other volumes may be missing"
+                )
             return json.dumps(plan, default=str)
 
     if _flame_running() and not params.force:

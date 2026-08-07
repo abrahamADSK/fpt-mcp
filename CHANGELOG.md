@@ -6,15 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-- **`fpt_launch_app` Flame native-link workflow** (Chat 93): new
-  `list_projects=true` mode returns the local Stone+Wire Flame project list
-  without launching (choice_required — the caller asks the user; a
-  name-derived match is NOT evidence of a native FPT link), and
-  `flame_project=<name>` opens an explicit local project (case-insensitive)
-  overriding the SG-derived slug. Pairs with flame-mcp's new `fpt_link`
-  tool (read/set/break the native `shotgun_project_name` link once the
-  project is loaded). Console system prompts (both variants) carry the
-  5-step workflow. (+3 tests)
+- **`fpt_launch_app` Flame native-link DISCOVERY** (Chat 93, user-approved
+  design): the flame route now reads each local project's stored FPT link
+  (`shotgunProjectName`) directly from its metadata clib on disk —
+  READ-ONLY parser anchored on the adjacent Dolby Vision settings field
+  (layout validated on 2025/2026/2027 specimens); per-project paths come
+  from `sw_listProjects` (homes live on different volumes; 30s timeout —
+  Stone+Wire stalls validating dead network mounts, and the listing source
+  is now reported so a degraded dir-scan fallback is never silent). 1:1
+  relation: exactly one linked project → opens directly (`fpt_linked`);
+  several → INCONSISTENT error (fix via flame-mcp `fpt_link break`); none
+  → `choice_required` listing every project WITH its link. The SG-derived
+  slug auto-match is RETIRED (it opened name-coincident projects that were
+  never linked). Writes never touch the clib — links are set/broken only
+  through Flame's own attribute (flame-mcp `fpt_link`). Both console
+  prompts updated in lockstep. (+9 tests: discovery, 1:1 inconsistency,
+  case-insensitive match, degraded-source warning, clib parser units)
 - **`openclip_create` Task/Step selection contract** (zero silent defaults,
   Chat 93): new optional `task_id` / `step` selectors (step matches the
   Step's `code` OR `short_name`). With neither, the tool no longer builds —

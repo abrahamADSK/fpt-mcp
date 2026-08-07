@@ -624,22 +624,17 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     templates); the tank route resolves it to its Step Task (``step``
     param, default ``Layout``) so Maya boots the ``sequence_layout`` env.
 
-    FLAME (route='auto'/'direct'): composes ``startApplication
-    --start-project=<name> ... --closed-libs`` — SG name slugified via
-    tk-flame's convention and validated against the local Stone+Wire
-    project list; no Toolkit/SSO needed. Refusals to relay: "does not
-    exist on this workstation" (direct route cannot create projects —
-    offer route='toolkit', which pre-creates via Wiretap) and "already
-    running" (single-instance + project locks; close it or force=true).
-
-    FLAME native-link workflow (Chat 93): for "open Flame linked to this
-    FPT project" requests, call with ``list_projects=true`` first (returns
-    the local project list, never guesses — a name match is NOT a link),
-    ask the user which project to open, launch with
-    ``flame_project=<choice>``, then once the project is loaded
-    verify/set the native link with flame-mcp's ``fpt_link`` tool
-    (get → report; set on the user's instruction; break ONLY on an
-    express request).
+    FLAME (route='auto'/'direct'): NATIVE-LINK DISCOVERY drives the
+    launch (Chat 93). The tool reads each local project's stored FPT link
+    (shotgunProjectName, from the project metadata clib on disk — the
+    1:1 native relation): exactly one linked to this FPT project → opens
+    it directly (payload fpt_linked=true); several → INCONSISTENT error
+    (fix with flame-mcp fpt_link break, express user confirmation); none
+    → choice_required with the local list (each project's link included)
+    — ask the user, re-call with flame_project=<choice>, then set the
+    link with flame-mcp's fpt_link once loaded. break ONLY on an express
+    request. "already running" refusal: single-instance + project locks
+    (close it or force=true).
 
     Common failure modes to explain to the user if they surface:
 
