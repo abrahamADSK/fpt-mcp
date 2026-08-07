@@ -405,6 +405,26 @@ class FptLaunchAppInput(BaseModel):
             "workspace (--create-workspace)."
         ),
     )
+    flame_project: Optional[str] = Field(
+        default=None,
+        description=(
+            "Flame only: EXPLICIT local Flame project to open "
+            "(case-insensitive), overriding the name derived from the SG "
+            "project. Use after list_projects/choice_required — the native "
+            "FPT link workflow opens the project the user chose, then "
+            "verifies/sets the link via flame-mcp's fpt_link tool."
+        ),
+    )
+    list_projects: bool = Field(
+        default=False,
+        description=(
+            "Flame only: return the list of local Flame projects (plus the "
+            "SG project name and derived slug) WITHOUT launching anything. "
+            "Use it to ask the user which project to open/link — never "
+            "guess: a name-derived match is NOT evidence of a native FPT "
+            "link."
+        ),
+    )
     force: bool = Field(
         default=False,
         description=(
