@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.25.0] — 2026-08-10
 - **`fpt_launch_app` Flame native-link DISCOVERY** (Chat 93, user-approved
   design): the flame route now reads each local project's stored FPT link
   (`shotgunProjectName`) directly from its metadata clib on disk —
