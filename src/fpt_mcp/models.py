@@ -411,8 +411,9 @@ class FptLaunchAppInput(BaseModel):
             "Flame only: EXPLICIT local Flame project to open "
             "(case-insensitive), overriding the name derived from the SG "
             "project. Use after list_projects/choice_required — the native "
-            "FPT link workflow opens the project the user chose, then "
-            "verifies/sets the link via flame-mcp's fpt_link tool."
+            "FPT link workflow opens the project the user chose; the link "
+            "itself is created from Flame's own Flow Production Tracking "
+            "menu (flame-mcp's fpt_link only reports it)."
         ),
     )
     list_projects: bool = Field(
