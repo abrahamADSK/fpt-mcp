@@ -92,10 +92,20 @@ async def sg_find_impl(params: SgFindInput) -> str:
     is_scoped = params.entity_type in _PROJECT_SCOPED_ENTITIES
 
     if is_scoped and not PROJECT_ID:
+        # Chat 98: the old text told the caller to "set SHOTGRID_PROJECT_ID in
+        # .env" — the one thing the launch-context doctrine forbids (Chat 69:
+        # a stale default silently mutated the wrong project). A console with
+        # no project scope has that on purpose; what it needs is the route to
+        # resolve one, not a pointer at the banned fallback.
         project_warning = (
-            f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
-            f"This {params.entity_type} query spans ALL projects on the site. "
-            f"Set SHOTGRID_PROJECT_ID in .env or add a project filter manually."
+            f"⚠️  No ShotGrid project in this session's launch context, so "
+            f"this {params.entity_type} query spans ALL projects on the site. "
+            f"Resolve the project instead of guessing: inside Flame, "
+            f"flame-mcp's fpt_link (action='get') reports the FPT project the "
+            f"loaded Flame project is natively linked to; resolve that name to "
+            f"an id with sg_find on 'Project' (add_project_filter=false) and "
+            f"put that project explicitly in every query. Never fall back to a "
+            f"configured default."
         )
     elif is_scoped and not params.add_project_filter:
         project_warning = (

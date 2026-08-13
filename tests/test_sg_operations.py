@@ -654,8 +654,12 @@ class TestEditorialProjectScope:
             result = parse_result(run_async(sg_find_tool(params)))
 
         assert "project_scope_warning" in result
-        assert "Cut" in result["project_scope_warning"]
-        assert "SHOTGRID_PROJECT_ID" in result["project_scope_warning"]
+        warning = result["project_scope_warning"]
+        assert "Cut" in warning
+        # The warning must point at the launch-context route (fpt_link), never
+        # at the banned .env fallback (Chat 98 rewrite).
+        assert "fpt_link" in warning
+        assert "SHOTGRID_PROJECT_ID" not in warning
 
     def test_cut_item_warns_when_unscoped(self, patch_sg_client):
         """CutItem is scoped too — a Cut's items live inside the project."""

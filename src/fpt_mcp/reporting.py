@@ -48,10 +48,15 @@ async def _do_sg_text_search(params: dict) -> str:
     if not PROJECT_ID:
         scoped = [et for et in entity_types if et in _PROJECT_SCOPED_ENTITIES]
         if scoped:
+            # Same rewrite as sg_find's warning (Chat 98): point at the
+            # launch-context route, never at the banned .env default.
             payload["project_scope_warning"] = (
-                f"⚠️  SHOTGRID_PROJECT_ID is not set (0). "
+                f"⚠️  No ShotGrid project in this session's launch context, so "
                 f"text_search for {', '.join(scoped)} spans ALL projects. "
-                f"Set SHOTGRID_PROJECT_ID in .env to scope results."
+                f"Resolve the project first — inside Flame, flame-mcp's "
+                f"fpt_link (action='get') reports the natively linked FPT "
+                f"project — and pass it explicitly. Never fall back to a "
+                f"configured default."
             )
     return json.dumps(payload, default=str)
 
