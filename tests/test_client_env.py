@@ -326,3 +326,17 @@ class TestProjectScopedEntities:
         assert not missing, (
             f"_PROJECT_SCOPED_ENTITIES is missing production entities: {missing}"
         )
+
+    def test_project_scoped_entities_contains_editorial_types(self):
+        """Must contain Cut and CutItem (Chat 98).
+
+        The conform picks its Cut by revision_number; with no project scope
+        (the in-Flame console launches with SHOTGRID_PROJECT_ID=0) that ranking
+        would span every project on the site with no warning emitted.
+        """
+        from fpt_mcp.server import _PROJECT_SCOPED_ENTITIES
+        editorial = {"Cut", "CutItem"}
+        missing = editorial - _PROJECT_SCOPED_ENTITIES
+        assert not missing, (
+            f"_PROJECT_SCOPED_ENTITIES is missing editorial entities: {missing}"
+        )

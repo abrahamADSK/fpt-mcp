@@ -25,9 +25,17 @@ from typing import Any
 # project filter return results from ALL projects on the ShotGrid site,
 # which is almost never what the user wants.  The guard in sg_find_tool
 # injects a warning when PROJECT_ID is unset or add_project_filter is False.
+#
+# Cut/CutItem joined the set in Chat 98: the in-Flame console launches with
+# SHOTGRID_PROJECT_ID=0 ("no project", zero silent defaults — Chat 69), so a
+# conform that picks its Cut by revision_number would silently rank Cuts from
+# every project on the site.  Every other link in the conform chain (Shot,
+# Task, PublishedFile) already warned; the editorial entities were the one
+# blind spot.
 _PROJECT_SCOPED_ENTITIES: frozenset[str] = frozenset({
     "Asset", "Shot", "Sequence", "Task", "Version", "Note",
     "PublishedFile", "Playlist", "TimeLog", "Milestone",
+    "Cut", "CutItem",
     "CustomEntity01", "CustomEntity02", "CustomEntity03",
 })
 

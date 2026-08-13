@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **Editorial entities are project-scoped** (Chat 98): `Cut` and `CutItem`
+  join `_PROJECT_SCOPED_ENTITIES`, so an unscoped query for them now returns
+  the same `project_scope_warning` every other conform entity already did.
+  Motivation: the in-Flame console launches with `SHOTGRID_PROJECT_ID=0`
+  ("no project", zero silent defaults — Chat 69), and a conform that picks
+  its Cut by `revision_number` would rank Cuts from **every project on the
+  site** with nothing surfaced to the user — Shot, Task and PublishedFile
+  all warned, the editorial entities were the one blind spot. Behaviour is
+  unchanged when a project is resolved: the filter is injected as before.
+  +4 tests.
 
 ## [1.25.0] — 2026-08-10
 - **`fpt_launch_app` Flame native-link DISCOVERY** (Chat 93, user-approved
