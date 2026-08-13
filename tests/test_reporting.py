@@ -85,7 +85,10 @@ class TestTextSearch:
 
         assert "project_scope_warning" in result
         assert "Shot" in result["project_scope_warning"]
-        assert "SHOTGRID_PROJECT_ID" in result["project_scope_warning"]
+        # Points at the launch-context route, not the banned .env default
+        # (Chat 98 rewrite — kept identical in shape to sg_find's warning).
+        assert "fpt_link" in result["project_scope_warning"]
+        assert "SHOTGRID_PROJECT_ID" not in result["project_scope_warning"]
         # project_ids must be None when unscoped.
         assert fake.await_args.kwargs["project_ids"] is None
 

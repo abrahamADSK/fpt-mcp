@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **The no-project warning stops recommending the banned fallback** (Chat 98):
+  both scope warnings (`sg_find` and `fpt_reporting`'s text search) told the
+  caller to *"Set SHOTGRID_PROJECT_ID in .env"* — the one thing the
+  launch-context doctrine forbids, since a stale default once silently
+  mutated the wrong project (Chat 69). A console with no project scope has
+  that on purpose; what it needs is the route to resolve one. Both warnings
+  now name it: inside Flame, `fpt_link(action='get')` reports the natively
+  linked FPT project, `sg_find` on `Project` turns that name into an id, and
+  it goes explicitly into every query. Observed in-vivo: the old text left
+  the in-Flame console stuck, announcing that its query spanned every project
+  on the site with no idea what to do about it.
 - **Native-link guidance no longer points at an MCP write path** (Chat 98):
   flame-mcp's `fpt_link` lost its `set`/`break` actions after both in-vivo
   attempts triggered Flame's error report, so every message that told the
