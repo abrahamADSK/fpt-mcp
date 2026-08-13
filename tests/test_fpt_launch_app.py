@@ -451,7 +451,9 @@ class TestFlameDirectLaunch:
         assert "INCONSISTENT" in data["error"]
         assert "AUTODESK_UNIVERSITY_2026_MCP" in data["error"]
         assert "MCP_PROJECT_ABRAHAM" in data["error"]
-        assert "fpt_link" in data["error"]  # remediation pointer
+        # Remediation pointer: since Chat 98 the MCP write path is gone, so
+        # the only way to break a link is Flame's own FPT menu.
+        assert "Flow Production Tracking menu" in data["error"]
         assert "argv" not in data  # nothing launched
 
     def test_none_linked_returns_choice_required(self, resolved_flame):

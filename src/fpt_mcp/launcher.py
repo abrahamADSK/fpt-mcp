@@ -248,9 +248,11 @@ def _read_fpt_link(project_name: str, project_home: str) -> Optional[str]:
     name, ``""`` when unlinked, or ``None`` when the clib is missing or the
     layout is not recognised (caller treats None as "cannot verify").
 
-    Writes NEVER go through this path — links are only ever set/broken via
-    Flame's own attribute (flame-mcp ``fpt_link``), exactly like the native
-    integration does.
+    Writes NEVER go through this path. Links are created and broken only
+    from Flame's own Flow Production Tracking menu: the MCP write path
+    (flame-mcp ``fpt_link`` set/break) was removed in Chat 98 after both
+    in-vivo attempts triggered Flame's error report — the attribute write
+    saves the whole project and the bridge runs off Flame's main thread.
     """
     candidates = [
         os.path.join(project_home, "catalog", ".#project.000.clib"),
@@ -356,7 +358,10 @@ def _compose_flame_direct(
         plan["choice_required"] = True
         plan["hint"] = (
             "re-call with flame_project=<name> to open one; links are "
-            "set/broken only via flame-mcp's fpt_link tool once loaded"
+            "created and broken from Flame's own Flow Production Tracking "
+            "menu (flame-mcp's fpt_link only REPORTS the link — its write "
+            "path was removed in Chat 98 after it triggered Flame's error "
+            "report in-vivo)"
         )
         return json.dumps(plan, default=str)
 
@@ -392,8 +397,8 @@ def _compose_flame_direct(
                 f"INCONSISTENT native-link state: {len(linked)} Flame "
                 f"projects claim the FPT link to '{sg_name}': "
                 f"{', '.join(n for n, _ in linked)}. The FPT↔Flame relation "
-                f"is 1:1 — break the wrong project's link with flame-mcp's "
-                f"fpt_link (action='break', express user confirmation) and "
+                f"is 1:1 — open the wrong project in Flame and break its "
+                f"link from Flame's own Flow Production Tracking menu, then "
                 f"retry. Nothing was launched."
             )
             return json.dumps(plan, default=str)
@@ -402,10 +407,10 @@ def _compose_flame_direct(
             plan["choice_required"] = True
             plan["hint"] = (
                 f"no local Flame project is linked to '{sg_name}'. Ask the "
-                f"user which project to open, re-call with "
-                f"flame_project=<name>, then set the native link with "
-                f"flame-mcp's fpt_link (action='set') once the project "
-                f"is loaded."
+                f"user which project to open and re-call with "
+                f"flame_project=<name>. The link itself is created from "
+                f"Flame's own Flow Production Tracking menu once the "
+                f"project is loaded — flame-mcp's fpt_link only REPORTS it."
             )
             if source != "stone_wire":
                 plan["warning"] = (

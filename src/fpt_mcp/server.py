@@ -629,11 +629,13 @@ async def fpt_launch_app_tool(params: FptLaunchAppInput) -> str:
     (shotgunProjectName, from the project metadata clib on disk — the
     1:1 native relation): exactly one linked to this FPT project → opens
     it directly (payload fpt_linked=true); several → INCONSISTENT error
-    (fix with flame-mcp fpt_link break, express user confirmation); none
-    → choice_required with the local list (each project's link included)
-    — ask the user, re-call with flame_project=<choice>, then set the
-    link with flame-mcp's fpt_link once loaded. break ONLY on an express
-    request. "already running" refusal: single-instance + project locks
+    (break the wrong project's link from Flame's own FPT menu); none →
+    choice_required with the local list (each project's link included) —
+    ask the user and re-call with flame_project=<choice>. Links are
+    CREATED and BROKEN only from Flame's own Flow Production Tracking
+    menu: flame-mcp's fpt_link merely reports the link (its write path was
+    removed in Chat 98 — it triggered Flame's error report in-vivo).
+    "already running" refusal: single-instance + project locks
     (close it or force=true).
 
     Common failure modes to explain to the user if they surface:

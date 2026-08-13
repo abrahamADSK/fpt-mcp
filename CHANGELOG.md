@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **Native-link guidance no longer points at an MCP write path** (Chat 98):
+  flame-mcp's `fpt_link` lost its `set`/`break` actions after both in-vivo
+  attempts triggered Flame's error report, so every message that told the
+  caller to "set the link with fpt_link" was about to send it into a dead
+  end. The `choice_required` hint, the INCONSISTENT-state error, the
+  `flame_project` field description, `fpt_launch_app`'s docstring and
+  `_read_fpt_link`'s contract note now all say the same thing: links are
+  created and broken from Flame's own Flow Production Tracking menu, and
+  `fpt_link` only REPORTS them. Discovery itself is unchanged — it has
+  always been a read-only parse of each project's metadata clib.
 - **Editorial entities are project-scoped** (Chat 98): `Cut` and `CutItem`
   join `_PROJECT_SCOPED_ENTITIES`, so an unscoped query for them now returns
   the same `project_scope_warning` every other conform entity already did.
