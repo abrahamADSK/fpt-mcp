@@ -20,6 +20,7 @@ All tests use unittest.mock — no live ShotGrid connection required.
 
 import asyncio
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -624,3 +625,69 @@ class TestSgBatchSafety:
 
         assert result[0]["code"] == "SH070"
         mock_sg.batch.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 11. Editorial entities are project-scoped (Chat 98)
+#     The conform picks its Cut by revision_number. The in-Flame console
+#     launches with SHOTGRID_PROJECT_ID=0 ("no project", Chat 69), so without
+#     this guard that ranking spans every project on the site — silently,
+#     because Cut/CutItem used to be absent from _PROJECT_SCOPED_ENTITIES
+#     while every other link of the conform chain already warned.
+# ---------------------------------------------------------------------------
+
+class TestEditorialProjectScope:
+
+    def test_cut_warns_when_unscoped(self, patch_sg_client):
+        """PROJECT_ID=0 + a Cut query → cross-project warning in the payload."""
+        mock_sg = patch_sg_client
+        mock_sg.find.return_value = [
+            {"type": "Cut", "id": 897, "code": "Master v1", "revision_number": 1},
+        ]
+        params = SgFindInput(
+            entity_type="Cut",
+            filters=[["revision_number", "greater_than", 0]],
+            fields=["code", "revision_number"],
+            limit=1,
+        )
+        with patch("fpt_mcp.server.PROJECT_ID", 0):
+            result = parse_result(run_async(sg_find_tool(params)))
+
+        assert "project_scope_warning" in result
+        assert "Cut" in result["project_scope_warning"]
+        assert "SHOTGRID_PROJECT_ID" in result["project_scope_warning"]
+
+    def test_cut_item_warns_when_unscoped(self, patch_sg_client):
+        """CutItem is scoped too — a Cut's items live inside the project."""
+        mock_sg = patch_sg_client
+        mock_sg.find.return_value = []
+        params = SgFindInput(
+            entity_type="CutItem",
+            filters=[["cut", "is", {"type": "Cut", "id": 897}]],
+            fields=["code"],
+            limit=500,
+        )
+        with patch("fpt_mcp.server.PROJECT_ID", 0):
+            result = parse_result(run_async(sg_find_tool(params)))
+
+        assert "project_scope_warning" in result
+        assert "CutItem" in result["project_scope_warning"]
+
+    def test_cut_scoped_run_adds_project_filter_and_no_warning(
+        self, patch_sg_client
+    ):
+        """With a project resolved, the filter is injected and no warning fires."""
+        mock_sg = patch_sg_client
+        mock_sg.find.return_value = []
+        params = SgFindInput(
+            entity_type="Cut",
+            filters=[["code", "is", "Master v1"]],
+            fields=["code"],
+            limit=1,
+        )
+        with patch("fpt_mcp.server.PROJECT_ID", 1244):
+            result = parse_result(run_async(sg_find_tool(params)))
+
+        assert "project_scope_warning" not in result
+        sent_filters = mock_sg.find.call_args[0][1]
+        assert ["project", "is", {"type": "Project", "id": 1244}] in sent_filters
