@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.26.0] — 2026-08-14
 - **The no-project warning stops recommending the banned fallback** (Chat 98):
   both scope warnings (`sg_find` and `fpt_reporting`'s text search) told the
   caller to *"Set SHOTGRID_PROJECT_ID in .env"* — the one thing the
