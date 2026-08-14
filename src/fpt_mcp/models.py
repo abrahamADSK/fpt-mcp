@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -184,6 +184,19 @@ class OpenclipCreateInput(BaseModel):
         "a choice_required listing of the shot's candidate Tasks (publish "
         "counts + a dependency-based suggestion when the task graph "
         "provides one) for the caller to confirm.",
+    )
+    steps: Optional[List[str]] = Field(
+        default=None,
+        description="MULTI-STEP aggregation (Chat 98 comp architecture): "
+        "splice publishes from SEVERAL Steps into ONE clip, in list order "
+        "(e.g. ['Light', 'Comp'] → the conform timeline sees the LGT render "
+        "and every comp version through the same open clip, flipping "
+        "natively). Version uids are disambiguated with the step string "
+        "uppercased ('LIGHT_v003', 'COMP_v001'); current = the newest "
+        "version of the LAST listed step that has publishes. A listed step "
+        "with no publishes is skipped and reported, never an error — the "
+        "clip is valid before the first comp render exists. Takes "
+        "precedence over 'step'/'task_id'.",
     )
     clip_name: Optional[str] = Field(
         default=None,

@@ -770,7 +770,7 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
 
     # Discovery runs BEFORE the mio check: enumerating options is pure
     # ShotGrid I/O and must work on hosts without a Flame install.
-    if params.task_id is None and params.step is None:
+    if params.task_id is None and params.step is None and not params.steps:
         return await _openclip_discover(params, sg_find)
 
     binary = _find_dl_media_binary()
@@ -782,28 +782,90 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             "silently rejects the hand-rolled static XML form, so the "
             "canonical generator is mandatory.")})
 
-    filters = _openclip_base_filters(params)
-    if params.task_id is not None:
-        selector = f"task_id={params.task_id}"
-        filters.append(["task", "is", {"type": "Task", "id": params.task_id}])
-    else:
-        selector = f"step={params.step!r}"
-        filters.append({
+    def _step_filters(step: str) -> list:
+        f = _openclip_base_filters(params)
+        f.append({
             "filter_operator": "any",
             "filters": [
-                ["task.Task.step.Step.code", "is", params.step],
-                ["task.Task.step.Step.short_name", "is", params.step],
+                ["task.Task.step.Step.code", "is", step],
+                ["task.Task.step.Step.short_name", "is", step],
             ],
         })
+        return f
 
-    pubs = await sg_find(
-        "PublishedFile",
-        filters,
-        ["code", "version_number", "path"],
-        order=[{"field_name": "version_number", "direction": "asc"}],
-        limit=200,
-    )
-    if not pubs:
+    # Selector rounds. Single-step/task keeps the historical plain "vNNN"
+    # uids; multi-step (Chat 98 comp architecture) prefixes each round's
+    # uids with the step string uppercased so version numbers from
+    # different Steps never collide inside one clip ("LIGHT_v003",
+    # "COMP_v001"). Round order is list order: the LAST listed step's
+    # newest version ends up current — comp on top of light.
+    if params.steps:
+        selector = f"steps={params.steps!r}"
+        rounds = [(f"{s.upper()}_", _step_filters(s), s) for s in params.steps]
+    elif params.task_id is not None:
+        selector = f"task_id={params.task_id}"
+        f = _openclip_base_filters(params)
+        f.append(["task", "is", {"type": "Task", "id": params.task_id}])
+        rounds = [("", f, None)]
+    else:
+        selector = f"step={params.step!r}"
+        rounds = [("", _step_filters(params.step), None)]
+
+    versions, skipped = [], []
+    any_pubs = False
+    for uid_prefix, round_filters, round_step in rounds:
+        pubs = await sg_find(
+            "PublishedFile",
+            round_filters,
+            ["code", "version_number", "path"],
+            order=[{"field_name": "version_number", "direction": "asc"}],
+            limit=200,
+        )
+        if not pubs:
+            # Multi-step: a listed step with no publishes yet is a normal
+            # state (the clip is valid before the first comp render) — note
+            # it and keep going. Single-step keeps the historical error.
+            if round_step is not None:
+                skipped.append({"code": f"step {round_step}",
+                                "reason": "no publishes yet"})
+                continue
+            listing = await _openclip_candidates(params, sg_find)
+            return json.dumps({
+                "error": (
+                    f"no {params.publish_type!r} publishes matched {selector} "
+                    f"on Shot {params.shot_id}"),
+                "candidates": listing["candidates"],
+                "untasked_publishes": listing["untasked"],
+            })
+        any_pubs = True
+
+        for p in pubs:
+            local = (p.get("path") or {}).get("local_path")
+            if not local:
+                skipped.append({"code": p.get("code"), "reason": "no local path"})
+                continue
+            # publish paths store the frame field as a token (%04d / ####)
+            frame_re = _re.sub(r"%0(\d)d|#{2,}", r"*", local)
+            frames = sorted(_glob.glob(frame_re))
+            if not frames:
+                skipped.append({"code": p.get("code"), "reason": "no frames on disk"})
+                continue
+
+            def _frame_num(f: str) -> str:
+                m = _re.search(r"\.(\d+)\.[A-Za-z]+$", f)
+                return m.group(1) if m else ""
+
+            first, last = _frame_num(frames[0]), _frame_num(frames[-1])
+            if not first or not last:
+                skipped.append({"code": p.get("code"), "reason": "unparsable frames"})
+                continue
+            versions.append({
+                "uid": f"{uid_prefix}v{int(p['version_number']):03d}",
+                "dir": os.path.dirname(local),
+                "frames": len(frames),
+            })
+
+    if not any_pubs and params.steps:
         listing = await _openclip_candidates(params, sg_find)
         return json.dumps({
             "error": (
@@ -812,34 +874,6 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             "candidates": listing["candidates"],
             "untasked_publishes": listing["untasked"],
         })
-
-    versions, skipped = [], []
-    for p in pubs:
-        local = (p.get("path") or {}).get("local_path")
-        if not local:
-            skipped.append({"code": p.get("code"), "reason": "no local path"})
-            continue
-        # publish paths store the frame field as a token (%04d / ####)
-        frame_re = _re.sub(r"%0(\d)d|#{2,}", r"*", local)
-        frames = sorted(_glob.glob(frame_re))
-        if not frames:
-            skipped.append({"code": p.get("code"), "reason": "no frames on disk"})
-            continue
-
-        def _frame_num(f: str) -> str:
-            m = _re.search(r"\.(\d+)\.[A-Za-z]+$", f)
-            return m.group(1) if m else ""
-
-        first, last = _frame_num(frames[0]), _frame_num(frames[-1])
-        if not first or not last:
-            skipped.append({"code": p.get("code"), "reason": "unparsable frames"})
-            continue
-        versions.append({
-            "uid": f"v{int(p['version_number']):03d}",
-            "dir": os.path.dirname(local),
-            "frames": len(frames),
-        })
-
     if not versions:
         return json.dumps({"error": "no publish version had frames on disk",
                            "skipped": skipped})

@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **`openclip_create` multi-step aggregation** (Chat 98 comp architecture,
+  operator-approved): new optional `steps` list splices publishes from
+  SEVERAL Steps into ONE clip, in list order — `['Light', 'Comp']` gives
+  the conform timeline the LGT render and every comp version through the
+  same open clip, flipping natively via Source Versions. Version uids are
+  disambiguated with the step string uppercased (`LIGHT_v003`,
+  `COMP_v001`); current = the newest version of the LAST listed step with
+  publishes; a listed step with no publishes yet is reported, never an
+  error (the clip is valid before the first comp render). Proven necessary
+  in-vivo: Flame's Write File OWNS any clip it creates — it overwrote the
+  pipeline clip wholesale (43 KB multichannel → 2.4 KB, versions gone), so
+  the pipeline aggregates and the Write File is demoted to media-only.
+  Single-step behaviour unchanged (plain `vNNN` uids). +3 tests.
 
 ## [1.26.0] — 2026-08-14
 - **The no-project warning stops recommending the banned fallback** (Chat 98):

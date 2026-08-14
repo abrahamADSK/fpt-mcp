@@ -211,3 +211,79 @@ def test_explicit_selector_still_requires_mio(patch_sg):
     out = json.loads(_run(_create(task_id=11)))
     assert "dl_get_media_info not found" in out["error"]
     assert fake.calls == []
+
+
+class TestMultiStepAggregation:
+    """steps=[...] splices several Steps into ONE clip (Chat 98 comp
+    architecture): the conform timeline sees the LGT render and every comp
+    version through the same open clip, flipping natively. Proven necessary
+    in-vivo: Flame's Write File OWNS any clip it creates — it overwrote the
+    pipeline clip wholesale — so the pipeline aggregates instead."""
+
+    def _params(self, **kw):
+        from fpt_mcp.models import OpenclipCreateInput
+        args = dict(shot_id=2664, output_path="/tmp/x/S.clip")
+        args.update(kw)
+        return OpenclipCreateInput(**args)
+
+    def test_steps_field_accepted_and_optional(self):
+        p = self._params()
+        assert p.steps is None
+        p2 = self._params(steps=["Light", "Comp"])
+        assert p2.steps == ["Light", "Comp"]
+
+    def test_steps_bypasses_discovery(self):
+        """steps given = selector provided — must not return choice_required."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+        from fpt_mcp.shotgrid import openclip_create_impl
+        # No mio binary → with a selector the impl must fail on the BINARY,
+        # not fall into discovery.
+        with patch("fpt_mcp.shotgrid._find_dl_media_binary", return_value=None), \
+             patch("fpt_mcp.server.sg_find", new=AsyncMock(return_value=[])):
+            out = json.loads(asyncio.run(
+                openclip_create_impl(self._params(steps=["Light", "Comp"]))))
+        assert "choice_required" not in out
+        assert "dl_get_media_info" in out.get("error", "")
+
+    def test_uids_are_step_prefixed_and_missing_step_is_not_an_error(self, tmp_path):
+        """LIGHT_v003 + COMP with no publishes → clip builds, step noted."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        frames_dir = tmp_path / "LGT" / "v003"
+        frames_dir.mkdir(parents=True)
+        for i in (1, 2):
+            (frames_dir / f"S_LGT_v003.{i:04d}.exr").write_bytes(b"x")
+        pub = {"code": "S_LGT_v003.%04d.exr", "version_number": 3,
+               "path": {"local_path": str(frames_dir / "S_LGT_v003.%04d.exr")}}
+
+        async def fake_sg_find(entity_type, filters, fields, **kw):
+            blob = json.dumps(filters)
+            if "Light" in blob:
+                return [pub]
+            return []  # Comp: no publishes yet
+
+        fake_bin = tmp_path / "dl_get_media_info"
+        fake_bin.write_text("#!/bin/sh\necho ok")
+        fake_bin.chmod(0o755)
+
+        out_path = tmp_path / "clip" / "S.clip"
+        with patch("fpt_mcp.shotgrid._find_dl_media_binary",
+                   return_value=str(fake_bin)), \
+             patch("fpt_mcp.server.sg_find", new=AsyncMock(side_effect=fake_sg_find)), \
+             patch("fpt_mcp.openclip.splice_openclips",
+                   side_effect=lambda pv: json.dumps([u for u, _ in pv])):
+            out = json.loads(asyncio.run(openclip_create_impl(self._params(
+                steps=["Light", "Comp"], output_path=str(out_path)))))
+
+        assert out.get("error") is None
+        uids = [v["uid"] for v in out["versions"]]
+        assert uids == ["LIGHT_v003"]
+        assert out["current"] == "LIGHT_v003"
+        assert any("no publishes yet" in s.get("reason", "")
+                   for s in out["skipped"])
+        # the spliced document received the prefixed uid
+        assert json.loads(out_path.read_text()) == ["LIGHT_v003"]
