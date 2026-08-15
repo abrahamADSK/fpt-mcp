@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **Spliced versions inherit the SOURCE version's start-timecode anchor**
+  (Chat 99, in-vivo 'no media' on the timeline flip): a conformed segment
+  lines its versions up by TIMECODE, and the two writers disagree — Maya's
+  EXRs carry no `timeCode` attribute so `dl_get_media_info` falls back to
+  the frame number (LIGHT feed `nbTicks 1001`), while Flame's Write File
+  embeds a real one and a batch whose source timecode was never set stamps
+  `00:00:00:00` (COMP feed `nbTicks 0`). Same frame numbering, same
+  duration, correct paths — and the flip still showed 'no media', because
+  the segment asked for TC 1001-1100 against a feed spanning TC 0-99. The
+  pipeline owns the clip, so `splice_openclips` now pulls every later
+  feed's `nbTicks`/`dropMode` onto the first (source) version's, per track,
+  and `openclip_create` REPORTS it in a new `timecode_realigned` field —
+  never a silent metadata rewrite. `startFrame` is deliberately NOT
+  normalised: it must keep matching the real filenames in `<path>`, and
+  numbering parity is enforced upstream at render time. +6 tests.
+
 - **`openclip_create` multi-step aggregation** (Chat 98 comp architecture,
   operator-approved): new optional `steps` list splices publishes from
   SEVERAL Steps into ONE clip, in list order — `['Light', 'Comp']` gives

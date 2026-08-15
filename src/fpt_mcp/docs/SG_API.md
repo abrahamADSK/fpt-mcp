@@ -1624,3 +1624,29 @@ sg_find('Task', [['task_template','is',{'type':'TaskTemplate','id':tpl['id']}]],
 entity via the `task_template` field auto-creating its tasks — is the standard
 ShotGrid behavior but was not exercised in-session. Verify the tasks actually
 appear on the first assigned entity before assuming it worked for the rest.
+
+
+## Learned: Publish a rendered EXR image sequence (%04d path) as 'Rendered Image' when the project has NO PipelineConfiguration — tk_publish rejects the %04d path in both modes; create the PublishedFile directly (comp delivery step 8d, validated 2026-08-15)
+
+```python
+# tk_publish fails for image sequences without a PipelineConfiguration because it os.path.exists()
+# the LITERAL '%04d' path: 'publish_path does not exist on disk' / 'local_path does not exist'.
+# The comp render must be published IN PLACE (recipe: the rendered folder/frames read <Shot>_<Step>_v<ver>,
+# the Write File is 'Follow Iteration' so a published version must never be overwritten -> iterate before re-render).
+# Working route = what sgtk register_publish does under the hood: sg_create PublishedFile with path{local_path}.
+# SG resolves link_type='local', local_storage (MCP_tests id 432) and relative_path automatically from local_path.
+# Mirror the LGT publish record shape (PublishedFile 2346): code=<file with version + %04d>, name=<file without version>.
+sg_create(entity_type="PublishedFile", data={
+    "code": "SEQ003_SH001_CMP_v001.%04d.exr",
+    "name": "SEQ003_SH001_CMP.exr",
+    "path": {"local_path": "/Users/Shared/FPT_MCP/mcp_project_abraham/sequences/SEQ003/SEQ003_SH001/finishing/comp/SEQ003_SH001_CMP_v001/SEQ003_SH001_CMP_v001.%04d.exr"},
+    "published_file_type": {"type": "PublishedFileType", "id": 2},   # Rendered Image
+    "entity": {"type": "Shot", "id": 2663},
+    "task": {"type": "Task", "id": 6775},                            # the shot's Comp Task (Step id 8, short_name CMP)
+    "project": {"type": "Project", "id": 1244},
+    "version_number": 1,                                             # MUST equal the rendered folder version (v001)
+    "description": "Comp v001 rendered in Flame ...",
+})
+# -> PublishedFile 2414. Then openclip_create(shot_id=2663, output_path=<finishing/clip/SEQ003_SH001.clip>,
+#    steps=['Light','Comp']) consumed it: versions LIGHT_v003 + COMP_v001, current=COMP_v001.
+```

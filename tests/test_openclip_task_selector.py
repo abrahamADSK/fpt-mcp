@@ -275,7 +275,7 @@ class TestMultiStepAggregation:
                    return_value=str(fake_bin)), \
              patch("fpt_mcp.server.sg_find", new=AsyncMock(side_effect=fake_sg_find)), \
              patch("fpt_mcp.openclip.splice_openclips",
-                   side_effect=lambda pv: json.dumps([u for u, _ in pv])):
+                   side_effect=lambda pv, **kw: json.dumps([u for u, _ in pv])):
             out = json.loads(asyncio.run(openclip_create_impl(self._params(
                 steps=["Light", "Comp"], output_path=str(out_path)))))
 
