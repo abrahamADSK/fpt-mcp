@@ -759,6 +759,13 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     route is MANDATORY: the previous hand-rolled static XML (schema v4) is
     silently rejected by Flame 2027 — ``flame.import_clips`` returns 0
     clips with no logged error (in-vivo 2026-08-05).
+
+    Every spliced version inherits the SOURCE version's start-timecode
+    anchor (Chat 99 — a conformed segment lines its versions up by
+    TIMECODE, and Flame's Write File stamps ``00:00:00:00`` while Maya's
+    EXRs carry no timecode at all, so a correctly numbered comp still
+    flipped to 'no media'). Any adjustment is reported in
+    ``timecode_realigned``, never applied silently.
     """
     import asyncio
     import glob as _glob
@@ -899,7 +906,11 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     kept = {u for u, _ in per_version}
     versions = [v for v in versions if v["uid"] in kept]
 
-    xml = splice_openclips(per_version)
+    # The timecode anchor is normalised across versions and REPORTED — a
+    # silent metadata rewrite would be indistinguishable from a bug the next
+    # time a flip breaks (Chat 99).
+    realigned: list[str] = []
+    xml = splice_openclips(per_version, realigned=realigned)
     os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
     with open(params.output_path, "w", encoding="utf-8") as fh:
         fh.write(xml)
@@ -910,6 +921,7 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         "current": versions[-1]["uid"],
         "generator": binary,
         "skipped": skipped,
+        "timecode_realigned": realigned,
         "note": ("regenerate this .clip after each new publish version "
                  "(canonical dl_get_media_info + version splice; "
                  "deterministic)"),

@@ -116,6 +116,88 @@ class TestSpliceOpenclips:
             ("v002", self._doc("/renders/light/v002/S_light_v002.[1001-1100].exr")),
         ]
 
+    # ---- Chat 99: the timecode anchor ------------------------------------
+    # In-vivo, a comp version with the SAME frame numbering (1001-1100), the
+    # same duration and correct paths still flipped to 'no media' on the
+    # conformed timeline: the segment lines versions up by TIMECODE, and the
+    # two writers disagree. Maya EXRs carry no timeCode attribute so
+    # dl_get_media_info falls back to the frame number (nbTicks 1001);
+    # Flame's Write File embeds a real one and stamped 00:00:00:00
+    # (nbTicks 0).
+
+    def _tc_doc(self, path, ticks, rate="", drop="NDF"):
+        rate_el = f"<rate>{rate}</rate>" if rate else "<rate />"
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<clip type="clip" version="8"><name type="string">S</name>'
+            '<tracks><track uid="BEAUTY:MasterBeauty">'
+            '<feeds currentVersion="v0"><feed vuid="v0">'
+            f"<startTimecode>{rate_el}<nbTicks>{ticks}</nbTicks>"
+            f"<dropMode>{drop}</dropMode></startTimecode>"
+            "<startFrame>1001</startFrame>"
+            f'<spans><span><duration>100</duration>'
+            f'<path encoding="pattern">{path}</path></span></spans>'
+            "</feed></feeds></track></tracks>"
+            '<versions currentVersion="v0"><version uid="v0"/></versions>'
+            "</clip>"
+        )
+
+    def _light_and_comp(self):
+        return [
+            ("LIGHT_v003", self._tc_doc("/LGT/v003/S_LGT_v003.[1001-1100].exr", 1001)),
+            ("COMP_v001", self._tc_doc(
+                "/finishing/comp/S_CMP_v001/S_CMP_v001.[1001-1100].exr", 0, rate="25")),
+        ]
+
+    def _ticks(self, root):
+        return [
+            (f.get("vuid"), (f.find("startTimecode/nbTicks").text or "").strip())
+            for f in root.iter("feed")
+        ]
+
+    def test_comp_feed_inherits_the_source_timecode_anchor(self):
+        realigned = []
+        root = ET.fromstring(splice_openclips(self._light_and_comp(), realigned=realigned))
+        assert self._ticks(root) == [("LIGHT_v003", "1001"), ("COMP_v001", "1001")]
+        assert realigned == ["BEAUTY:MasterBeauty COMP_v001: 0 -> 1001"]
+
+    def test_start_frame_is_never_normalised(self):
+        """It must keep matching the real filenames in <path>; numbering
+        parity is enforced at RENDER time, not by rewriting the clip."""
+        docs = self._light_and_comp()
+        docs[1] = ("COMP_v001", docs[1][1]
+                   .replace("<startFrame>1001</startFrame>", "<startFrame>1</startFrame>")
+                   .replace("[1001-1100]", "[0001-0100]"))
+        root = ET.fromstring(splice_openclips(docs))
+        frames = [(f.get("vuid"), f.findtext("startFrame")) for f in root.iter("feed")]
+        assert frames == [("LIGHT_v003", "1001"), ("COMP_v001", "1")]
+
+    def test_matching_anchor_is_left_alone_and_not_reported(self):
+        realigned = []
+        docs = [("LIGHT_v003", self._tc_doc("/a/S.[1001-1100].exr", 1001)),
+                ("COMP_v001", self._tc_doc("/b/S.[1001-1100].exr", 1001))]
+        root = ET.fromstring(splice_openclips(docs, realigned=realigned))
+        assert realigned == []
+        assert self._ticks(root) == [("LIGHT_v003", "1001"), ("COMP_v001", "1001")]
+
+    def test_dropmode_follows_the_anchor(self):
+        docs = [("LIGHT_v003", self._tc_doc("/a/S.[1001-1100].exr", 1001, drop="NDF")),
+                ("COMP_v001", self._tc_doc("/b/S.[1001-1100].exr", 0, rate="25", drop="DF"))]
+        root = ET.fromstring(splice_openclips(docs))
+        drops = [f.findtext("startTimecode/dropMode") for f in root.iter("feed")]
+        assert drops == ["NDF", "NDF"]
+
+    def test_feeds_without_a_timecode_block_are_untouched(self):
+        """The legacy fixtures carry no <startTimecode> — splicing them must
+        not crash or invent one."""
+        realigned = []
+        root = ET.fromstring(splice_openclips(self._two(), realigned=realigned))
+        assert realigned == []
+        assert root.find(".//startTimecode") is None
+
+    def test_realigned_is_optional(self):
+        splice_openclips(self._light_and_comp())  # no list passed — must not raise
+
     def test_single_version_retagged_from_v0(self):
         xml = splice_openclips([self._two()[0]])
         assert xml.startswith('<?xml version="1.0" encoding="UTF-8"?>')

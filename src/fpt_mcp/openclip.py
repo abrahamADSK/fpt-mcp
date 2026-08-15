@@ -56,9 +56,61 @@ def _retag_version(root: ET.Element, uid: str) -> None:
             v.set("uid", uid)
 
 
+def _align_timecode(master_feed: ET.Element, feed: ET.Element) -> str | None:
+    """Give ``feed`` the master (source) feed's start-timecode ANCHOR.
+
+    Why (Chat 99, in-vivo 'no media' on the timeline flip)
+    -----------------------------------------------------
+    A conformed segment lines its versions up by TIMECODE, not by frame
+    number. The two writers disagree about what they stamp:
+
+    - Maya/Arnold EXRs carry NO ``timeCode`` attribute, so
+      ``dl_get_media_info`` falls back to the frame number and the LIGHT feed
+      reads ``<startTimecode><nbTicks>1001``.
+    - Flame's Write File DOES embed a real ``timeCode``, and a comp batch
+      whose source timecode was never set stamps ``00:00:00:00`` — the COMP
+      feed reads ``<nbTicks>0``.
+
+    Same frame numbering (both ``1001-1100`` after the flame-mcp fix), same
+    duration, correct paths — and the flip still showed 'no media', because
+    the segment asked for TC 1001-1100 and that feed spanned TC 0-99.
+
+    The pipeline owns the clip, so the pipeline normalises the anchor: every
+    spliced version inherits the SOURCE version's ``nbTicks`` (and
+    ``dropMode``). This is a metadata correction, not a lie — frame N of a
+    comp version IS the comp of the source's frame N; the ``00:00:00:00``
+    stamp is what is wrong.
+
+    ``startFrame`` is deliberately NOT normalised: it must keep matching the
+    real filenames in ``<path>`` (``[0001-0100]``), or Flame looks for files
+    that do not exist. Numbering parity is enforced upstream, at render time.
+
+    Returns a short 'uid: 0 -> 1001' description when it changed something,
+    else ``None``.
+    """
+    m_tc = master_feed.find("startTimecode")
+    f_tc = feed.find("startTimecode")
+    if m_tc is None or f_tc is None:
+        return None
+    m_ticks = m_tc.find("nbTicks")
+    f_ticks = f_tc.find("nbTicks")
+    if m_ticks is None or f_ticks is None:
+        return None
+    before = (f_ticks.text or "").strip()
+    after = (m_ticks.text or "").strip()
+    if before == after:
+        return None
+    f_ticks.text = m_ticks.text
+    m_drop, f_drop = m_tc.find("dropMode"), f_tc.find("dropMode")
+    if m_drop is not None and f_drop is not None:
+        f_drop.text = m_drop.text
+    return f"{feed.get('vuid')}: {before or 'none'} -> {after or 'none'}"
+
+
 def splice_openclips(
     per_version: list[tuple[str, str]],
     current: str | None = None,
+    realigned: list[str] | None = None,
 ) -> str:
     """Merge single-version canonical Open Clip documents into one clip.
 
@@ -69,6 +121,10 @@ def splice_openclips(
             version's media directory.
         current: uid of the current version; defaults to the LAST entry
             (highest version) when omitted.
+        realigned: optional list the function APPENDS to, one entry per feed
+            whose start-timecode anchor was pulled onto the source version's
+            (see ``_align_timecode``) — so the caller can report it instead
+            of silently rewriting metadata.
 
     Returns:
         The merged .clip XML document as a string (UTF-8 declaration).
@@ -104,7 +160,14 @@ def splice_openclips(
             d_feeds = t.find("feeds")
             if m_feeds is None or d_feeds is None:
                 continue
+            # The SOURCE version's feed on this track is the anchor every
+            # later version must line up with (Chat 99 — see _align_timecode).
+            anchor = next(iter(m_feeds.findall("feed")), None)
             for feed in d_feeds.findall("feed"):
+                if anchor is not None:
+                    note = _align_timecode(anchor, feed)
+                    if note is not None and realigned is not None:
+                        realigned.append(f"{t.get('uid')} {note}")
                 m_feeds.append(feed)
         m_versions = master.find("versions")
         d_versions = doc.find("versions")
