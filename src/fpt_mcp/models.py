@@ -171,6 +171,35 @@ class OpenclipCreateInput(BaseModel):
         default="Rendered Image",
         description="PublishedFileType whose versions populate the clip.",
     )
+    keep_source_current: bool = Field(
+        default=False,
+        description="Mark the FIRST (source) version current instead of the "
+        "newest. Chat 99, measured in-vivo: Flame reads the very same .clip "
+        "as start_frame=1001 when the light version is current and as "
+        "start_frame=0 (spanning 1101 frames) when the comp version is — so "
+        "with the comp current every 'Update Sources' replace anchored the "
+        "conformed segment at 00:00:00:00 and lost its cut. Aligning the "
+        "feeds' timecode, rate, sampleRate and TimecodeSource did NOT change "
+        "that. Keeping the source current sidesteps it without writing to "
+        "the timeline: the comp version is still in the clip and the "
+        "operator flips to it natively, which is the intended gesture "
+        "anyway.",
+    )
+    extra_publish_types: Optional[List[str]] = Field(
+        default=None,
+        description="Publish TYPES to splice in beside the Task-selected "
+        "versions, matched on the Shot regardless of Task (e.g. "
+        "['Flame Render']). Chat 99: Flame's own tk-flame batch-render "
+        "integration publishes the comp as 'Flame Render' with NO Task — its "
+        "context comes from the .batch path, whose template carries no Step "
+        "token — so no step/task selector can reach it and the conformed "
+        "clip never learns the comp exists. Each type becomes its own "
+        "version group appended AFTER the task-selected ones, so it lands on "
+        "top and becomes current. The uid token is read from the publish "
+        "code (<Shot>_<TOKEN>_v<version> -> 'CMP_v001'), falling back to the "
+        "type name uppercased. Explicit by design: the tool still never "
+        "guesses which publishes feed a conform.",
+    )
     task_id: Optional[int] = Field(
         default=None,
         description="Explicit ShotGrid Task id whose publishes populate the "

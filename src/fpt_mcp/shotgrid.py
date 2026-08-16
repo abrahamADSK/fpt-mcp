@@ -789,6 +789,24 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             "silently rejects the hand-rolled static XML form, so the "
             "canonical generator is mandatory.")})
 
+    def _type_filters(publish_type: str) -> list:
+        """Shot + TYPE, with no Task condition (Chat 99).
+
+        The native tk-flame batch-render publish carries no Task, so the
+        Task-based selectors cannot see it. Matching on the type alone is
+        safe here because the caller named the type explicitly.
+        """
+        return [
+            ["entity", "is", {"type": "Shot", "id": params.shot_id}],
+            ["published_file_type.PublishedFileType.code", "is", publish_type],
+        ]
+
+    def _uid_token(code: str, fallback: str) -> str:
+        """'SEQ003_SH001_CMP_v001.%04d.exr' -> 'CMP'."""
+        import re as _re
+        m = _re.match(r"^.*?_([A-Za-z0-9]+)_v\d+\.", code or "")
+        return m.group(1).upper() if m else fallback
+
     def _step_filters(step: str) -> list:
         f = _openclip_base_filters(params)
         f.append({
@@ -818,6 +836,12 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         selector = f"step={params.step!r}"
         rounds = [("", _step_filters(params.step), None)]
 
+    # Type-selected rounds go LAST so their newest version becomes current —
+    # the comp sits on top of the light, same ordering rule as multi-step.
+    for _t in (params.extra_publish_types or []):
+        selector += f" + type={_t!r}"
+        rounds.append((f"__TYPE__{_t}", _type_filters(_t), None))
+
     versions, skipped = [], []
     any_pubs = False
     for uid_prefix, round_filters, round_step in rounds:
@@ -834,6 +858,10 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             # it and keep going. Single-step keeps the historical error.
             if round_step is not None:
                 skipped.append({"code": f"step {round_step}",
+                                "reason": "no publishes yet"})
+                continue
+            if uid_prefix.startswith("__TYPE__"):
+                skipped.append({"code": f"type {uid_prefix[8:]!r}",
                                 "reason": "no publishes yet"})
                 continue
             listing = await _openclip_candidates(params, sg_find)
@@ -866,8 +894,13 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
             if not first or not last:
                 skipped.append({"code": p.get("code"), "reason": "unparsable frames"})
                 continue
+            _prefix = uid_prefix
+            if uid_prefix.startswith("__TYPE__"):
+                _type = uid_prefix[8:]
+                _prefix = _uid_token(p.get("code") or "",
+                                     _type.replace(" ", "_").upper()) + "_"
             versions.append({
-                "uid": f"{uid_prefix}v{int(p['version_number']):03d}",
+                "uid": f"{_prefix}v{int(p['version_number']):03d}",
                 "dir": os.path.dirname(local),
                 "frames": len(frames),
             })
@@ -910,7 +943,10 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     # silent metadata rewrite would be indistinguishable from a bug the next
     # time a flip breaks (Chat 99).
     realigned: list[str] = []
-    xml = splice_openclips(per_version, realigned=realigned)
+    # Which version is current is not cosmetic: Flame derives the clip's
+    # start frame from it (Chat 99, measured — see keep_source_current).
+    current_uid = per_version[0][0] if params.keep_source_current else None
+    xml = splice_openclips(per_version, current=current_uid, realigned=realigned)
     os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
     with open(params.output_path, "w", encoding="utf-8") as fh:
         fh.write(xml)
@@ -918,7 +954,7 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         "clip_path": params.output_path,
         "task_filter": selector,
         "versions": [{k: v[k] for k in ("uid", "frames")} for v in versions],
-        "current": versions[-1]["uid"],
+        "current": current_uid or versions[-1]["uid"],
         "generator": binary,
         "skipped": skipped,
         "timecode_realigned": realigned,

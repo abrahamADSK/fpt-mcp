@@ -242,3 +242,95 @@ class TestSpliceOpenclips:
             splice_openclips([])
         with pytest.raises(ValueError):
             splice_openclips([self._two()[0], self._two()[0]])
+
+
+class TestKeepSourceCurrent:
+    """Which version is current is NOT cosmetic (Chat 99, measured in-vivo).
+
+    Flame read the very same .clip as ``start_frame=1001`` when the light
+    version was current and as ``start_frame=0`` (spanning 1101 frames) when
+    the comp version was. With the comp current, every 'Update Sources'
+    replace anchored the conformed segment at 00:00:00:00 and lost its cut —
+    and no mode of update_sources restores it afterwards, so prevention is
+    the only cure. Aligning the feeds' timecode, rate, sampleRate and
+    TimecodeSource did NOT change the behaviour; keeping the SOURCE current
+    does, and it writes nothing to the timeline.
+    """
+
+    def _docs(self):
+        return [
+            ("v001", '<?xml version="1.0"?><clip type="clip" version="8"><tracks>'
+                     '<track uid="T"><feeds currentVersion="v0"><feed vuid="v0">'
+                     '<spans><span><path>/a/L.[1001-1100].exr</path></span></spans>'
+                     '</feed></feeds></track></tracks>'
+                     '<versions currentVersion="v0"><version uid="v0"/></versions></clip>'),
+            ("v002", '<?xml version="1.0"?><clip type="clip" version="8"><tracks>'
+                     '<track uid="T"><feeds currentVersion="v0"><feed vuid="v0">'
+                     '<spans><span><path>/b/C.[1001-1100].exr</path></span></spans>'
+                     '</feed></feeds></track></tracks>'
+                     '<versions currentVersion="v0"><version uid="v0"/></versions></clip>'),
+        ]
+
+    def test_default_keeps_the_newest_current(self):
+        root = ET.fromstring(splice_openclips(self._docs()))
+        assert root.find("versions").get("currentVersion") == "v002"
+
+    def test_explicit_current_wins_everywhere(self):
+        """Both the per-track feeds and the clip-level versions block must
+        name it — Flame reads the start frame from the current version."""
+        root = ET.fromstring(splice_openclips(self._docs(), current="v001"))
+        assert root.find("versions").get("currentVersion") == "v001"
+        for feeds in root.iter("feeds"):
+            assert feeds.get("currentVersion") == "v001"
+
+    def test_the_field_exists_and_defaults_off(self):
+        from fpt_mcp.models import OpenclipCreateInput
+        p = OpenclipCreateInput(shot_id=1, output_path="/x/S.clip")
+        assert p.keep_source_current is False
+
+    def test_impl_marks_the_first_round_current_when_asked(self):
+        import inspect
+        from fpt_mcp import shotgrid
+        src = inspect.getsource(shotgrid.openclip_create_impl)
+        assert "per_version[0][0] if params.keep_source_current else None" in src
+        assert "current=current_uid" in src
+
+
+class TestAnchorMetadataAlignment:
+    """The anchor DESCRIPTION is copied from the source feed too — always,
+    even when the tick counts already agree (they did, in-vivo, and the clip
+    still resolved to start_frame 0)."""
+
+    def _pair(self, comp_extra=""):
+        def doc(path, src, rate):
+            return ('<?xml version="1.0"?><clip type="clip" version="8"><tracks>'
+                    '<track uid="T"><feeds currentVersion="v0"><feed vuid="v0">'
+                    f'<startTimecode><rate>{rate}</rate><nbTicks>1001</nbTicks>'
+                    '<dropMode>NDF</dropMode></startTimecode>'
+                    f'{comp_extra if src == "Header" else ""}'
+                    f'<userData><TimecodeSource>{src}</TimecodeSource>'
+                    '<RateSource>None / Project</RateSource></userData>'
+                    f'<spans><span><path>{path}</path></span></spans>'
+                    '</feed></feeds></track></tracks>'
+                    '<versions currentVersion="v0"><version uid="v0"/></versions></clip>')
+        return [("LIGHT_v003", doc("/a/L.[1001-1100].exr", "Filename", "")),
+                ("CMP_v001", doc("/b/C.[1001-1100].exr", "Header", "25"))]
+
+    def test_timecode_source_and_rate_follow_the_source_feed(self):
+        root = ET.fromstring(splice_openclips(self._pair()))
+        feeds = list(root.iter("feed"))
+        rates = [f.find("startTimecode/rate").text or "" for f in feeds]
+        srcs = [f.find("userData/TimecodeSource").text for f in feeds]
+        assert rates[0] == rates[1] == ""
+        assert srcs == ["Filename", "Filename"]
+
+    def test_sample_rate_is_dropped_when_the_source_has_none(self):
+        root = ET.fromstring(splice_openclips(self._pair("<sampleRate>25</sampleRate>")))
+        assert [f.find("sampleRate") for f in root.iter("feed")] == [None, None]
+
+    def test_alignment_runs_even_when_ticks_already_match(self):
+        """The early return on equal nbTicks must not skip it."""
+        realigned = []
+        root = ET.fromstring(splice_openclips(self._pair(), realigned=realigned))
+        assert realigned == []          # nothing to report: ticks agreed
+        assert root.find(".//feed[@vuid='CMP_v001']/userData/TimecodeSource").text == "Filename"
