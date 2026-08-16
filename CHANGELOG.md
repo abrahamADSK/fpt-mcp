@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.27.0] — 2026-08-16
 - **The conformed clip keeps its SOURCE version current** (Chat 99, measured
   in-vivo — the fix for a full day of 'no media' on the timeline): Flame read
   the very same `.clip` as `start_frame=1001` when the light version was
