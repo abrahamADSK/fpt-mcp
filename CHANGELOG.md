@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **The conformed clip keeps its SOURCE version current** (Chat 99, measured
+  in-vivo — the fix for a full day of 'no media' on the timeline): Flame read
+  the very same `.clip` as `start_frame=1001` when the light version was
+  current and as `start_frame=0`, spanning 1101 frames, when the comp version
+  was. With the comp current, every *Update Sources* — which performs a
+  **replace** — anchored the conformed segment at `00:00:00:00` and lost its
+  cut. The asymmetry is what cost the time: *Update Sources* BREAKS the
+  anchor against a badly-read clip and does **not** restore it against a good
+  one (verified across all three `version_selection_mode` values), so a
+  damaged segment must be re-laid with `PySequence.overwrite`. New
+  `keep_source_current` marks the first (source) version current instead of
+  the newest; the comp version is still in the clip and the operator flips to
+  it natively, which is the intended gesture. Nothing is written to the
+  timeline. Validated end to end: re-conform → `update_sources()` → flip to
+  comp → flip back, anchor `00:00:40:01` throughout.
+- **Spliced feeds inherit the source feed's anchor DESCRIPTION, not just its
+  ticks**: the two feeds already agreed on `nbTicks 1001` and the clip still
+  resolved to 0, because they disagreed about how that timecode is expressed
+  — Maya's EXRs carry no timecode (`TimecodeSource=Filename`, empty rate, no
+  `sampleRate`) while Flame's Write File embeds one (`Header`, explicit
+  rate). `startTimecode/rate`, `sampleRate` and the `TimecodeSource` /
+  `RateSource` userData entries are now copied from the source feed, ALWAYS —
+  the previous early-return skipped it whenever the ticks matched. Pixel
+  metadata (channels, layers, colour space) is deliberately left alone. This
+  alone did NOT fix the start-frame reading; it is kept because leaving the
+  feeds inconsistent about their own anchor is a latent trap. +7 tests.
+
 - **`openclip_create` can splice in publishes selected by TYPE, with no Task**
   (Chat 99): Flame's own tk-flame batch-render integration publishes the comp
   as `Flame Render` and links **no Task** — its context comes from the

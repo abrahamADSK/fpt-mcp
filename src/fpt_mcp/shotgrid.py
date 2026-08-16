@@ -943,7 +943,10 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
     # silent metadata rewrite would be indistinguishable from a bug the next
     # time a flip breaks (Chat 99).
     realigned: list[str] = []
-    xml = splice_openclips(per_version, realigned=realigned)
+    # Which version is current is not cosmetic: Flame derives the clip's
+    # start frame from it (Chat 99, measured — see keep_source_current).
+    current_uid = per_version[0][0] if params.keep_source_current else None
+    xml = splice_openclips(per_version, current=current_uid, realigned=realigned)
     os.makedirs(os.path.dirname(params.output_path), exist_ok=True)
     with open(params.output_path, "w", encoding="utf-8") as fh:
         fh.write(xml)
@@ -951,7 +954,7 @@ async def openclip_create_impl(params: OpenclipCreateInput) -> str:
         "clip_path": params.output_path,
         "task_filter": selector,
         "versions": [{k: v[k] for k in ("uid", "frames")} for v in versions],
-        "current": versions[-1]["uid"],
+        "current": current_uid or versions[-1]["uid"],
         "generator": binary,
         "skipped": skipped,
         "timecode_realigned": realigned,

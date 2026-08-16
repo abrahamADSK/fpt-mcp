@@ -88,6 +88,11 @@ def _align_timecode(master_feed: ET.Element, feed: ET.Element) -> str | None:
     Returns a short 'uid: 0 -> 1001' description when it changed something,
     else ``None``.
     """
+    # HOW the anchor is described is aligned ALWAYS, even when the tick
+    # counts already agree: in-vivo both feeds read nbTicks 1001 and the
+    # clip still resolved to start_frame 0 with the comp current, because
+    # the two feeds disagreed about the rate/source of that timecode.
+    _align_anchor_metadata(master_feed, feed)
     m_tc = master_feed.find("startTimecode")
     f_tc = feed.find("startTimecode")
     if m_tc is None or f_tc is None:
@@ -105,6 +110,50 @@ def _align_timecode(master_feed: ET.Element, feed: ET.Element) -> str | None:
     if m_drop is not None and f_drop is not None:
         f_drop.text = m_drop.text
     return f"{feed.get('vuid')}: {before or 'none'} -> {after or 'none'}"
+
+
+def _align_anchor_metadata(master_feed: ET.Element, feed: ET.Element) -> None:
+    """Make ``feed`` describe its anchor the way the SOURCE feed does.
+
+    Chat 99, measured: with the comp version current, Flame read the clip as
+    ``start_frame=0`` spanning 1101 frames; with the light version current it
+    read ``start_frame=1001`` spanning 100 — from the SAME file, changing only
+    the ``currentVersion`` attribute. Every replace made against the clip then
+    anchored the conformed segment at ``00:00:00:00`` and lost its cut.
+
+    Matching ``nbTicks`` was not enough: the two feeds also disagreed about
+    HOW the anchor is expressed, because the media was written by different
+    tools. Maya's EXRs carry no timecode, so dl_get_media_info reports
+    ``TimecodeSource=Filename`` with an empty rate and no ``sampleRate``;
+    Flame's Write File embeds one, so the comp feed reports
+    ``TimecodeSource=Header`` with an explicit ``rate``/``sampleRate``.
+
+    So the anchor description is copied wholesale from the source feed:
+    the rate inside ``startTimecode``, the sibling ``sampleRate`` element,
+    and the ``TimecodeSource``/``RateSource`` userData entries. Pixel-level
+    metadata (channels, layers, colour space) is deliberately left alone —
+    those legitimately differ between a 10-layer light render and a 3-channel
+    comp, and they take no part in anchoring.
+    """
+    m_tc, f_tc = master_feed.find("startTimecode"), feed.find("startTimecode")
+    if m_tc is not None and f_tc is not None:
+        m_rate, f_rate = m_tc.find("rate"), f_tc.find("rate")
+        if m_rate is not None and f_rate is not None:
+            f_rate.text = m_rate.text
+            f_rate.attrib = dict(m_rate.attrib)
+    m_sr, f_sr = master_feed.find("sampleRate"), feed.find("sampleRate")
+    if f_sr is not None and m_sr is None:
+        feed.remove(f_sr)          # the source has none: neither may the copy
+    elif f_sr is not None and m_sr is not None:
+        f_sr.text = m_sr.text
+    m_ud, f_ud = master_feed.find("userData"), feed.find("userData")
+    if m_ud is None or f_ud is None:
+        return
+    for key in ("TimecodeSource", "RateSource"):
+        m_el = m_ud.find(key)
+        f_el = f_ud.find(key)
+        if m_el is not None and f_el is not None:
+            f_el.text = m_el.text
 
 
 def splice_openclips(
