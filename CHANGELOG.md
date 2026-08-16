@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **`openclip_create` can splice in publishes selected by TYPE, with no Task**
+  (Chat 99): Flame's own tk-flame batch-render integration publishes the comp
+  as `Flame Render` and links **no Task** — its context comes from the
+  `.batch` path, whose template carries no `{Step}` token. Every existing
+  selector is Task-based, so the conformed clip never learned the comp
+  existed and *Update Sources* had nothing to offer. New optional
+  `extra_publish_types` (e.g. `['Flame Render']`) adds one version group per
+  type, matched on the Shot alone, appended AFTER the Task-selected groups so
+  the comp lands on top and becomes current. The uid token is read from the
+  publish code (`SEQ003_SH001_CMP_v001.%04d.exr` → `CMP_v001`) rather than
+  from the type name, so the clip reads `LIGHT_v003` + `CMP_v001`. A type
+  with no publishes yet is reported in `skipped`, never fatal — the clip is
+  valid before the first comp render. Still explicit by design: the tool does
+  not guess which publishes feed a conform. +5 tests.
+
 - **Spliced versions inherit the SOURCE version's start-timecode anchor**
   (Chat 99, in-vivo 'no media' on the timeline flip): a conformed segment
   lines its versions up by TIMECODE, and the two writers disagree — Maya's

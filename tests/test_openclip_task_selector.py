@@ -287,3 +287,53 @@ class TestMultiStepAggregation:
                    for s in out["skipped"])
         # the spliced document received the prefixed uid
         assert json.loads(out_path.read_text()) == ["LIGHT_v003"]
+
+
+class TestExtraPublishTypes:
+    """Chat 99: the native tk-flame batch-render integration publishes the
+    comp as 'Flame Render' with NO Task — its context comes from the .batch
+    path, whose template carries no Step token. No step/task selector can
+    reach it, so the conformed clip never learned the comp existed and
+    'Update Sources' offered nothing to flip to.
+    """
+
+    def test_field_defaults_to_none_and_is_optional(self):
+        from fpt_mcp.models import OpenclipCreateInput
+        p = OpenclipCreateInput(shot_id=1, output_path="/x/S.clip")
+        assert p.extra_publish_types is None
+
+    def test_type_round_needs_no_task(self, tmp_path):
+        """The filters for a type round must carry Shot + type only —
+        adding any Task condition would exclude the native publish."""
+        import inspect
+        from fpt_mcp import shotgrid
+        src = inspect.getsource(shotgrid.openclip_create_impl)
+        block = src.split("def _type_filters", 1)[1].split("def _uid_token", 1)[0]
+        assert '"entity", "is"' in block
+        assert "published_file_type" in block
+        # the returned filter list itself must carry no Task condition
+        filters = block.split("return [", 1)[1].split("]", 1)[0]
+        assert "task" not in filters.lower()
+
+    def test_uid_token_read_from_the_publish_code(self):
+        """'SEQ003_SH001_CMP_v001.%04d.exr' -> 'CMP', so the clip carries
+        LIGHT_v003 + CMP_v001 instead of an opaque type name."""
+        import re
+        code = "SEQ003_SH001_CMP_v001.%04d.exr"
+        m = re.match(r"^.*?_([A-Za-z0-9]+)_v\d+\.", code)
+        assert m and m.group(1).upper() == "CMP"
+
+    def test_type_rounds_go_last_so_the_comp_becomes_current(self):
+        import inspect
+        from fpt_mcp import shotgrid
+        src = inspect.getsource(shotgrid.openclip_create_impl)
+        # the append loop must come after the step/task selector branch
+        assert src.index("rounds = [(f\"{s.upper()}_\"") < src.index("rounds.append((f\"__TYPE__")
+
+    def test_empty_type_round_is_reported_not_fatal(self):
+        """Before the first comp render there are no 'Flame Render'
+        publishes; the clip must still build, light-only."""
+        import inspect
+        from fpt_mcp import shotgrid
+        src = inspect.getsource(shotgrid.openclip_create_impl)
+        assert 'skipped.append({"code": f"type {uid_prefix[8:]!r}"' in src
