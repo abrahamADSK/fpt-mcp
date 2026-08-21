@@ -198,6 +198,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   task-resolution SG error degrades to the entity-level launch. Asset/Shot are
   unchanged. The plan reports the mapping under `resolved_task`.
 
+### Removed
+- **ATOM Animation rows dropped from `TK_API.md` (RAG corpus).** The generic
+  ATOM animation-library pipeline was abandoned (Chat 80: noisy free mocap, chibi
+  HIK retarget never planted the feet, `atomExport` does not round-trip on a HIK
+  control rig). Paired with `toolkit_config_custom_template` which removes the
+  `atom_animation_asset_publish` template, the `maya_publish_atom.py` publish
+  plugin, the `import_atom` loader action and the `asset_anim` environment. The
+  "ATOM Animation" publish type / template rows are removed from TK_API.md so the
+  documented template set stays in sync with `templates.yml` (verify_templates).
+  `bvh_import` (maya-mcp) is unaffected — general BVH import, not this library.
+  Requires a RAG re-index. No code change.
+
 ## [1.23.0] — 2026-06-30
 
 ### Added
