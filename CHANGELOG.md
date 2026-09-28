@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The MANDATORY WORKFLOW block is five items, not six.** Items 3 (entity
+  links must be dicts) and 4 (PascalCase Toolkit tokens) were always-on prose
+  restating what `safety.py:35`, `:106` and `:137` already enforce by regex —
+  verified before removal. The replacement line points at `sg_schema` for when
+  a check fires. Where the code refuses something, the skill's job is to say
+  what to do instead, never to repeat the prohibition.
+
+  Takes effect only after a full Claude Code restart; a stale stdio MCP server
+  is not refreshed by reload or reconnect.
+
+  This entry was briefly filed under v1.28.0, which was wrong twice over: the
+  block had six items, not seven, and the code change was not in that tag. The
+  v1.28.0 notes have been corrected.
+
 ## [1.28.0] — 2026-09-28
 
 ### Added
@@ -31,12 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`TaskTemplate` promoted from `## Learned:` to a real heading.** Not
   cosmetic: `corpus.json` derives each chunk's `section` metadata from the
   heading, so "Learned:" was poisoning retrieval for that content.
-- **The MANDATORY WORKFLOW block is five items, not seven.** Items 3 (entity
-  links must be dicts) and 4 (PascalCase Toolkit tokens) were always-on prose
-  restating what `safety.py:35`, `:106` and `:137` already enforce by regex —
-  verified before removal. The replacement line points at `sg_schema` for when
-  a check fires. Where the code refuses something, the skill's job is to say
-  what to do instead, never to repeat the prohibition.
 
 ## [1.27.0] — 2026-08-16
 - **The conformed clip keeps its SOURCE version current** (Chat 99, measured

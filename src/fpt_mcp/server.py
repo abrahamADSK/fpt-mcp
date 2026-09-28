@@ -272,16 +272,13 @@ mcp = FastMCP(
 
 2. The safety module will warn you about dangerous patterns. Heed its warnings.
 
-3. Entity references in filters MUST be dicts: {"type": "Asset", "id": 123}
-   NEVER use plain integers or strings for entity links.
+3. Entity-link format and Toolkit token case are checked automatically; when a
+   check fires, run sg_schema rather than re-guessing.
 
-4. Toolkit template tokens are case-sensitive: {Shot}, {Asset}, {Step} (PascalCase).
-   NEVER use {shot_name}, {asset_name}, {step} (lowercase).
-
-5. When a working pattern succeeds and search_sg_docs returned < 60% relevance,
+4. When a working pattern succeeds and search_sg_docs returned < 60% relevance,
    call learn_pattern to save the validated pattern for future sessions.
 
-6. Call session_stats at the end of multi-step tasks to report token efficiency.
+5. Call session_stats at the end of multi-step tasks to report token efficiency.
 """,
 )
 
