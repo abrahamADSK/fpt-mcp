@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Skills layer** (`docs/skills/`): `fpt-query` and `fpt-publish`.
+  Procedural knowledge that was previously reachable only from handoffs and
+  memory files, now loaded on demand by intent match. `fpt-query` is
+  deliberately first: our in-vivo use was publish-heavy, but the general FPT
+  population lives in querying and reporting, and that is the only family that
+  touches every session. Version controlled here and symlinked into
+  `~/.claude/skills/`; `.claude/` is gitignored, which is why they do not live
+  there. See `docs/skills/README.md`.
+  `fpt-review` was deliberately **not** written — the Version + media + status
+  half is validated, but the playlist / review-session half would be invented.
+- **RAG corpus** (`SG_API.md`): `Cut` and `CutItem` sections grounded in
+  `editorial.py` (executing, unit-tested code) carrying the two-axis
+  `edit_*` vs `cut_item_*` convention; `upstream_tasks` on `Task`, grounded in
+  `shotgrid.py`. Two claims that could not be grounded — the CutItem
+  exclusive-out convention, and `downstream_tasks` / `dependency_violation` —
+  are marked **Unverified** rather than asserted.
+
+### Changed
+- **`TaskTemplate` promoted from `## Learned:` to a real heading.** Not
+  cosmetic: `corpus.json` derives each chunk's `section` metadata from the
+  heading, so "Learned:" was poisoning retrieval for that content.
+- **The MANDATORY WORKFLOW block is five items, not seven.** Items 3 (entity
+  links must be dicts) and 4 (PascalCase Toolkit tokens) were always-on prose
+  restating what `safety.py:35`, `:106` and `:137` already enforce by regex —
+  verified before removal. The replacement line points at `sg_schema` for when
+  a check fires. Where the code refuses something, the skill's job is to say
+  what to do instead, never to repeat the prohibition.
+
 ## [1.27.0] — 2026-08-16
 - **The conformed clip keeps its SOURCE version current** (Chat 99, measured
   in-vivo — the fix for a full day of 'no media' on the timeline): Flame read

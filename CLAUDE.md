@@ -615,3 +615,17 @@ Whenever a tool is added, removed, or renamed in `src/fpt_mcp/server.py`:
 4. Commit install.sh together with the server.py change — never separately
 
 Forgetting this step means users get permission prompts on first use of the new tool.
+
+---
+
+## Skills owned by this repo
+
+Procedural knowledge for driving ShotGrid through this server — `fpt-query`,
+`fpt-publish` — lives in `docs/skills/`, version controlled here and symlinked into
+`~/.claude/skills/` so it fires from any directory. **A skill ships in the same
+commit as the code it describes.** Setup, rationale and the fresh-clone activation
+command: [`docs/skills/README.md`](docs/skills/README.md).
+
+Put a *recipe* (which tools, in what order, what fails silently) in a skill; put
+*reference* (flags, fields, signatures) in the RAG corpus; put an *invariant that
+must be enforced* in code. Never duplicate across two of the three.

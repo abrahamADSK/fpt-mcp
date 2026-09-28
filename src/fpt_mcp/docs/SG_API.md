@@ -1163,8 +1163,37 @@ sg.unfollow("Asset", 500)
 - `start_date` (date) — Task start
 - `due_date` (date) — Task due date
 - `duration` (number) — Estimated hours
+- `upstream_tasks` (multi_entity) — Tasks this one depends on
 - `project` (entity) — Linked Project
 - `updated_at` (datetime) — Last change
+
+**Task dependencies**: `upstream_tasks` is a multi-entity list of Task links and
+is queryable like any other field — request it in `fields` and read the returned
+dicts' `id`. It answers "which Task feeds this one", which is how a consumer can
+be traced back to the step that produced its input:
+
+```python
+tasks = sg.find(
+    "Task",
+    [["entity", "is", {"type": "Shot", "id": 1234}]],
+    ["content", "step", "upstream_tasks"],
+)
+# each t["upstream_tasks"] is a list of {"type": "Task", "id": N, "name": ...}
+for t in tasks:
+    for up in t.get("upstream_tasks") or []:
+        ...  # up["id"] is the producing Task
+```
+
+Treat the result as a **suggestion, never an automatic selection** — different
+pipelines wire different upstream steps, and several Tasks can legitimately feed
+one consumer. `openclip_create` uses exactly this graph to propose a candidate
+and still asks the caller to confirm.
+
+> **Unverified**: the inverse field `downstream_tasks` and the scheduling flag
+> `dependency_violation` are named in ShotGrid discussions but are **not**
+> exercised anywhere in this codebase and were not confirmed against Autodesk's
+> published reference. Run `sg_schema` on `Task` for this site before using
+> either.
 
 ### Version
 
@@ -1247,6 +1276,56 @@ sg.unfollow("Asset", 500)
 - `user` (entity) — HumanUser who logged time
 - `project` (entity) — Linked Project
 - `description` (text) — Work description
+
+### Cut
+
+**Key Fields**:
+- `code` (text) — Cut name
+- `entity` (entity) — What the Cut belongs to (Sequence, Scene, Project…)
+- `fps` (float) — Frame rate. **Float field**: ShotGrid raises a type Fault on a
+  bare `int`, so coerce with `float(fps)` before create
+- `sg_cut_duration` (number) — Total cut length in frames (sum of item durations)
+- `revision_number` (number) — Cut revision
+- `project` (entity) — Linked Project
+
+### CutItem
+
+One entry per shot in a Cut, ordered by `cut_order`.
+
+**Key Fields**:
+- `cut` (entity) — Parent Cut. Unknown until the Cut exists, so it is injected
+  after Cut creation and before the CutItem batch
+- `shot` (entity) — Linked Shot
+- `cut_order` (number) — Position in the Cut, **1-based**
+- `edit_in` / `edit_out` (number) — RECORD (timeline) position
+- `cut_item_in` / `cut_item_out` (number) — SOURCE (media) range
+- `cut_item_duration` (number) — EDIT length, excluding handles
+
+**Two axes, two conventions** (as implemented in `editorial.py`):
+
+- `edit_*` is **0-based and cumulative**: the first item starts at `edit_in == 0`
+  and `edit_out == edit_in + duration`. Item *k*'s `edit_out` equals item *k+1*'s
+  `edit_in`, so the timeline is contiguous with no gaps or overlaps.
+- `cut_item_*` is **anchored per shot** at a source start frame (1001 by
+  convention) and does **not** cumulate — every shot's media restarts at its own
+  head. Handles widen it symmetrically: `cut_item_in = start - handles`,
+  `cut_item_out = start + duration + handles`.
+- `cut_item_duration` always tracks the EDIT length and is **not** widened by
+  handles, so `cut_item_out - cut_item_in` exceeds it by exactly `2 * handles`.
+
+**Do not confuse with the Shot fields.** `Shot.sg_cut_in` / `sg_cut_out` are
+INCLUSIVE (`out == in + duration - 1`); the CutItem ranges above are treated as
+exclusive-out.
+
+> **Unverified**: the exclusive-out convention for `edit_out` / `cut_item_out` is
+> `editorial.py`'s deliberate choice (it is what makes the timeline cumulation
+> contiguous), **not** a confirmed reading of a live ShotGrid CutItem schema. If a
+> schema audit shows the site expects inclusive ranges, the math and its unit
+> tests must flip together.
+
+Do not hand-compute these ranges. `fpt_bulk(action="editorial")` runs the
+deterministic, unit-tested math and creates the Cut plus all CutItems in one
+batch transaction.
 
 ### PipelineConfiguration
 
@@ -1558,7 +1637,7 @@ tasks = sg.find(
 **Scope**: Python automation, script-based authentication, standard find/create/update/delete workflows
 
 
-## Learned: Create TaskTemplates with template tasks, then assign them to entities
+## TaskTemplate — templates of pipeline Tasks, and how to assign them
 
 Goal: one TaskTemplate per kind of entity (per asset type, plus Shot and
 Sequence), each carrying its pipeline tasks, then assign each template to the
