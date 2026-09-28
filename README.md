@@ -276,6 +276,31 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `reset_session_stats` | Zero the session counters immediately (manual companion to the 30-min idle auto-reset) |
 <!-- concept:mcp_tool_table end -->
 
+## Skills (2)
+
+Tools are what the server can *do*. Skills are the **recipe** — which tools, in
+what order, and what fails silently. They live in [`docs/skills/`](docs/skills/),
+version controlled with the code they describe, and load only when the request
+matches their trigger, so they cost almost nothing until they are relevant.
+
+| Skill | Fires on |
+|---|---|
+| `fpt-query` | Any read-only analysis: counts, rollups, breakdowns, note threads, activity. The risk here is not damage but token exhaustion — `summarize` over `find`, explicit `fields`, `sg_schema` before an unfamiliar filter |
+| `fpt-publish` | The publish chain: Step→Task resolution, the `{name}`-from-Step contract, publish types, the `%04d` rejection, and why a published path is version-upped rather than rewritten |
+
+Activate them on a fresh clone by symlinking into your user skills directory:
+
+```bash
+for s in fpt-query fpt-publish; do
+  ln -s "$PWD/docs/skills/$s" ~/.claude/skills/"$s"
+done
+```
+
+Where `safety.py` refuses something, the skill's job is to say what to do
+**instead** — never to restate the prohibition, which would give one rule two
+places to drift. See [`docs/skills/README.md`](docs/skills/README.md) for the
+four-layer split (tool / skill / RAG / memory).
+
 ## Approach
 
 Full ShotGrid API access via `shotgun_api3` with no entity restrictions.
@@ -663,7 +688,10 @@ fpt-mcp/
 ├── docs/
 │   ├── DEPLOY.md                         # Reinstall recipes and deploy workflow
 │   ├── BUCKET_F_PLAN.md                  # server.py refactor plan (Bucket F)
-│   └── O3_NEXT_SUGGESTED_ACTIONS.md      # Chaining-hints design (next_suggested_actions)
+│   ├── O3_NEXT_SUGGESTED_ACTIONS.md      # Chaining-hints design (next_suggested_actions)
+│   └── skills/                           # Claude Code skills (symlinked into ~/.claude/skills/)
+│       ├── fpt-query/                    # Read-only analysis: rollups, counts, field discipline
+│       └── fpt-publish/                  # The publish chain: Step→Task, types, version-up
 ├── scripts/
 │   ├── cut-release.sh                    # Canonical release script (the only supported release path)
 │   ├── verify_concepts.py                # Concept-registry drift checker (pre-commit)
