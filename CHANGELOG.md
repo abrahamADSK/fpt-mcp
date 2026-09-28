@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.28.0] — 2026-09-28
+
 ### Added
 - **Skills layer** (`docs/skills/`): `fpt-query` and `fpt-publish`.
   Procedural knowledge that was previously reachable only from handoffs and
