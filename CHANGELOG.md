@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The console signs the operator in, and the user session replaces the script
+  key.** New `fpt_mcp/auth.py` resolves a human identity two ways: a cached
+  session (shared with Desktop and `tank` through
+  `~/Library/Caches/Shotgun/`), or the **App Session Launcher**, which opens the
+  site in the browser and returns a token.
+
+  The console calls it at launch, before the first ShotGrid request, and exports
+  the result so `claude` — and therefore fpt-mcp — inherits it. `client.py` now
+  prefers `SHOTGRID_SESSION_TOKEN` over the script key, and `_validate_config`
+  stops demanding a script key when a session is present, so an install need not
+  keep a service credential it never spends.
+
+  Two design points worth keeping. The launcher imports **no Qt**, so one code
+  path serves the Qt consoles and a plain terminal alike — Qt presence stopped
+  being a branch. And `ShotgunAuthenticator.get_user()` is deliberately never
+  called: it prints a method menu and blocks on `input()`, which is harmless in a
+  terminal and fatal in an MCP server on stdio, where it raises `EOFError`. The
+  **server never authenticates**; only the console does, so the browser opens
+  where a person is watching.
+
+  Sites with the App Session Launcher disabled have no headless path at all;
+  `auth.py` detects that and says so rather than hanging. 13 tests, none of which
+  touch a browser or a network.
+
+### Changed
+- **The API Script key is now the fallback, not the default.** `client.py` still
+  connects with it when no session was injected — avoiding a hard failure where
+  there is no console — but logs a warning that writes will be attributed to the
+  script rather than to a person.
+
+### Added
 - **`sgtk` (Toolkit core) as a real dependency, and a Python upper bound to
   match.** fpt-mcp can now authenticate as the *signed-in human* instead of as
   the shared API Script. Installed from Autodesk's official repository, pinned

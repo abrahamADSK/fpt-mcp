@@ -187,7 +187,7 @@ The doctor performs five independent checks — claude.json registration, `.env`
 
 - **Placeholder values left in `.env`** — the most frequent cause of `CERTIFICATE_VERIFY_FAILED` errors on first use. The doctor detects these automatically.
 - **`SHOTGRID_PROJECT_ID=0`** — disables default project scoping. Every `sg_find`, `sg_create`, and `sg_upload` call must then specify a project filter explicitly. This is valid for multi-project workflows but unexpected for single-project setups.
-- **Script key vs. user credentials** — the `.env` key is an **API script key** from Admin → Scripts, not your personal login password.
+- **Script key vs. user credentials** — the `.env` key is an **API script key** from Admin → Scripts, not your personal login password. Since the console signs you in (see *Architecture*), it is now only the **fallback** used when no user session was injected; `client.py` logs a warning when it falls back, because writes then lose their attribution.
 - **Stale `.env` after site migration** — if your ShotGrid site URL changes (e.g. during an Autodesk ID migration), update `SHOTGRID_URL` and re-run `--doctor`.
 
 ## Usage
@@ -704,24 +704,51 @@ path. Each message starts a private fpt-mcp over stdio that dies with it.
 ### Who authenticates with what
 
 The `.app` itself authenticates against nothing — it is a launcher. Credentials
-enter two hops further down, and **which credential depends on the destination**:
+enter two hops further down, and **both hops now carry the same human identity**.
 
 | Destination | Credential | Effective identity |
 |---|---|---|
-| ShotGrid API (all `sg_*`, `tk_publish`, conform tools) | **API Script key**, read from `.env` | The API Script entity — *not* the person |
-| Toolkit (`tank` launches) | **Browser SSO session token**, cached under `~/Library/Caches/Shotgun/` | The signed-in human |
+| ShotGrid API (all `sg_*`, `tk_publish`, conform tools) | **User session token**, resolved by the console | The signed-in human |
+| Toolkit (`tank` launches) | **Browser SSO session**, cached under `~/Library/Caches/Shotgun/` | The signed-in human |
 
-`setup/config/core/shotgun.yml` carries `host:` only and no `api_key`, which is
-why the two paths diverge: they are separate identities, with separate
-permissions, expiring independently.
+The two used to diverge — the API ran on a shared **API Script key** while
+`tank` ran as the person, which is why `setup/config/core/shotgun.yml` carries
+`host:` and no `api_key`. They are unified now: both read the **same** session
+cache, so one sign-in covers Desktop, `tank` and this server.
 
-**The AMI's `user_login` is not an authentication factor.** It travels in the
-URL and is kept for display and context (`qt/app.py`), but it never reaches the
-ShotGrid API — every call goes out under the script key. Anything able to invoke
-`fpt-mcp://` therefore acts with the script key's full permissions, whatever
-`user_login` it supplies, and the ShotGrid event log will attribute the result to
-the script rather than to a person. That is coherent on a single-user
-workstation; it stops being coherent the moment the host is shared.
+### How the session is established
+
+`fpt_mcp/auth.py` resolves it, and the **console** calls it at launch — before
+the first ShotGrid request — then exports it so the `claude` subprocess, and
+therefore fpt-mcp, inherits it:
+
+1. **A cached session**, shared with Desktop and `tank`. Never prompts.
+2. **The App Session Launcher** when there is none or it has expired: the site
+   opens in the default browser, the person approves, a token comes back.
+
+The launcher imports **no Qt**, which is what lets one code path serve the Qt
+consoles and a plain terminal alike. `ShotgunAuthenticator.get_user()` is
+deliberately never called: it prints a method-selection menu and blocks on
+`input()`, which raises `EOFError` in an MCP server on stdio.
+
+The **server never authenticates**. It uses whatever was injected, so the
+browser only ever opens where a person is watching.
+
+> **Sites that disable the App Session Launcher** have no headless path at all —
+> Toolkit would fall back to that terminal prompt. `auth.py` detects this and
+> says so instead of hanging; sign in through Desktop and retry.
+
+### The script key is now a fallback, not the default
+
+When no session is injected, `client.py` still connects with the script key and
+**logs a warning** that writes will be attributed to the script rather than to a
+person. Keeping it avoids a hard failure in contexts that have no console, but
+it is the degraded path, not the intended one.
+
+**The AMI's `user_login` is still not an authentication factor.** It travels in
+the URL for display and context (`qt/app.py`) and is never sent to the API. What
+changed is that it no longer matters: the identity now comes from a real session,
+so supplying a different `user_login` buys nothing.
 
 ## Project Structure
 

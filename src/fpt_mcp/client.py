@@ -51,6 +51,13 @@ if _injected_project_id:
 SHOTGRID_URL: str = os.getenv("SHOTGRID_URL", "")
 SCRIPT_NAME: str = os.getenv("SHOTGRID_SCRIPT_NAME", "")
 SCRIPT_KEY: str = os.getenv("SHOTGRID_SCRIPT_KEY", "")
+
+# User-session credentials, injected by the Qt console after it authenticates
+# the person (see fpt_mcp.auth). When present they REPLACE the script key: the
+# connection then acts with that human's identity and permissions, and ShotGrid
+# attributes every write to them rather than to the shared API Script.
+SESSION_TOKEN: str = os.getenv("SHOTGRID_SESSION_TOKEN", "")
+SESSION_LOGIN: str = os.getenv("SHOTGRID_LOGIN", "")
 PROJECT_ID: int = int(os.getenv("SHOTGRID_PROJECT_ID", "0"))
 
 # Socket/request timeout (seconds) applied to the shared connection via
@@ -75,10 +82,14 @@ def _validate_config() -> None:
     missing = []
     if not SHOTGRID_URL:
         missing.append("SHOTGRID_URL")
-    if not SCRIPT_NAME:
-        missing.append("SHOTGRID_SCRIPT_NAME")
-    if not SCRIPT_KEY:
-        missing.append("SHOTGRID_SCRIPT_KEY")
+    # The script key is only required as a fallback. With a user session
+    # injected it is not used at all, and demanding it would force every
+    # install to keep a service credential on disk it never spends.
+    if not SESSION_TOKEN:
+        if not SCRIPT_NAME:
+            missing.append("SHOTGRID_SCRIPT_NAME")
+        if not SCRIPT_KEY:
+            missing.append("SHOTGRID_SCRIPT_KEY")
     if missing:
         raise EnvironmentError(
             f"Missing required environment variables: {', '.join(missing)}. "
@@ -86,11 +97,13 @@ def _validate_config() -> None:
         )
 
     placeholders = []
-    for var, value in (
-        ("SHOTGRID_URL", SHOTGRID_URL),
-        ("SHOTGRID_SCRIPT_NAME", SCRIPT_NAME),
-        ("SHOTGRID_SCRIPT_KEY", SCRIPT_KEY),
-    ):
+    _checked = [("SHOTGRID_URL", SHOTGRID_URL)]
+    if not SESSION_TOKEN:
+        _checked += [
+            ("SHOTGRID_SCRIPT_NAME", SCRIPT_NAME),
+            ("SHOTGRID_SCRIPT_KEY", SCRIPT_KEY),
+        ]
+    for var, value in _checked:
         lowered = value.lower()
         if any(frag.lower() in lowered for frag in _PLACEHOLDER_FRAGMENTS[var]):
             placeholders.append(var)
@@ -132,11 +145,26 @@ def get_sg() -> shotgun_api3.Shotgun:
             # we were blocked on the lock.
             if _sg_instance is None:
                 _validate_config()
-                sg = shotgun_api3.Shotgun(
-                    SHOTGRID_URL,
-                    script_name=SCRIPT_NAME,
-                    api_key=SCRIPT_KEY,
-                )
+                if SESSION_TOKEN:
+                    _logger.info(
+                        "ShotGrid connection as user %s (session token)",
+                        SESSION_LOGIN or "<unknown>",
+                    )
+                    sg = shotgun_api3.Shotgun(
+                        SHOTGRID_URL, session_token=SESSION_TOKEN
+                    )
+                else:
+                    _logger.warning(
+                        "ShotGrid connection as the shared API Script %r. No "
+                        "user session was injected, so writes will be "
+                        "attributed to the script, not to a person.",
+                        SCRIPT_NAME,
+                    )
+                    sg = shotgun_api3.Shotgun(
+                        SHOTGRID_URL,
+                        script_name=SCRIPT_NAME,
+                        api_key=SCRIPT_KEY,
+                    )
                 # Apply the socket/request timeout so a dead server cannot hang
                 # a worker thread indefinitely. Best-effort: a stub/mock Shotgun
                 # in tests may not expose `.config`.

@@ -360,6 +360,39 @@ class FPTApplication(QApplication):
             self._process_url(url)
 
 
+def _establish_user_session() -> None:
+    """Sign the operator in before anything touches ShotGrid.
+
+    The console is the right place for this: it is launched by a person, so the
+    browser opens where someone is watching. The MCP server must never do it —
+    on stdio there is nobody to answer.
+
+    On success the session is exported into this process's environment, which
+    the `claude` subprocess and therefore fpt-mcp inherit, so every downstream
+    ShotGrid call carries the person's identity instead of the shared script's.
+    """
+    from fpt_mcp import auth
+
+    try:
+        session = auth.ensure_session()
+    except auth.AuthUnavailable as exc:
+        _launch_log(f"auth unavailable: {exc}")
+        print(f"[auth] {exc}", flush=True)
+        return
+    except auth.SiteRejectsBrowserAuth as exc:
+        _launch_log(f"auth rejected by site: {exc}")
+        print(f"[auth] {exc}", flush=True)
+        return
+    except Exception as exc:  # cancelled, offline, launcher timeout
+        _launch_log(f"auth failed: {type(exc).__name__}: {exc}")
+        print(f"[auth] Sign-in did not complete: {exc}", flush=True)
+        return
+
+    os.environ.update(auth.session_env(session))
+    _launch_log(f"auth OK as {session.login}")
+    print(f"[auth] signed in as {session.login}", flush=True)
+
+
 def main():
     print(f"[main] sys.argv={sys.argv}", flush=True)
     _launch_log(f"main sys.argv={sys.argv}")
@@ -400,6 +433,11 @@ def main():
             ctx["project_name"] = args.project_name
         if args.user_login:
             ctx["user_login"] = args.user_login
+
+    # Sign in BEFORE the first ShotGrid call below. Falling through without a
+    # session is not fatal — client.py still has the script-key fallback — but
+    # it is logged loudly, because it means writes lose their attribution.
+    _establish_user_session()
 
     # Always make sure the entity code is in the context before the
     # window is built — Claude needs it to fill Toolkit template tokens
