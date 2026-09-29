@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`sgtk` (Toolkit core) as a real dependency, and a Python upper bound to
+  match.** fpt-mcp can now authenticate as the *signed-in human* instead of as
+  the shared API Script. Installed from Autodesk's official repository, pinned
+  to the tag the pipeline configuration localises.
+
+  Three things make this work that were not obvious. It is **not** on PyPI, and
+  the `tk-core` name there belongs to an unrelated project — the package
+  Autodesk builds is called `sgtk`. Installed through pip it resolves
+  dependencies with pip rather than the per-Python-version `pkgs.zip` bundles,
+  which is what makes it portable. And it reads the **shared** session cache in
+  `~/Library/Caches/Shotgun/`, so one login is seen by Desktop, `tank` and this
+  server alike — with no Desktop install required.
+
+  It adds three packages (`distro`, `ruamel.yaml`, `ruamel.yaml.clib`) and
+  6.5 MB, and needs `git` at install time. `allow-direct-references` is enabled
+  for hatchling, which is safe here because fpt-mcp is never published to PyPI.
+
+### Changed
+- **`requires-python` is now `>=3.13,<3.14`, and CI tests 3.13 only.** Autodesk
+  ships no 3.14 support for tk-core. The bound is **specific to this repo**:
+  maya-mcp and flame-mcp do not import `tank` and keep a plain `>=3.13` with
+  both versions in CI. Lift it when Autodesk ships 3.14.
+
+### Fixed
+- **Dangling `fpt-ami` console script.** Removing the `ami` package left its
+  entry point in `[project.scripts]`, so `pip install -e .` kept installing a
+  `fpt-ami` binary that died on `ModuleNotFoundError`. Caught when the venv was
+  rebuilt — a reminder that the whole-repo sweep has to include `pyproject.toml`.
+
 ### Removed
 - **The launchd daemon on `:8090`, and the dead AMI HTTP package.** Neither has
   a caller. The original March architecture served the AMI from an HTTP endpoint

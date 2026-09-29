@@ -16,7 +16,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13", "3.14"]
+        # 3.14 dropped: this repo depends on sgtk (Toolkit core), for which
+        # Autodesk ships no 3.14 support — tk-core v0.24.2, the newest
+        # release, bundles dependencies for 3.9/3.10/3.11/3.13 only. The
+        # matching upper bound lives in pyproject.toml. maya-mcp and
+        # flame-mcp still test both. Restore 3.14 when Autodesk ships it.
+        python-version: ["3.13"]
     steps:
       - uses: actions/checkout@v4
 

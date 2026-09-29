@@ -67,9 +67,18 @@ fpt-mcp ships a native PySide6 chat window that routes messages through the Clau
 
 ## Requirements
 
-- Python >= 3.13
+- Python **3.13.x** — `>=3.13,<3.14`. The upper bound is not caution, it is a
+  hard constraint: `sgtk` below has no Python 3.14 support from Autodesk
+  (tk-core v0.24.2, the newest release, bundles dependencies for
+  3.9/3.10/3.11/3.13 only). Lift it when Autodesk ships 3.14.
 - macOS (for protocol handler; Qt console also works on Linux/Windows without protocol handler)
 - `shotgun_api3` (ShotGrid Python API)
+- `sgtk` (Toolkit core) — authenticates as the **signed-in human** rather than
+  as the API Script. Pulled from Autodesk's official repository, pinned to the
+  tag the pipeline configuration localises. It is **not** on PyPI; the package
+  named `tk-core` there belongs to an unrelated project. `git` must be
+  available at install time. Requires no Flow Production Tracking Desktop
+  install, and shares the session cache with it and with `tank`.
 - `mcp[cli]` (MCP Python SDK with FastMCP)
 - `pydantic` >= 2.0
 - `PySide6` >= 6.6 (Qt for Python)

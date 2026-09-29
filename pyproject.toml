@@ -7,7 +7,13 @@ name = "fpt-mcp"
 version = "1.28.0"
 description = "MCP server for Autodesk Flow Production Tracking (ShotGrid)"
 readme = "README.md"
-requires-python = ">=3.13"
+# Upper bound is deliberate and specific to this repo: fpt-mcp depends on
+# sgtk (Toolkit core) for user authentication, and Autodesk publishes no
+# Python 3.14 support for it — tk-core v0.24.2, the newest release, ships
+# dependency bundles for 3.9/3.10/3.11/3.13 only. maya-mcp and flame-mcp do
+# not import tank, so they keep a plain ">=3.13". Lift this the moment
+# Autodesk ships 3.14.
+requires-python = ">=3.13,<3.14"
 license = "MIT"
 dependencies = [
     "mcp[cli]>=1.0.0,<2",  # 2.x drops mcp.server.fastmcp (CI drift, Chat 92)
@@ -26,11 +32,23 @@ dependencies = [
     "chromadb>=1.5.0,<2.0",
     "sentence-transformers>=5.0,<6.0",
     "rank-bm25>=0.2.2",
+    # Toolkit core, for authenticating as the signed-in HUMAN rather than as
+    # the API Script. Installed from Autodesk's official repository: it is not
+    # on PyPI, and the name "tk-core" there belongs to an unrelated project.
+    # The tag matches the core localised by the pipeline configuration.
+    # Installed this way it resolves its dependencies through pip instead of
+    # the per-Python-version pkgs.zip bundles, which is what makes it portable.
+    "sgtk @ git+https://github.com/shotgunsoftware/tk-core.git@v0.23.9",
 ]
+
+[tool.hatch.metadata]
+# Required for the sgtk direct reference above. Hatchling blocks direct
+# references by default because a package carrying one cannot be uploaded to
+# PyPI — fpt-mcp is never published there, so the guard does not apply.
+allow-direct-references = true
 
 [project.scripts]
 fpt-mcp = "fpt_mcp.server:main"
-fpt-ami = "fpt_mcp.ami.handler:main"
 fpt-console = "fpt_mcp.qt.app:main"
 
 [tool.mypy]
