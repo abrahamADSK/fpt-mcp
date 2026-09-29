@@ -731,8 +731,25 @@ consoles and a plain terminal alike. `ShotgunAuthenticator.get_user()` is
 deliberately never called: it prints a method-selection menu and blocks on
 `input()`, which raises `EOFError` in an MCP server on stdio.
 
-The **server never authenticates**. It uses whatever was injected, so the
-browser only ever opens where a person is watching.
+The **server never opens a browser**. It uses the injected session if there is
+one, otherwise it reads the **shared cache** — a lookup that returns `None`
+rather than prompting — and only then falls back to the script key. So a session
+established anywhere is picked up everywhere.
+
+### Signing in from a terminal
+
+The browser flow needs no Qt, so a plain terminal signs in just as well as the
+Qt console:
+
+```bash
+.venv/bin/python -m fpt_mcp.auth            # opens the browser, caches the session
+.venv/bin/python -m fpt_mcp.auth --status   # report who is signed in, no prompting
+```
+
+The token lands in the shared Toolkit cache, so the console, the MCP server,
+`tank` and Desktop all pick it up afterwards without signing in again. This is
+the path for a Claude Code session, a first-time setup, or any context with no
+Qt console to launch.
 
 > **Sites that disable the App Session Launcher** have no headless path at all —
 > Toolkit would fall back to that terminal prompt. `auth.py` detects this and

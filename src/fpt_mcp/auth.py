@@ -177,3 +177,51 @@ def session_env(session: Session) -> dict[str, str]:
         "SHOTGRID_LOGIN": session.login,
         "SHOTGRID_URL": session.host,
     }
+
+
+def _main() -> int:
+    """Sign in from a terminal: ``python -m fpt_mcp.auth``.
+
+    Exists because the browser flow needs no Qt, so a plain terminal — a Claude
+    Code session, an SSH-less shell, a first-time setup — can establish the
+    session just as well as the Qt console. The token lands in the shared
+    Toolkit cache, so everything else (the console, the MCP server, ``tank``,
+    Desktop) picks it up afterwards without signing in again.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m fpt_mcp.auth",
+        description="Authenticate with Flow Production Tracking as yourself.",
+    )
+    parser.add_argument(
+        "--status", action="store_true",
+        help="Report the cached session without authenticating.",
+    )
+    parser.add_argument("--host", default=None, help="Site URL (default: SHOTGRID_URL)")
+    args = parser.parse_args()
+
+    try:
+        if args.status:
+            session = cached_session()
+            if session is None:
+                print("No valid cached session. Run without --status to sign in.")
+                return 1
+            print(f"Signed in as {session.login} on {session.host}")
+            return 0
+
+        session = ensure_session(args.host)
+    except (AuthUnavailable, SiteRejectsBrowserAuth) as exc:
+        print(f"error: {exc}")
+        return 2
+    except Exception as exc:
+        print(f"error: sign-in did not complete: {exc}")
+        return 2
+
+    print(f"Signed in as {session.login} on {session.host}")
+    print("The session is cached and shared — no other component needs to sign in.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

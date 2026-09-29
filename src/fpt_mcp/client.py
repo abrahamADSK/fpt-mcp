@@ -145,19 +145,36 @@ def get_sg() -> shotgun_api3.Shotgun:
             # we were blocked on the lock.
             if _sg_instance is None:
                 _validate_config()
-                if SESSION_TOKEN:
+                token, login = SESSION_TOKEN, SESSION_LOGIN
+                if not token:
+                    # Nothing injected. Read the SHARED Toolkit cache, which is
+                    # populated by the console, `python -m fpt_mcp.auth`, tank
+                    # or Desktop alike. This never prompts — cached_session()
+                    # returns None rather than opening a browser — so it is
+                    # safe here, where there is nobody to answer a prompt.
+                    try:
+                        from fpt_mcp import auth
+
+                        cached = auth.cached_session()
+                        if cached is not None:
+                            token, login = cached.token, cached.login
+                    except Exception as exc:
+                        _logger.debug("No cached user session: %s", exc)
+
+                if token:
                     _logger.info(
                         "ShotGrid connection as user %s (session token)",
-                        SESSION_LOGIN or "<unknown>",
+                        login or "<unknown>",
                     )
                     sg = shotgun_api3.Shotgun(
-                        SHOTGRID_URL, session_token=SESSION_TOKEN
+                        SHOTGRID_URL, session_token=token
                     )
                 else:
                     _logger.warning(
                         "ShotGrid connection as the shared API Script %r. No "
-                        "user session was injected, so writes will be "
-                        "attributed to the script, not to a person.",
+                        "user session was injected and none is cached, so "
+                        "writes will be attributed to the script, not to a "
+                        "person. Sign in with: python -m fpt_mcp.auth",
                         SCRIPT_NAME,
                     )
                     sg = shotgun_api3.Shotgun(

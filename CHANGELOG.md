@@ -32,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `auth.py` detects that and says so rather than hanging. 13 tests, none of which
   touch a browser or a network.
 
+- **`python -m fpt_mcp.auth` — sign in from a terminal.** Since the browser flow
+  needs no Qt, a Claude Code session or a first-time setup can establish the
+  session without a Qt console. `--status` reports the cached identity without
+  prompting. The token goes to the shared Toolkit cache, so everything else
+  picks it up.
+
+- **The server reads that shared cache.** Previously `client.py` only honoured a
+  token injected by the console, so a perfectly valid cached session was ignored
+  outside it and the connection silently degraded to the script key. It now
+  tries injected → cached → script key. The cached lookup never prompts, which
+  is what makes it safe in an MCP server.
+
 ### Changed
 - **The API Script key is now the fallback, not the default.** `client.py` still
   connects with it when no session was injected — avoiding a hard failure where
