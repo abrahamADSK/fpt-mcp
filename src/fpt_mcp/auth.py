@@ -142,7 +142,19 @@ def browser_session(host: str) -> Session:
     if not result:
         raise RuntimeError("Browser authentication was not completed.")
 
-    sg_url, login, token, _metadata = result
+    sg_url, login, token, metadata = result
+
+    # PERSIST. app_session_launcher.process() hands the token back but caches
+    # nothing — Toolkit's own flow does this separately, and skipping it means
+    # the sign-in evaporates the moment the process exits, silently sending the
+    # next call back to the script key. Writing it here is what makes one login
+    # cover the console, this server, tank and Desktop.
+    from tank.authentication import session_cache
+
+    session_cache.cache_session_data(sg_url, login, token, metadata)
+    session_cache.set_current_host(sg_url)
+    session_cache.set_current_user(sg_url, login)
+
     return Session(host=sg_url, login=login, token=token)
 
 
@@ -163,6 +175,57 @@ def ensure_session(host: str | None = None) -> Session:
             "Set SHOTGRID_URL."
         )
     return browser_session(target)
+
+
+def logout(host: str | None = None, login: str | None = None) -> tuple[str, str]:
+    """Delete the cached session for a site, so the next call re-authenticates.
+
+    Without this there is no way to switch user: ``--status`` keeps reporting
+    whoever signed in first, and the only alternative is deleting the cache file
+    by hand.
+    """
+    _import_tank()
+    from tank.authentication import session_cache
+
+    target = host or session_cache.get_current_host()
+    if not target:
+        raise RuntimeError("No current host — nothing to sign out of.")
+    who = login or session_cache.get_current_user(target)
+    if not who:
+        raise RuntimeError(f"No cached user for {target}.")
+
+    session_cache.delete_session_data(target, who)
+    return target, who
+
+
+def list_sessions() -> list[tuple[str, str, bool]]:
+    """Every cached (host, login, is_current) triple.
+
+    Sessions are cached per site, so several portals coexist. Hosts come from
+    Toolkit's own recent-hosts list rather than from the cache directory names,
+    which are sanitised and cannot be turned back into a URL.
+    """
+    _import_tank()
+    from tank.authentication import session_cache
+
+    try:
+        current_host = session_cache.get_current_host()
+    except Exception:
+        current_host = None
+
+    hosts = list(session_cache.get_recent_hosts() or [])
+    if current_host and current_host not in hosts:
+        hosts.append(current_host)
+
+    out: list[tuple[str, str, bool]] = []
+    for host in hosts:
+        try:
+            user = session_cache.get_current_user(host)
+        except Exception:
+            user = None
+        if user:
+            out.append((host, user, host == current_host))
+    return out
 
 
 def session_env(session: Session) -> dict[str, str]:
@@ -190,6 +253,18 @@ def _main() -> int:
     """
     import argparse
 
+    # Load the repo's .env for SHOTGRID_URL. Anchored by absolute path, not the
+    # cwd: this entry point is run from anywhere, and a bare load_dotenv()
+    # searches upward from the cwd and would miss it (same reasoning as
+    # client.py). Importing this module stays side-effect free — only the CLI
+    # touches the environment.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    except ImportError:
+        pass
+
     parser = argparse.ArgumentParser(
         prog="python -m fpt_mcp.auth",
         description="Authenticate with Flow Production Tracking as yourself.",
@@ -199,9 +274,32 @@ def _main() -> int:
         help="Report the cached session without authenticating.",
     )
     parser.add_argument("--host", default=None, help="Site URL (default: SHOTGRID_URL)")
+    parser.add_argument(
+        "--logout", action="store_true",
+        help="Forget the cached session, so the next sign-in can be a different user.",
+    )
+    parser.add_argument(
+        "--list", action="store_true", dest="list_sessions",
+        help="List every cached site and user.",
+    )
     args = parser.parse_args()
 
     try:
+        if args.list_sessions:
+            rows = list_sessions()
+            if not rows:
+                print("No cached sessions.")
+                return 1
+            for host, login, current in rows:
+                print(f"{'*' if current else ' '} {login:<40} {host}")
+            return 0
+
+        if args.logout:
+            host, login = logout(args.host)
+            print(f"Signed out {login} from {host}.")
+            print("The next sign-in may use a different account.")
+            return 0
+
         if args.status:
             session = cached_session()
             if session is None:

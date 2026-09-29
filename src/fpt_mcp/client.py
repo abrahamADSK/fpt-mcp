@@ -157,7 +157,23 @@ def get_sg() -> shotgun_api3.Shotgun:
 
                         cached = auth.cached_session()
                         if cached is not None:
-                            token, login = cached.token, cached.login
+                            # Sessions are cached per site. Using one site's
+                            # token against another fails in a confusing way —
+                            # a valid-looking credential rejected by a server
+                            # that never issued it — so refuse the mismatch
+                            # loudly instead of letting it through.
+                            def _norm(u: str) -> str:
+                                return u.rstrip("/").lower()
+
+                            if _norm(cached.host) != _norm(SHOTGRID_URL):
+                                _logger.warning(
+                                    "Cached session is for %s but SHOTGRID_URL "
+                                    "is %s — ignoring it. Sign in to this site "
+                                    "with: python -m fpt_mcp.auth --host %s",
+                                    cached.host, SHOTGRID_URL, SHOTGRID_URL,
+                                )
+                            else:
+                                token, login = cached.token, cached.login
                     except Exception as exc:
                         _logger.debug("No cached user session: %s", exc)
 

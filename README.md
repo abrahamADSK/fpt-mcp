@@ -742,14 +742,29 @@ The browser flow needs no Qt, so a plain terminal signs in just as well as the
 Qt console:
 
 ```bash
-.venv/bin/python -m fpt_mcp.auth            # opens the browser, caches the session
-.venv/bin/python -m fpt_mcp.auth --status   # report who is signed in, no prompting
+.venv/bin/python -m fpt_mcp.auth              # opens the browser, caches the session
+.venv/bin/python -m fpt_mcp.auth --status     # who is signed in, no prompting
+.venv/bin/python -m fpt_mcp.auth --list       # every cached site and user
+.venv/bin/python -m fpt_mcp.auth --logout     # forget it, so the next sign-in can differ
+.venv/bin/python -m fpt_mcp.auth --host URL   # authenticate against another portal
 ```
 
 The token lands in the shared Toolkit cache, so the console, the MCP server,
 `tank` and Desktop all pick it up afterwards without signing in again. This is
 the path for a Claude Code session, a first-time setup, or any context with no
 Qt console to launch.
+
+### Switching portal or user
+
+Sessions are cached **per site**, so several portals coexist; `--list` marks the
+current one with `*`. Switching user on the same site needs `--logout` first —
+otherwise the cached identity simply wins and nothing prompts.
+
+> **The cached session must match `SHOTGRID_URL`.** `client.py` compares them and
+> **ignores** a token issued by a different site, with a warning naming the
+> command to fix it. A token from portal A sent to portal B fails in a confusing
+> way — a valid-looking credential rejected by a server that never issued it — so
+> the mismatch is refused rather than passed through.
 
 > **Sites that disable the App Session Launcher** have no headless path at all —
 > Toolkit would fall back to that terminal prompt. `auth.py` detects this and

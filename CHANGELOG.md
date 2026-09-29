@@ -38,11 +38,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prompting. The token goes to the shared Toolkit cache, so everything else
   picks it up.
 
+- **Switching portal and user**: `--list` (every cached site and user, current
+  marked), `--logout` (forget the session so the next sign-in can be someone
+  else), `--host` (authenticate against another portal). Sessions cache per
+  site, so portals coexist. `client.py` now **refuses a token whose site does
+  not match `SHOTGRID_URL`** and says which command fixes it — mixing them fails
+  as a valid-looking credential rejected by a server that never issued it.
+
 - **The server reads that shared cache.** Previously `client.py` only honoured a
   token injected by the console, so a perfectly valid cached session was ignored
   outside it and the connection silently degraded to the script key. It now
   tries injected → cached → script key. The cached lookup never prompts, which
   is what makes it safe in an MCP server.
+
+### Fixed
+- **The browser sign-in did not persist, so it evaporated on process exit.**
+  `app_session_launcher.process()` returns a token but caches nothing — Toolkit
+  persists in a separate step that was missed. The result looked like success
+  and then silently fell back to the script key on the next call; caught only by
+  inspecting `sg.config` rather than trusting the "signed in" message. Now
+  writes through `session_cache.cache_session_data()` and sets the current
+  host/user. Covered by a regression test.
 
 ### Changed
 - **The API Script key is now the fallback, not the default.** `client.py` still

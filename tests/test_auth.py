@@ -38,9 +38,25 @@ def _fake_tank(user=None, asl_enabled=True, asl_result=None):
     launcher = types.ModuleType("tank.authentication.app_session_launcher")
     launcher.process = lambda host, browser_open_callback=None, **kw: asl_result
 
+    # browser_session() persists through session_cache — without it the token
+    # would evaporate on process exit and the next call would silently fall
+    # back to the script key.
+    session_cache = types.ModuleType("tank.authentication.session_cache")
+    session_cache.cached = []
+    session_cache.cache_session_data = (
+        lambda h, user, tok, meta=None: session_cache.cached.append((h, user, tok))
+    )
+    session_cache.set_current_host = lambda h: None
+    session_cache.set_current_user = lambda h, user: None
+    session_cache.get_current_host = lambda: None
+    session_cache.get_current_user = lambda host: None
+    session_cache.get_recent_hosts = lambda: []
+    session_cache.delete_session_data = lambda h, user: None
+
     authentication.ShotgunAuthenticator = _Authenticator
     authentication.site_info = site_info
     authentication.app_session_launcher = launcher
+    authentication.session_cache = session_cache
     tank.authentication = authentication
 
     return {
@@ -48,6 +64,7 @@ def _fake_tank(user=None, asl_enabled=True, asl_result=None):
         "tank.authentication": authentication,
         "tank.authentication.site_info": site_info,
         "tank.authentication.app_session_launcher": launcher,
+        "tank.authentication.session_cache": session_cache,
     }
 
 
@@ -183,3 +200,81 @@ class TestUnavailable:
 
         with pytest.raises(auth.AuthUnavailable, match="pip install"):
             auth.cached_session()
+
+
+class TestSwitching:
+    """Changing site or user — the cache holds one session per site."""
+
+    def test_logout_deletes_the_cached_session(self, monkeypatch):
+        deleted = []
+        sc = types.ModuleType("tank.authentication.session_cache")
+        sc.get_current_host = lambda: "https://a.shotgrid.com"
+        sc.get_current_user = lambda host: "ana@studio.com"
+        sc.delete_session_data = lambda h, u: deleted.append((h, u))
+
+        mods = _fake_tank()
+        mods["tank.authentication"].session_cache = sc
+        mods["tank.authentication.session_cache"] = sc
+        for name, mod in mods.items():
+            monkeypatch.setitem(sys.modules, name, mod)
+
+        host, login = auth.logout()
+
+        assert deleted == [("https://a.shotgrid.com", "ana@studio.com")]
+        assert (host, login) == ("https://a.shotgrid.com", "ana@studio.com")
+
+    def test_logout_without_a_host_is_an_error(self, monkeypatch):
+        sc = types.ModuleType("tank.authentication.session_cache")
+        sc.get_current_host = lambda: None
+        mods = _fake_tank()
+        mods["tank.authentication"].session_cache = sc
+        mods["tank.authentication.session_cache"] = sc
+        for name, mod in mods.items():
+            monkeypatch.setitem(sys.modules, name, mod)
+
+        with pytest.raises(RuntimeError, match="nothing to sign out"):
+            auth.logout()
+
+    def test_list_marks_the_current_site(self, monkeypatch):
+        """Hosts come from Toolkit's list — cache dir names cannot be un-sanitised."""
+        sc = types.ModuleType("tank.authentication.session_cache")
+        sc.get_current_host = lambda: "https://b.shotgrid.com"
+        sc.get_recent_hosts = lambda: ["https://a.shotgrid.com", "https://b.shotgrid.com"]
+        sc.get_current_user = lambda host: {
+            "https://a.shotgrid.com": "ana@studio.com",
+            "https://b.shotgrid.com": "bea@studio.com",
+        }.get(host)
+
+        mods = _fake_tank()
+        mods["tank.authentication"].session_cache = sc
+        mods["tank.authentication.session_cache"] = sc
+        for name, mod in mods.items():
+            monkeypatch.setitem(sys.modules, name, mod)
+
+        rows = auth.list_sessions()
+
+        assert ("https://a.shotgrid.com", "ana@studio.com", False) in rows
+        assert ("https://b.shotgrid.com", "bea@studio.com", True) in rows
+
+
+class TestPersistence:
+    """The sign-in must survive process exit, or it is worthless."""
+
+    def test_browser_session_caches_the_token(self, monkeypatch):
+        """Regression: process() returns a token but caches nothing.
+
+        Without an explicit cache_session_data the sign-in evaporated on exit
+        and the next call fell back to the script key, silently.
+        """
+        mods = _fake_tank(
+            user=None,
+            asl_result=("https://s.shotgrid.com", "ana@studio.com", "tok", None),
+        )
+        for name, mod in mods.items():
+            monkeypatch.setitem(sys.modules, name, mod)
+
+        auth.browser_session("https://s.shotgrid.com")
+
+        assert mods["tank.authentication.session_cache"].cached == [
+            ("https://s.shotgrid.com", "ana@studio.com", "tok")
+        ]
