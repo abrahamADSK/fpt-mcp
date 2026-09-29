@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   external MCP client — but it is now started deliberately and documented as
   unauthenticated.
 
+### Added
+- **The authentication model is now written down** (README → Architecture). The
+  request chain was already documented and correct; which credential is used at
+  which hop was not. Two identities, by destination: the **API Script key** for
+  the ShotGrid API, and the **browser SSO session** for Toolkit `tank` launches —
+  which is why `setup/config/core/shotgun.yml` carries `host:` and no `api_key`.
+  Also records that the AMI's `user_login` is **not** an authentication factor:
+  it is display context only and never reaches the API, so anything able to
+  invoke `fpt-mcp://` acts with the script key's full permissions regardless of
+  the login it supplies.
+
 ### Fixed
 - **README described `ami/handler.py` as the "AMI URL protocol handler
   (fpt-mcp://)".** It was not: that file was the HTTP endpoint on `:8091`. The

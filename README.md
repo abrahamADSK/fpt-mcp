@@ -686,6 +686,34 @@ ShotGrid AMI click
     → Markdown rendered in Qt chat window
 ```
 
+The invariant: **a custom protocol handler binds the `fpt-mcp://` scheme to one
+specific app.** `qt/build_app_bundle.py` writes `CFBundleURLSchemes` into the
+bundle's `Info.plist`, and `setup_venv.sh` registers it with `lsregister`. That
+is the entry point — there is no HTTP endpoint and no background service in this
+path. Each message starts a private fpt-mcp over stdio that dies with it.
+
+### Who authenticates with what
+
+The `.app` itself authenticates against nothing — it is a launcher. Credentials
+enter two hops further down, and **which credential depends on the destination**:
+
+| Destination | Credential | Effective identity |
+|---|---|---|
+| ShotGrid API (all `sg_*`, `tk_publish`, conform tools) | **API Script key**, read from `.env` | The API Script entity — *not* the person |
+| Toolkit (`tank` launches) | **Browser SSO session token**, cached under `~/Library/Caches/Shotgun/` | The signed-in human |
+
+`setup/config/core/shotgun.yml` carries `host:` only and no `api_key`, which is
+why the two paths diverge: they are separate identities, with separate
+permissions, expiring independently.
+
+**The AMI's `user_login` is not an authentication factor.** It travels in the
+URL and is kept for display and context (`qt/app.py`), but it never reaches the
+ShotGrid API — every call goes out under the script key. Anything able to invoke
+`fpt-mcp://` therefore acts with the script key's full permissions, whatever
+`user_login` it supplies, and the ShotGrid event log will attribute the result to
+the script rather than to a person. That is coherent on a single-user
+workstation; it stops being coherent the moment the host is shared.
+
 ## Project Structure
 
 ```
