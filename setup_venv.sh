@@ -60,60 +60,41 @@ if [ $ENV_PLACEHOLDERS -eq 1 ]; then
 fi
 
 # -----------------------------------------------
-# 3. Install MCP HTTP server as launchd service
+# 3. (removed) MCP HTTP launchd service
 # -----------------------------------------------
-echo ""
-echo "[3/4] Installing MCP server launchd service..."
+# A launchd agent used to run `fpt_mcp.server --http --port 8090` at boot.
+# It is NOT installed any more, and nothing in this project needs it.
+#
+# Why it existed: the first AMI console (March 2026) was an HTML page in the
+# browser, and a web page cannot spawn a stdio process — it needed an HTTP MCP
+# endpoint to call. The native Qt console replaced that page, and the console
+# spawns `claude`, which starts its own private fpt-mcp over stdio per message.
+# The daemon has had no caller since.
+#
+# It was already diagnosed and unloaded by hand once (see HANDOFF_CHAT_70:
+# "las consolas usan stdio per-mensaje; no lo necesitan"), but this installer
+# kept reinstalling it, so the decision silently reverted on the next run. That
+# is what this removal fixes. It had also caused a real incident before, in
+# Chat 40: three concurrent fpt_mcp.server processes with divergent
+# environments made an SSL hostname mismatch far harder to diagnose.
+#
+# Leaving it running is not free: the endpoint has NO authentication, so any
+# local process could drive production ShotGrid through it.
+#
+# The --http transport itself is kept — it is the right entry point for an
+# external MCP client (Claude Desktop, a script). Start it deliberately:
+#
+#   .venv/bin/python -m fpt_mcp.server --http --port 8090
+#
+# Do not expose it beyond localhost without putting authentication in front.
 
-FPT_PYTHON="$FPT_DIR/.venv/bin/python3"
-FPT_WORKDIR="$FPT_DIR"
-
-# Unload existing services (ignore errors)
+# Remove the agent this installer used to create, plus any older variants.
 launchctl unload "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" 2>/dev/null || true
-# Clean up deprecated services from previous versions
+rm -f "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" 2>/dev/null || true
 for old_label in $(launchctl list 2>/dev/null | grep -o '[^ ]*fpt[^ ]*' | grep -v "$PLIST_LABEL_MCP"); do
     launchctl unload "$HOME/Library/LaunchAgents/${old_label}.plist" 2>/dev/null || true
     rm -f "$HOME/Library/LaunchAgents/${old_label}.plist" 2>/dev/null || true
 done
-
-cat > "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$PLIST_LABEL_MCP</string>
-
-    <key>ProgramArguments</key>
-    <array>
-        <string>$FPT_PYTHON</string>
-        <string>-m</string>
-        <string>fpt_mcp.server</string>
-        <string>--http</string>
-        <string>--port</string>
-        <string>8090</string>
-    </array>
-
-    <key>WorkingDirectory</key>
-    <string>$FPT_WORKDIR</string>
-
-    <key>RunAtLoad</key>
-    <true/>
-
-    <key>KeepAlive</key>
-    <true/>
-
-    <key>StandardOutPath</key>
-    <string>/tmp/fpt-mcp.log</string>
-
-    <key>StandardErrorPath</key>
-    <string>/tmp/fpt-mcp.err</string>
-</dict>
-</plist>
-PLIST
-
-launchctl load "$HOME/Library/LaunchAgents/$PLIST_LABEL_MCP.plist"
-echo "      OK: MCP server (:8090) installed"
 
 # -----------------------------------------------
 # 4. Build Qt console .app bundle (protocol handler)
@@ -141,20 +122,21 @@ echo "      OK: FPT-MCP Console.app in $APP_DIR"
 # -----------------------------------------------
 echo ""
 echo "Verifying..."
-sleep 2
 
-if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/mcp 2>/dev/null | grep -q "200\|405"; then
-    echo "      OK: MCP HTTP server running on :8090"
+if [ -d "$APP_DIR/FPT-MCP Console.app" ]; then
+    echo "      OK: Console.app built and registered for fpt-mcp://"
 else
-    echo "      WARN: MCP server not responding — check: cat /tmp/fpt-mcp.err"
+    echo "      WARN: Console.app missing — the AMI protocol URL will not open."
 fi
 
 echo ""
 echo "=== Done ==="
 echo ""
-echo "  MCP server:  http://127.0.0.1:8090"
 echo "  Qt console:  ~/Applications/FPT-MCP Console.app"
 echo "  Protocol:    fpt-mcp://"
+echo ""
+echo "  The console spawns claude, which starts fpt-mcp over stdio per message."
+echo "  No background service is installed or needed."
 echo ""
 echo "ShotGrid AMI URL (light payload):"
 echo "  fpt-mcp://chat?entity_type={entity_type}&selected_ids={selected_ids}&project_id={project_id}&project_name={project_name}&user_login={user_login}"

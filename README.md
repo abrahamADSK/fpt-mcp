@@ -125,7 +125,7 @@ After installing, run the doctor to verify everything is wired correctly:
 ./install.sh --doctor
 ```
 
-A legacy `setup_venv.sh` script also exists (creates venv + launchd service + Qt console .app bundle on macOS) but `install.sh` is the recommended entry point.
+A legacy `setup_venv.sh` script also exists (creates the venv and the Qt console .app bundle on macOS) but `install.sh` is the recommended entry point.
 
 ## Configure (MANDATORY — do not skip)
 
@@ -481,18 +481,27 @@ Default mode. The server communicates via standard input/output as a subprocess.
 python -m fpt_mcp.server
 ```
 
-### HTTP (inter-service, scripts)
+### HTTP (external MCP clients)
 
-Runs on a network port so Maya, Flame, and scripts can connect via TCP.
+Runs on a network port so an MCP client that cannot spawn a stdio process —
+Claude Desktop over HTTP, a script, the MCP Inspector — can connect.
 
 ```bash
 python -m fpt_mcp.server --http                # port 8090 (default)
 python -m fpt_mcp.server --http --port 9000    # custom port
 ```
 
+**Start it deliberately; nothing installs it as a service.** The endpoint has
+**no authentication**: anything able to reach the port drives production
+ShotGrid with full write access. Keep it on `127.0.0.1` and do not put it
+behind `--host 0.0.0.0` without an authentication layer in front.
+
+The Qt console does **not** use this transport — it spawns `claude`, which
+starts its own private fpt-mcp over stdio for each message.
+
 ## Qt Console (native chat app)
 
-Native PySide6 chat window that routes messages through Claude Code CLI. Replaces the browser-based AMI console with a proper desktop app.
+Native PySide6 chat window that routes messages through Claude Code CLI. Replaces the browser-based AMI console — removed along with its HTTP endpoint — with a proper desktop app registered as the `fpt-mcp://` protocol handler.
 
 Features:
 - Markdown rendering (bold, italic, code, headings, lists)
@@ -633,15 +642,21 @@ The `permissions.allow` list auto-approves all fpt-mcp tools so Claude Code (and
 
 fpt-mcp works standalone, but when combined with other MCP servers in the same Claude session, Claude can orchestrate multi-tool workflows automatically. For example, with a DCC MCP server configured alongside fpt-mcp, Claude can query ShotGrid for asset data, download references, and register publishes — all in a single conversation.
 
-## Autostart with launchd (macOS)
+## Qt console app bundle (macOS)
 
-The `setup_venv.sh` script (legacy) handles launchd and Qt console setup:
+The `setup_venv.sh` script (legacy) builds the desktop entry point:
 1. Creates the venv and installs dependencies
-2. Generates and installs the MCP server launchd plist (HTTP mode on port 8090)
-3. Builds the Qt console .app bundle with protocol handler registration
-4. Registers the protocol handler with macOS Launch Services
+2. Builds the Qt console .app bundle
+3. Registers it with macOS Launch Services as the `fpt-mcp://` protocol handler
 
-For most users, `install.sh` is the recommended entry point (handles venv, deps, RAG index, Claude Code registration, and tool permissions). Use `setup_venv.sh` only if you need launchd auto-start or the Qt console .app bundle.
+**No background service is installed.** Earlier versions installed a launchd
+agent running the HTTP transport on port 8090; it is removed, and the installer
+now unloads any copy it finds. It existed for the original browser-based AMI
+console, which could not spawn a stdio process — the Qt console can, so nothing
+has called it since. Run the HTTP transport by hand if an external MCP client
+needs it (see *Transports* above).
+
+For most users, `install.sh` is the recommended entry point (handles venv, deps, RAG index, Claude Code registration, and tool permissions). Use `setup_venv.sh` only if you need the Qt console .app bundle.
 
 ```bash
 ./setup_venv.sh
@@ -676,8 +691,8 @@ ShotGrid AMI click
 ```
 fpt-mcp/
 ├── pyproject.toml                        # Package metadata and dependencies
-├── install.sh                            # One-step installation script (venv, .env, RAG index, launchd, MCP registration)
-├── setup_venv.sh                         # Venv setup; generates and loads the launchd plist at install time
+├── install.sh                            # One-step installation script (venv, .env, RAG index, MCP registration)
+├── setup_venv.sh                         # Venv setup; builds the Qt console .app and registers fpt-mcp://
 ├── .env.example                          # Environment variables template
 ├── .concepts.yml                         # Concept registry (cross-cutting invariants, strict mode)
 ├── .pre-commit-config.yaml               # Pre-commit hooks (verify_concepts, verify_templates)
@@ -715,9 +730,6 @@ fpt-mcp/
 │       ├── suggestions.py                # Per-tool chaining hints (next_suggested_actions)
 │       ├── tk_config.py                  # Toolkit config loader (PipelineConfiguration discovery)
 │       ├── _session_stats.py             # Session reset + F0 telemetry
-│       ├── ami/
-│       │   ├── handler.py                # AMI URL protocol handler (fpt-mcp://)
-│       │   └── console.html              # AMI console HTML template
 │       ├── qt/
 │       │   ├── app.py                    # Qt application entry point
 │       │   ├── chat_window.py            # Chat window widget
@@ -742,14 +754,13 @@ fpt-mcp/
     └── golden/                           # Golden transcripts (determinism guards)
 ```
 
-> **No machine-specific files in the repo.** The launchd plist is **not** a
-> tracked file: `setup_venv.sh` writes
-> `~/Library/LaunchAgents/com.fpt-mcp.server.plist` at install time, deriving
-> every path from wherever the repo was cloned (`$FPT_DIR` auto-detected,
-> `$HOME` expanded by the shell). launchd requires absolute paths, so the
-> *installed* plist is machine-local by design — it never enters version
-> control. The `fpt-mcp://` AMI URL handler is registered by the Qt `.app`
-> bundle (`qt/build_app_bundle.py`), not via launchd.
+> **No machine-specific files in the repo.** `setup_venv.sh` writes nothing to
+> `~/Library/LaunchAgents/` any more — the launchd agent it used to install is
+> gone, and the installer removes any copy it finds. The `fpt-mcp://` AMI URL
+> handler is registered by the Qt `.app` bundle
+> (`qt/build_app_bundle.py`), which derives every absolute path from wherever
+> the repo was cloned, so the built bundle is machine-local by design and never
+> enters version control.
 
 ## Troubleshooting
 

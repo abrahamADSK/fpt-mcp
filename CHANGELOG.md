@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The launchd daemon on `:8090`, and the dead AMI HTTP package.** Neither has
+  a caller. The original March architecture served the AMI from an HTTP endpoint
+  (`ami/handler.py`, `:8091`) into a **browser-based console** (`ami/console.html`),
+  and a web page cannot spawn a stdio process — so it needed an HTTP MCP endpoint
+  on `:8090`. The native Qt console plus the `fpt-mcp://` protocol handler replaced
+  that whole path: macOS opens `FPT-MCP Console.app`, which spawns `claude`, which
+  starts its own private fpt-mcp over **stdio** per message.
+
+  This was already diagnosed once — HANDOFF_CHAT_70: *"las consolas usan stdio
+  per-mensaje; no lo necesitan"* — and the agent was unloaded by hand. But
+  `setup_venv.sh` kept reinstalling it with `RunAtLoad`, so the decision silently
+  reverted on the next run or reboot. Removing it from the installer is what makes
+  that decision stick; the installer now unloads and deletes any copy it finds.
+
+  Not cosmetic: the endpoint has **no authentication**, so for as long as it ran,
+  any local process could drive production ShotGrid with full write access. It had
+  also made a real incident harder to diagnose in Chat 40, where three concurrent
+  `fpt_mcp.server` processes with divergent environments masked an SSL hostname
+  mismatch.
+
+  The `--http` transport itself is **kept** — it is the right entry point for an
+  external MCP client — but it is now started deliberately and documented as
+  unauthenticated.
+
+### Fixed
+- **README described `ami/handler.py` as the "AMI URL protocol handler
+  (fpt-mcp://)".** It was not: that file was the HTTP endpoint on `:8091`. The
+  `fpt-mcp://` handler is the Qt `.app` bundle registered with Launch Services.
+  The tree entry is gone with the package, and the surrounding sections no longer
+  describe a background service that is not installed.
+
 ### Security
 - **`.env` permission check in `--doctor`.** `install.sh` never creates `.env` —
   the operator copies `.env.example` by hand, so it inherits the umask, commonly
