@@ -71,7 +71,7 @@ CLAUDE_JSON="${HOME}/.claude.json"
 # Checks:
 #   1. ~/.claude.json has mcpServers.fpt-mcp with valid cwd.
 #   2. .env exists and does not contain placeholder values for
-#      SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_SCRIPT_KEY.
+#      SHOTGRID_URL.
 #   3. Venv importability — python -c "import fpt_mcp" succeeds.
 #   4. ShotGrid connectivity — if .env has real values, attempt sg.info().
 #      WARN if fails, SKIP if .env has placeholders.
@@ -175,7 +175,7 @@ def check_env_file() -> tuple[str, str]:
         return (
             "FAIL",
             f".env not found at {ENV_FILE}. Copy .env.example -> .env and set "
-            f"SHOTGRID_URL, SHOTGRID_SCRIPT_NAME, SHOTGRID_SCRIPT_KEY.",
+            f"SHOTGRID_URL.",
         )
     content = ENV_FILE.read_text(errors="replace")
 
@@ -188,15 +188,6 @@ def check_env_file() -> tuple[str, str]:
             r"YOUR_SITE",
             r"<your",
             r"https?://yoursite",
-        ],
-        "SHOTGRID_SCRIPT_NAME": [
-            r"your[-_]?script[-_]?name",
-            r"your[-_]?actual[-_]?script",
-            r"<your",
-        ],
-        "SHOTGRID_SCRIPT_KEY": [
-            r"your[-_]?(script[-_]?key|key|actual)",
-            r"<your",
         ],
     }
 
@@ -236,9 +227,9 @@ def check_env_permissions() -> tuple[str, str]:
 
     install.sh never creates .env — the operator copies .env.example by hand,
     so the file inherits whatever the umask gave it, commonly 0644. That file
-    holds SHOTGRID_SCRIPT_KEY, a credential that acts with the full permission
-    role of the API Script entity, so any other account on the host can read it
-    and act as this pipeline against production ShotGrid.
+    holds SHOTGRID_URL and any other site settings. It no longer carries a
+    ShotGrid credential — authentication is a per-user session held in the
+    Toolkit cache — but keeping it owner-only stays correct hygiene.
     """
     if not ENV_FILE.is_file():
         return ("SKIP", ".env not present — nothing to check.")
@@ -246,8 +237,8 @@ def check_env_permissions() -> tuple[str, str]:
     if mode & 0o077:
         return (
             "WARN",
-            f".env is mode {mode:04o} — readable beyond its owner. It holds "
-            f"SHOTGRID_SCRIPT_KEY. Fix with: chmod 600 {ENV_FILE}",
+            f".env is mode {mode:04o} — readable beyond its owner. "
+            f"Fix with: chmod 600 {ENV_FILE}",
         )
     return ("PASS", f".env is mode {mode:04o} (owner-only)")
 
@@ -294,12 +285,8 @@ import os, sys
 sys.path.insert(0, os.path.join(sys.argv[1], 'src'))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(sys.argv[1], '.env'))
-import shotgun_api3
-sg = shotgun_api3.Shotgun(
-    os.environ['SHOTGRID_URL'],
-    script_name=os.environ['SHOTGRID_SCRIPT_NAME'],
-    api_key=os.environ.get('SHOTGRID_SCRIPT_KEY', os.environ.get('SHOTGRID_API_KEY', '')),
-)
+from fpt_mcp import auth
+sg = auth.sg_connection(host=os.environ['SHOTGRID_URL'])
 info = sg.info()
 print(f"Connected: {info.get('title', 'unknown')} v{info.get('version', '?')}")
 """, str(REPO_ROOT)],
@@ -764,12 +751,6 @@ if [[ -f "${ENV_FILE}" ]] && [[ ${ENV_HAS_PLACEHOLDERS} -eq 0 ]]; then
     if grep -qE '^SHOTGRID_URL=https?://(YOUR_SITE|yoursite\.shotgrid)' "${ENV_FILE}" 2>/dev/null; then
         ENV_HAS_PLACEHOLDERS=1
     fi
-    if grep -qE '^SHOTGRID_SCRIPT_NAME=your_script_name' "${ENV_FILE}" 2>/dev/null; then
-        ENV_HAS_PLACEHOLDERS=1
-    fi
-    if grep -qE '^SHOTGRID_SCRIPT_KEY=(your_script_key|your_key)' "${ENV_FILE}" 2>/dev/null; then
-        ENV_HAS_PLACEHOLDERS=1
-    fi
 fi
 
 if [[ ${ENV_HAS_PLACEHOLDERS} -eq 1 ]]; then
@@ -785,8 +766,7 @@ if [[ ${ENV_HAS_PLACEHOLDERS} -eq 1 ]]; then
     echo -e "  ${BOLD}Edit:${RESET} ${CYAN}${ENV_FILE}${RESET}"
     echo -e "  ${BOLD}Required fields:${RESET}"
     echo -e "    ${CYAN}SHOTGRID_URL${RESET}         — https://<your-site>.shotgrid.autodesk.com"
-    echo -e "    ${CYAN}SHOTGRID_SCRIPT_NAME${RESET} — API script name (ShotGrid Admin → Scripts)"
-    echo -e "    ${CYAN}SHOTGRID_SCRIPT_KEY${RESET}  — application key of that script"
+    echo -e "    then sign in with: ${CYAN}.venv/bin/python -m fpt_mcp.auth${RESET}"
     echo -e "    ${CYAN}SHOTGRID_PROJECT_ID${RESET}  — integer project ID (0 = no default)"
     echo ""
 fi
@@ -798,8 +778,7 @@ if [[ ${#STEPS_ERR[@]} -eq 0 ]]; then
     echo -e "  ${BOLD}Next steps:${RESET}"
     echo -e "  1. Edit ${CYAN}.env${RESET} with your ShotGrid credentials:"
     echo -e "     ${CYAN}SHOTGRID_URL${RESET}         — https://yoursite.shotgrid.autodesk.com"
-    echo -e "     ${CYAN}SHOTGRID_SCRIPT_NAME${RESET} — API script name (ShotGrid Admin → Scripts)"
-    echo -e "     ${CYAN}SHOTGRID_SCRIPT_KEY${RESET}  — API script key"
+    echo -e "     then sign in with: ${CYAN}.venv/bin/python -m fpt_mcp.auth${RESET}"
     echo -e "     ${CYAN}SHOTGRID_PROJECT_ID${RESET}  — integer project ID (0 = no default)"
     echo ""
     echo -e "  2. Restart Claude Code (or run ${CYAN}claude${RESET}) — fpt-mcp will appear"

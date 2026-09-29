@@ -43,6 +43,14 @@ class AuthUnavailable(RuntimeError):
     """Toolkit core is not importable, so user identity cannot be resolved."""
 
 
+class NoSession(RuntimeError):
+    """No signed-in user, so no connection can be built."""
+
+
+class SiteMismatch(RuntimeError):
+    """The cached session belongs to a different portal than the one requested."""
+
+
 class SiteRejectsBrowserAuth(RuntimeError):
     """The site has the App Session Launcher disabled.
 
@@ -85,6 +93,11 @@ def _import_tank():
         "`.venv/bin/pip install -e .`, which pulls it from Autodesk's "
         "repository, or install Flow Production Tracking Desktop."
     )
+
+
+def same_site(a: str, b: str) -> bool:
+    """Compare two site URLs ignoring trailing slash and case."""
+    return a.rstrip("/").lower() == b.rstrip("/").lower()
 
 
 def cached_session() -> Session | None:
@@ -175,6 +188,38 @@ def ensure_session(host: str | None = None) -> Session:
             "Set SHOTGRID_URL."
         )
     return browser_session(target)
+
+
+def sg_connection(host: str | None = None, session: Session | None = None):
+    """Build a ShotGrid connection acting as the signed-in human.
+
+    **The single place a connection is built.** Everything that talks to
+    ShotGrid — the MCP client, the console's entity lookups, the project
+    detector — comes through here, so there is one definition of "who are we"
+    to change rather than one per call site. Duplicating it is what made
+    removing the API Script key a five-file edit.
+
+    :param host: Site the caller expects. A cached session for a different
+        portal is refused rather than sent, because the far end rejects it as a
+        credential it never issued — a confusing way to find out.
+    :param session: A pre-resolved session (the console injects one through the
+        environment). Falls back to the shared cache when omitted.
+    """
+    import shotgun_api3
+
+    session = session or cached_session()
+    if session is None:
+        raise NoSession(
+            "No Flow Production Tracking session. This server authenticates as "
+            "the signed-in user; there is no script-key fallback. Sign in with: "
+            "python -m fpt_mcp.auth"
+        )
+    if host and not same_site(host, session.host):
+        raise SiteMismatch(
+            f"The cached session is for {session.host}, not {host}. "
+            f"Sign in with: python -m fpt_mcp.auth --host {host}"
+        )
+    return shotgun_api3.Shotgun(session.host, session_token=session.token)
 
 
 def logout(host: str | None = None, login: str | None = None) -> tuple[str, str]:

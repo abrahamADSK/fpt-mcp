@@ -54,7 +54,7 @@ When a ShotGrid call fails on authentication, connectivity, or a protocol error,
 {
   "error": "<scrubbed, truncated server message>",
   "error_type": "authentication_failed",
-  "hint": "ShotGrid rejected the credentials. Check SHOTGRID_SCRIPT_NAME / SHOTGRID_SCRIPT_KEY in .env (SG Admin -> Scripts) ...",
+  "hint": "ShotGrid rejected the credentials. Your session may have expired — sign in again with `python -m fpt_mcp.auth` (SG Admin -> Scripts) ...",
   "retryable": false
 }
 ```
@@ -150,16 +150,18 @@ Copy `.env.example` → `.env` (or let the installer do it) and replace
 
 ```
 SHOTGRID_URL=https://your-actual-site.shotgrid.autodesk.com
-SHOTGRID_SCRIPT_NAME=your-actual-script-name
-SHOTGRID_SCRIPT_KEY=your-actual-application-key
 SHOTGRID_PROJECT_ID=123
 ```
 
 **Where each field comes from**:
 
 - `SHOTGRID_URL` — the exact URL you use to log into your ShotGrid site via browser, in the form `https://<your-site>.shotgrid.autodesk.com`.
-- `SHOTGRID_SCRIPT_NAME` — the name of an API script registered in **ShotGrid Admin → Scripts**. If you don't have one with the permissions you need, create it there first.
-- `SHOTGRID_SCRIPT_KEY` — the **application key** shown next to the script name in the same admin page.
+
+Then sign in once — there is no credential to paste into `.env`:
+
+```bash
+.venv/bin/python -m fpt_mcp.auth
+```
 - `SHOTGRID_PROJECT_ID` — integer ID of the project you work in most often. Used as a default filter for `sg_find`, `sg_create`, `sg_upload`, and as the key for Toolkit `PipelineConfiguration` lookup. Set to `0` to disable the default filter (every call must then specify project explicitly).
 
 After editing `.env`, restart any running fpt-mcp process (Qt console, MCP server) so it picks up the new values.
@@ -187,7 +189,7 @@ The doctor performs five independent checks — claude.json registration, `.env`
 
 - **Placeholder values left in `.env`** — the most frequent cause of `CERTIFICATE_VERIFY_FAILED` errors on first use. The doctor detects these automatically.
 - **`SHOTGRID_PROJECT_ID=0`** — disables default project scoping. Every `sg_find`, `sg_create`, and `sg_upload` call must then specify a project filter explicitly. This is valid for multi-project workflows but unexpected for single-project setups.
-- **Script key vs. user credentials** — the `.env` key is an **API script key** from Admin → Scripts, not your personal login password. Since the console signs you in (see *Architecture*), it is now only the **fallback** used when no user session was injected; `client.py` logs a warning when it falls back, because writes then lose their attribution.
+- **No credential in `.env`** — the API script key was removed. Authentication is a per-user session; if a call is rejected, run `python -m fpt_mcp.auth --status`.
 - **Stale `.env` after site migration** — if your ShotGrid site URL changes (e.g. during an Autodesk ID migration), update `SHOTGRID_URL` and re-run `--doctor`.
 
 ## Usage
@@ -576,8 +578,6 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "cwd": "/path/to/fpt-mcp",
       "env": {
         "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
-        "SHOTGRID_SCRIPT_NAME": "your_script_name",
-        "SHOTGRID_SCRIPT_KEY": "your_key",
         "SHOTGRID_PROJECT_ID": "123"
       }
     }
@@ -595,7 +595,7 @@ Claude Code uses **two separate files** for MCP configuration:
 
 ```bash
 # Add the server via CLI (recommended):
-claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com -e SHOTGRID_SCRIPT_NAME=your_script_name -e SHOTGRID_SCRIPT_KEY=your_key -- /path/to/fpt-mcp/.venv/bin/python -m fpt_mcp.server
+claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodesk.com -- /path/to/fpt-mcp/.venv/bin/python -m fpt_mcp.server
 
 # Or edit ~/.claude.json manually:
 ```
@@ -608,8 +608,6 @@ claude mcp add fpt-mcp -s user -e SHOTGRID_URL=https://yoursite.shotgrid.autodes
       "args": ["-m", "fpt_mcp.server"],
       "env": {
         "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
-        "SHOTGRID_SCRIPT_NAME": "your_script_name",
-        "SHOTGRID_SCRIPT_KEY": "your_key"
       }
     }
   }
@@ -861,7 +859,7 @@ fpt-mcp/
 ## Troubleshooting
 
 **Connection refused on ShotGrid API**
-- Verify `SHOTGRID_URL` and `SHOTGRID_SCRIPT_KEY` in `.env`
+- Verify `SHOTGRID_URL` in `.env`, then `python -m fpt_mcp.auth --status`
 - Check that the Script Application is active in ShotGrid Admin → Scripts
 - Test connectivity: `curl -s https://YOUR_SITE.shotgrid.autodesk.com/api/v1`
 

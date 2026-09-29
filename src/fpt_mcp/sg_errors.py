@@ -109,8 +109,8 @@ _RULES: list[tuple[type[BaseException], str, bool, str]] = [
         sg.AuthenticationFault,
         "authentication_failed",
         False,
-        "ShotGrid rejected the credentials. Check SHOTGRID_SCRIPT_NAME / "
-        "SHOTGRID_SCRIPT_KEY in .env (SG Admin -> Scripts); the script may "
+        "ShotGrid rejected the credentials. Your session may have expired — "
+        "sign in again with `python -m fpt_mcp.auth`; the account may "
         "have been disabled or its key rotated.",
     ),
     (

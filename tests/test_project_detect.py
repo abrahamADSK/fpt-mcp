@@ -2,9 +2,9 @@
 
 ``detect_recent_project`` resolves a smart default for ``SHOTGRID_PROJECT_ID``
 at console launch from the user's most recent ``EventLogEntry`` with a project.
-Creds come from ``_resolve_creds`` (the console keeps them out of ``os.environ``,
-so the detector re-reads ``.env``). It must be strictly best-effort (never raise)
-and skip events without a project.
+The connection comes from ``fpt_mcp.auth.sg_connection``, which acts as the
+signed-in human — there is no script key any more. It must be strictly
+best-effort (never raise) and skip events without a project.
 """
 import fpt_mcp.qt.project_detect as pd
 
@@ -21,17 +21,14 @@ class _FakeSG:
         return self._events
 
 
-_VALID_CREDS = {
-    "SHOTGRID_URL": "https://x.shotgrid.autodesk.com",
-    "SHOTGRID_SCRIPT_NAME": "s",
-    "SHOTGRID_SCRIPT_KEY": "k",
-}
+def _patch(monkeypatch, user, events, connect=None):
+    """Stub the session-backed connection the detector now uses."""
+    import fpt_mcp.auth as auth
 
-
-def _patch(monkeypatch, user, events, creds=_VALID_CREDS):
-    monkeypatch.setattr(pd, "_resolve_creds", lambda: dict(creds))
-    import shotgun_api3
-    monkeypatch.setattr(shotgun_api3, "Shotgun", lambda *a, **k: _FakeSG(user, events))
+    monkeypatch.setattr(
+        auth, "sg_connection",
+        connect or (lambda *a, **k: _FakeSG(user, events)),
+    )
 
 
 def test_returns_first_event_project(monkeypatch):
@@ -60,9 +57,14 @@ def test_no_project_events_returns_none(monkeypatch):
     assert pd.detect_recent_project("abraham") is None
 
 
-def test_missing_creds_returns_none(monkeypatch):
-    # _resolve_creds yields nothing → bail before any network call.
-    monkeypatch.setattr(pd, "_resolve_creds", lambda: {})
+def test_no_session_returns_none(monkeypatch):
+    """No signed-in user → None, not a crash. The console must still open."""
+    import fpt_mcp.auth as auth
+
+    def _no_session(*a, **k):
+        raise RuntimeError("No valid Flow Production Tracking session.")
+
+    monkeypatch.setattr(auth, "sg_connection", _no_session)
     assert pd.detect_recent_project("abraham") is None
 
 
@@ -72,13 +74,13 @@ def test_empty_login_returns_none():
 
 
 def test_exception_is_swallowed(monkeypatch):
-    monkeypatch.setattr(pd, "_resolve_creds", lambda: dict(_VALID_CREDS))
-    import shotgun_api3
+    """Best-effort: a missing session or a dead network maps to None, not a raise."""
+    import fpt_mcp.auth as auth
 
     def _boom(*a, **k):
-        raise RuntimeError("network down")
+        raise RuntimeError("no session")
 
-    monkeypatch.setattr(shotgun_api3, "Shotgun", _boom)
+    monkeypatch.setattr(auth, "sg_connection", _boom)
     assert pd.detect_recent_project("abraham") is None
 
 
@@ -92,10 +94,10 @@ class _FakeSGPage:
         return self._page
 
 
-def _patch_page(monkeypatch, page, creds=_VALID_CREDS):
-    monkeypatch.setattr(pd, "_resolve_creds", lambda: dict(creds))
-    import shotgun_api3
-    monkeypatch.setattr(shotgun_api3, "Shotgun", lambda *a, **k: _FakeSGPage(page))
+def _patch_page(monkeypatch, page):
+    import fpt_mcp.auth as auth
+
+    monkeypatch.setattr(auth, "sg_connection", lambda *a, **k: _FakeSGPage(page))
 
 
 def test_resolve_page_project(monkeypatch):
@@ -113,6 +115,11 @@ def test_resolve_page_none_id_returns_none():
     assert pd.resolve_page_project(0) is None
 
 
-def test_resolve_page_missing_creds_returns_none(monkeypatch):
-    monkeypatch.setattr(pd, "_resolve_creds", lambda: {})
+def test_resolve_page_without_session_returns_none(monkeypatch):
+    import fpt_mcp.auth as auth
+
+    def _no_session(*a, **k):
+        raise RuntimeError("No valid Flow Production Tracking session.")
+
+    monkeypatch.setattr(auth, "sg_connection", _no_session)
     assert pd.resolve_page_project(10740) is None

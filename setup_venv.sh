@@ -43,12 +43,6 @@ if [ -f "$FPT_DIR/.env" ] && [ $ENV_PLACEHOLDERS -eq 0 ]; then
     if grep -qE '^SHOTGRID_URL=https?://(YOUR_SITE|yoursite\.shotgrid)' "$FPT_DIR/.env"; then
         ENV_PLACEHOLDERS=1
     fi
-    if grep -qE '^SHOTGRID_SCRIPT_NAME=your_script_name' "$FPT_DIR/.env"; then
-        ENV_PLACEHOLDERS=1
-    fi
-    if grep -qE '^SHOTGRID_SCRIPT_KEY=(your_script_key|your_key)' "$FPT_DIR/.env"; then
-        ENV_PLACEHOLDERS=1
-    fi
 fi
 
 if [ $ENV_PLACEHOLDERS -eq 1 ]; then

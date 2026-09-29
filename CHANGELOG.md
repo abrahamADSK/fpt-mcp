@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **The API Script key, entirely.** There is no fallback: fpt-mcp authenticates
+  as the signed-in user or it does not connect. `SHOTGRID_SCRIPT_NAME` and
+  `SHOTGRID_SCRIPT_KEY` are gone from `.env.example`, the installer, the doctor
+  checks, the error hints and the docs. `.env` now carries no ShotGrid
+  credential at all. Validated in both paths first — terminal and Qt console.
+
+### Changed
+- **One place builds a ShotGrid connection: `auth.sg_connection()`.** There were
+  five — `client.py`, two in `qt/app.py`, two in `qt/project_detect.py` — each
+  constructing `shotgun_api3.Shotgun(script_name=…, api_key=…)` from its own
+  copy of the credentials. That duplication is precisely why removing the script
+  key was a five-file edit instead of a one-line one, so the removal was done by
+  centralising rather than by patching each site. The codebase now contains a
+  **single** `shotgun_api3.Shotgun(` call.
+
+  `_load_sg_credentials` (console) and `_resolve_creds` (project detector)
+  existed only to feed those call sites and are deleted. The site comparison,
+  which also had two homes, is now `auth.same_site`. Errors are typed —
+  `auth.NoSession`, `auth.SiteMismatch` — instead of a generic `EnvironmentError`
+  raised in two places with different wording.
+
+- `_validate_config` requires **`SHOTGRID_URL` only**. Placeholder detection for
+  the removed credentials went with them.
+
 ### Added
 - **The console signs the operator in, and the user session replaces the script
   key.** New `fpt_mcp/auth.py` resolves a human identity two ways: a cached

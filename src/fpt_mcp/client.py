@@ -49,13 +49,12 @@ if _injected_project_id:
 # ---------------------------------------------------------------------------
 
 SHOTGRID_URL: str = os.getenv("SHOTGRID_URL", "")
-SCRIPT_NAME: str = os.getenv("SHOTGRID_SCRIPT_NAME", "")
-SCRIPT_KEY: str = os.getenv("SHOTGRID_SCRIPT_KEY", "")
-
-# User-session credentials, injected by the Qt console after it authenticates
-# the person (see fpt_mcp.auth). When present they REPLACE the script key: the
-# connection then acts with that human's identity and permissions, and ShotGrid
-# attributes every write to them rather than to the shared API Script.
+# User-session credentials. Either injected by the Qt console after it
+# authenticates the person, or read from the shared Toolkit cache (see
+# fpt_mcp.auth). This is the ONLY way this server authenticates: the API Script
+# key was removed, because one shared service identity meant ShotGrid attributed
+# every write to the script and anything able to reach the server inherited the
+# script's full permission role.
 SESSION_TOKEN: str = os.getenv("SHOTGRID_SESSION_TOKEN", "")
 SESSION_LOGIN: str = os.getenv("SHOTGRID_LOGIN", "")
 PROJECT_ID: int = int(os.getenv("SHOTGRID_PROJECT_ID", "0"))
@@ -72,8 +71,6 @@ TIMEOUT_SECS: float = float(os.getenv("SHOTGRID_TIMEOUT_SECS", "30"))
 # opaque SSL CERTIFICATE_VERIFY_FAILED error. Fail fast and loud instead.
 _PLACEHOLDER_FRAGMENTS = {
     "SHOTGRID_URL": ("YOUR_SITE", "yoursite.shotgrid"),
-    "SHOTGRID_SCRIPT_NAME": ("your_script_name",),
-    "SHOTGRID_SCRIPT_KEY": ("your_script_key", "your_key"),
 }
 
 
@@ -82,14 +79,6 @@ def _validate_config() -> None:
     missing = []
     if not SHOTGRID_URL:
         missing.append("SHOTGRID_URL")
-    # The script key is only required as a fallback. With a user session
-    # injected it is not used at all, and demanding it would force every
-    # install to keep a service credential on disk it never spends.
-    if not SESSION_TOKEN:
-        if not SCRIPT_NAME:
-            missing.append("SHOTGRID_SCRIPT_NAME")
-        if not SCRIPT_KEY:
-            missing.append("SHOTGRID_SCRIPT_KEY")
     if missing:
         raise EnvironmentError(
             f"Missing required environment variables: {', '.join(missing)}. "
@@ -97,13 +86,7 @@ def _validate_config() -> None:
         )
 
     placeholders = []
-    _checked = [("SHOTGRID_URL", SHOTGRID_URL)]
-    if not SESSION_TOKEN:
-        _checked += [
-            ("SHOTGRID_SCRIPT_NAME", SCRIPT_NAME),
-            ("SHOTGRID_SCRIPT_KEY", SCRIPT_KEY),
-        ]
-    for var, value in _checked:
+    for var, value in [("SHOTGRID_URL", SHOTGRID_URL)]:
         lowered = value.lower()
         if any(frag.lower() in lowered for frag in _PLACEHOLDER_FRAGMENTS[var]):
             placeholders.append(var)
@@ -145,59 +128,27 @@ def get_sg() -> shotgun_api3.Shotgun:
             # we were blocked on the lock.
             if _sg_instance is None:
                 _validate_config()
-                token, login = SESSION_TOKEN, SESSION_LOGIN
-                if not token:
-                    # Nothing injected. Read the SHARED Toolkit cache, which is
-                    # populated by the console, `python -m fpt_mcp.auth`, tank
-                    # or Desktop alike. This never prompts — cached_session()
-                    # returns None rather than opening a browser — so it is
-                    # safe here, where there is nobody to answer a prompt.
-                    try:
-                        from fpt_mcp import auth
+                # ONE builder for the whole codebase: fpt_mcp.auth.
+                # An injected session (the console exports one) wins over the
+                # shared cache; the site check and the "no session" error live
+                # there too, so this file holds no second opinion about who we
+                # are.
+                from fpt_mcp import auth
 
-                        cached = auth.cached_session()
-                        if cached is not None:
-                            # Sessions are cached per site. Using one site's
-                            # token against another fails in a confusing way —
-                            # a valid-looking credential rejected by a server
-                            # that never issued it — so refuse the mismatch
-                            # loudly instead of letting it through.
-                            def _norm(u: str) -> str:
-                                return u.rstrip("/").lower()
-
-                            if _norm(cached.host) != _norm(SHOTGRID_URL):
-                                _logger.warning(
-                                    "Cached session is for %s but SHOTGRID_URL "
-                                    "is %s — ignoring it. Sign in to this site "
-                                    "with: python -m fpt_mcp.auth --host %s",
-                                    cached.host, SHOTGRID_URL, SHOTGRID_URL,
-                                )
-                            else:
-                                token, login = cached.token, cached.login
-                    except Exception as exc:
-                        _logger.debug("No cached user session: %s", exc)
-
-                if token:
-                    _logger.info(
-                        "ShotGrid connection as user %s (session token)",
-                        login or "<unknown>",
+                injected = (
+                    auth.Session(
+                        host=SHOTGRID_URL,
+                        login=SESSION_LOGIN,
+                        token=SESSION_TOKEN,
                     )
-                    sg = shotgun_api3.Shotgun(
-                        SHOTGRID_URL, session_token=token
-                    )
-                else:
-                    _logger.warning(
-                        "ShotGrid connection as the shared API Script %r. No "
-                        "user session was injected and none is cached, so "
-                        "writes will be attributed to the script, not to a "
-                        "person. Sign in with: python -m fpt_mcp.auth",
-                        SCRIPT_NAME,
-                    )
-                    sg = shotgun_api3.Shotgun(
-                        SHOTGRID_URL,
-                        script_name=SCRIPT_NAME,
-                        api_key=SCRIPT_KEY,
-                    )
+                    if SESSION_TOKEN
+                    else None
+                )
+                sg = auth.sg_connection(host=SHOTGRID_URL, session=injected)
+                _logger.info(
+                    "ShotGrid connection as user %s",
+                    SESSION_LOGIN or "<cached session>",
+                )
                 # Apply the socket/request timeout so a dead server cannot hang
                 # a worker thread indefinitely. Best-effort: a stub/mock Shotgun
                 # in tests may not expose `.config`.

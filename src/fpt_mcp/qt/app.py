@@ -28,39 +28,6 @@ from .chat_window import ChatWindow
 # ShotGrid Light Payload resolver
 # ---------------------------------------------------------------------------
 
-def _load_sg_credentials() -> dict:
-    """Load ShotGrid credentials from .env file (repo root).
-
-    File layout: ``<repo>/src/fpt_mcp/qt/app.py`` → 4 ``dirname`` hops to
-    reach the repo root where ``.env`` lives. Falls back to the parent
-    process's environment so a launchd / shell that already exported
-    ``SHOTGRID_*`` keeps working even if ``.env`` is missing.
-    """
-    repo_root = os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))
-            )
-        )
-    )
-    env_path = os.path.join(repo_root, ".env")
-    creds: dict[str, str] = {}
-    if os.path.isfile(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    creds[k.strip()] = v.strip().strip('"').strip("'")
-    # Environment overrides — keeps the function usable when the caller
-    # has already exported SG credentials at process level.
-    for key in ("SHOTGRID_URL", "SHOTGRID_SCRIPT_NAME", "SHOTGRID_SCRIPT_KEY", "SHOTGRID_PROJECT_ID"):
-        v = os.environ.get(key)
-        if v:
-            creds[key] = v
-    return creds
-
-
 def _resolve_entity_code(entity_type: str, entity_id: int) -> str | None:
     """Fetch the Asset/Shot/etc. ``code`` field from ShotGrid.
 
@@ -74,15 +41,9 @@ def _resolve_entity_code(entity_type: str, entity_id: int) -> str | None:
     instance the worker thread reuses.
     """
     try:
-        import shotgun_api3
-        creds = _load_sg_credentials()
-        if not all(k in creds for k in ("SHOTGRID_URL", "SHOTGRID_SCRIPT_NAME", "SHOTGRID_SCRIPT_KEY")):
-            return None
-        sg = shotgun_api3.Shotgun(
-            creds["SHOTGRID_URL"],
-            script_name=creds["SHOTGRID_SCRIPT_NAME"],
-            api_key=creds["SHOTGRID_SCRIPT_KEY"],
-        )
+        from fpt_mcp import auth
+
+        sg = auth.sg_connection()
         row = sg.find_one(entity_type, [["id", "is", int(entity_id)]], ["code"])
         if row and row.get("code"):
             return row["code"]
@@ -111,17 +72,9 @@ def fetch_ami_payload(event_log_entry_id: int) -> dict:
     Returns a dict with entity_type, entity_id, project_id, etc.
     """
     try:
-        import shotgun_api3
-        creds = _load_sg_credentials()
-        if not all(k in creds for k in ("SHOTGRID_URL", "SHOTGRID_SCRIPT_NAME", "SHOTGRID_SCRIPT_KEY")):
-            print("[ami_payload] Missing SG credentials in .env", flush=True)
-            return {}
+        from fpt_mcp import auth
 
-        sg = shotgun_api3.Shotgun(
-            creds["SHOTGRID_URL"],
-            script_name=creds["SHOTGRID_SCRIPT_NAME"],
-            api_key=creds["SHOTGRID_SCRIPT_KEY"],
-        )
+        sg = auth.sg_connection()
 
         entry = sg.find_one(
             "EventLogEntry",

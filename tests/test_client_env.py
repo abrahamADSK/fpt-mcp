@@ -33,7 +33,7 @@ def _reload_client_with_env(env: dict[str, str]):
     """Reload fpt_mcp.client with the given environment variables.
 
     Because client.py reads env vars at import time into module-level
-    globals (SHOTGRID_URL, SCRIPT_NAME, SCRIPT_KEY, PROJECT_ID), we
+    globals (SHOTGRID_URL, SESSION_TOKEN, PROJECT_ID), we
     must reload the module to pick up new values.
 
     Args:
@@ -73,34 +73,9 @@ class TestMissingEnvVars:
     def test_url_missing(self):
         """Only SHOTGRID_URL missing → EnvironmentError mentions it."""
         client = _reload_client_with_env({
-            "SHOTGRID_SCRIPT_NAME": "test_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
         })
         with pytest.raises(EnvironmentError, match="SHOTGRID_URL"):
             client._validate_config()
-
-    def test_script_name_missing(self):
-        """Only SHOTGRID_SCRIPT_NAME missing → EnvironmentError mentions it."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
-        })
-        with pytest.raises(EnvironmentError, match="SHOTGRID_SCRIPT_NAME"):
-            client._validate_config()
-
-    def test_script_key_missing(self):
-        """Only SHOTGRID_SCRIPT_KEY missing → EnvironmentError mentions it."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "test_script",
-        })
-        with pytest.raises(EnvironmentError, match="SHOTGRID_SCRIPT_KEY"):
-            client._validate_config()
-
-
-# ---------------------------------------------------------------------------
-# 2. Placeholder detection — values from .env.example should raise
-# ---------------------------------------------------------------------------
 
 class TestPlaceholderDetection:
     """When vars contain placeholder fragments from .env.example, must raise."""
@@ -109,8 +84,6 @@ class TestPlaceholderDetection:
         """SHOTGRID_URL containing 'YOUR_SITE' → detected as placeholder."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://YOUR_SITE.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
         })
         with pytest.raises(EnvironmentError, match="placeholder"):
             client._validate_config()
@@ -119,38 +92,6 @@ class TestPlaceholderDetection:
         """SHOTGRID_URL containing 'yoursite.shotgrid' → detected."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://yoursite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
-        })
-        with pytest.raises(EnvironmentError, match="placeholder"):
-            client._validate_config()
-
-    def test_placeholder_script_name(self):
-        """SHOTGRID_SCRIPT_NAME = 'your_script_name' → detected."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "your_script_name",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
-        })
-        with pytest.raises(EnvironmentError, match="placeholder"):
-            client._validate_config()
-
-    def test_placeholder_script_key(self):
-        """SHOTGRID_SCRIPT_KEY = 'your_script_key' → detected."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "your_script_key",
-        })
-        with pytest.raises(EnvironmentError, match="placeholder"):
-            client._validate_config()
-
-    def test_placeholder_script_key_your_key(self):
-        """SHOTGRID_SCRIPT_KEY = 'your_key' → detected."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "your_key",
         })
         with pytest.raises(EnvironmentError, match="placeholder"):
             client._validate_config()
@@ -159,8 +100,6 @@ class TestPlaceholderDetection:
         """Placeholder detection is case-insensitive."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://YOUR_site.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "Your_Script_Name",
-            "SHOTGRID_SCRIPT_KEY": "YOUR_KEY",
         })
         with pytest.raises(EnvironmentError, match="placeholder"):
             client._validate_config()
@@ -177,8 +116,6 @@ class TestProjectIdZero:
         """When SHOTGRID_PROJECT_ID is not in env, PROJECT_ID == 0."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
         })
         assert client.PROJECT_ID == 0
 
@@ -186,8 +123,6 @@ class TestProjectIdZero:
         """PROJECT_ID=0 evaluates as falsy — this is the cross-project guard."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
         })
         assert not client.PROJECT_ID
 
@@ -195,8 +130,6 @@ class TestProjectIdZero:
         """When SHOTGRID_PROJECT_ID is set to a real ID, PROJECT_ID is truthy."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
             "SHOTGRID_PROJECT_ID": "123",
         })
         assert client.PROJECT_ID == 123
@@ -206,8 +139,6 @@ class TestProjectIdZero:
         """get_project_filter() returns empty dict when PROJECT_ID is 0."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
         })
         assert client.get_project_filter() == {}
 
@@ -215,8 +146,6 @@ class TestProjectIdZero:
         """get_project_filter() returns project dict when PROJECT_ID > 0."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
             "SHOTGRID_PROJECT_ID": "456",
         })
         expected = {"type": "Project", "id": 456}
@@ -234,8 +163,6 @@ class TestValidConfig:
         """No exception when all three required vars have real values."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "fpt_mcp_api",
-            "SHOTGRID_SCRIPT_KEY": "abc123def456ghi789",
             "SHOTGRID_PROJECT_ID": "42",
         })
         # Should not raise
@@ -245,8 +172,6 @@ class TestValidConfig:
         """Validation passes even without PROJECT_ID (it's optional)."""
         client = _reload_client_with_env({
             "SHOTGRID_URL": "https://studio.shotgrid.autodesk.com",
-            "SHOTGRID_SCRIPT_NAME": "pipeline_bot",
-            "SHOTGRID_SCRIPT_KEY": "x9f2k4m7p1q3r5t8",
         })
         # Should not raise — PROJECT_ID is not validated by _validate_config
         client._validate_config()
@@ -254,50 +179,6 @@ class TestValidConfig:
 
 # ---------------------------------------------------------------------------
 # 5. Partial config — should list all missing ones
-# ---------------------------------------------------------------------------
-
-class TestPartialConfig:
-    """When some vars are set and some missing, error lists all missing."""
-
-    def test_url_and_key_missing(self):
-        """Only SCRIPT_NAME set → error lists both SHOTGRID_URL and SHOTGRID_SCRIPT_KEY."""
-        client = _reload_client_with_env({
-            "SHOTGRID_SCRIPT_NAME": "real_script",
-        })
-        with pytest.raises(EnvironmentError) as exc_info:
-            client._validate_config()
-        msg = str(exc_info.value)
-        assert "SHOTGRID_URL" in msg
-        assert "SHOTGRID_SCRIPT_KEY" in msg
-        # The one that IS set should NOT be in the error
-        assert "SHOTGRID_SCRIPT_NAME" not in msg
-
-    def test_only_url_set(self):
-        """Only URL set → error lists SHOTGRID_SCRIPT_NAME and SHOTGRID_SCRIPT_KEY."""
-        client = _reload_client_with_env({
-            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
-        })
-        with pytest.raises(EnvironmentError) as exc_info:
-            client._validate_config()
-        msg = str(exc_info.value)
-        assert "SHOTGRID_SCRIPT_NAME" in msg
-        assert "SHOTGRID_SCRIPT_KEY" in msg
-        assert msg.count("SHOTGRID_URL") == 0  # URL is set, not missing
-
-    def test_only_key_set(self):
-        """Only KEY set → error lists SHOTGRID_URL and SHOTGRID_SCRIPT_NAME."""
-        client = _reload_client_with_env({
-            "SHOTGRID_SCRIPT_KEY": "abc123def456",
-        })
-        with pytest.raises(EnvironmentError) as exc_info:
-            client._validate_config()
-        msg = str(exc_info.value)
-        assert "SHOTGRID_URL" in msg
-        assert "SHOTGRID_SCRIPT_NAME" in msg
-
-
-# ---------------------------------------------------------------------------
-# 6. _PROJECT_SCOPED_ENTITIES — non-empty and contains core entities
 # ---------------------------------------------------------------------------
 
 class TestProjectScopedEntities:
@@ -340,3 +221,61 @@ class TestProjectScopedEntities:
         assert not missing, (
             f"_PROJECT_SCOPED_ENTITIES is missing editorial entities: {missing}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. Session-only authentication — the API Script key was removed
+# ---------------------------------------------------------------------------
+
+
+class TestSessionRequired:
+    """There is no script-key fallback: no session means no connection."""
+
+    def test_url_is_the_only_required_var(self):
+        """A script name/key is no longer demanded — an install keeps no
+        service credential it never spends."""
+        client = _reload_client_with_env({
+            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
+        })
+        client._validate_config()  # must not raise
+
+    def test_no_session_raises_with_the_fix_command(self, monkeypatch):
+        client = _reload_client_with_env({
+            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
+        })
+        monkeypatch.setattr(client, "_sg_instance", None, raising=False)
+
+        import fpt_mcp.auth as auth
+
+        monkeypatch.setattr(auth, "cached_session", lambda: None)
+
+        with pytest.raises(auth.NoSession, match="python -m fpt_mcp.auth"):
+            client.get_sg()
+
+    def test_session_from_another_site_is_refused(self, monkeypatch):
+        """A token issued by one portal fails opaquely against another, so the
+        mismatch is refused rather than passed through."""
+        client = _reload_client_with_env({
+            "SHOTGRID_URL": "https://mysite.shotgrid.autodesk.com",
+        })
+        monkeypatch.setattr(client, "_sg_instance", None, raising=False)
+
+        import fpt_mcp.auth as auth
+        monkeypatch.setattr(
+            auth, "cached_session",
+            lambda: auth.Session(
+                host="https://other.shotgrid.autodesk.com",
+                login="ana@studio.com",
+                token="tok",
+            ),
+        )
+
+        with pytest.raises(auth.SiteMismatch, match="other.shotgrid"):
+            client.get_sg()
+
+    def test_same_site_comparison_ignores_slash_and_case(self):
+        """Lives in auth, not client — the comparison had two homes before."""
+        import fpt_mcp.auth as auth
+
+        assert auth.same_site("https://A.com/", "https://a.com")
+        assert not auth.same_site("https://a.com", "https://b.com")
