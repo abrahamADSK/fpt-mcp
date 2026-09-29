@@ -230,6 +230,28 @@ def _env_has_real_values() -> bool:
     return status == "PASS"
 
 
+# -- Check 2b: .env file permissions --
+def check_env_permissions() -> tuple[str, str]:
+    """Flag a .env readable by anyone but its owner.
+
+    install.sh never creates .env — the operator copies .env.example by hand,
+    so the file inherits whatever the umask gave it, commonly 0644. That file
+    holds SHOTGRID_SCRIPT_KEY, a credential that acts with the full permission
+    role of the API Script entity, so any other account on the host can read it
+    and act as this pipeline against production ShotGrid.
+    """
+    if not ENV_FILE.is_file():
+        return ("SKIP", ".env not present — nothing to check.")
+    mode = ENV_FILE.stat().st_mode & 0o777
+    if mode & 0o077:
+        return (
+            "WARN",
+            f".env is mode {mode:04o} — readable beyond its owner. It holds "
+            f"SHOTGRID_SCRIPT_KEY. Fix with: chmod 600 {ENV_FILE}",
+        )
+    return ("PASS", f".env is mode {mode:04o} (owner-only)")
+
+
 # -- Check 3: venv importability --
 def check_venv_import() -> tuple[str, str]:
     if not VENV_PYTHON.is_file():
@@ -336,6 +358,7 @@ def check_qt_deps() -> tuple[str, str]:
 checks = [
     ("claude.json registration", check_claude_json),
     (".env credentials", check_env_file),
+    (".env permissions", check_env_permissions),
     ("Venv importability", check_venv_import),
     ("ShotGrid connectivity", check_sg_connectivity),
     ("Qt dependencies (PySide6)", check_qt_deps),

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **`.env` permission check in `--doctor`.** `install.sh` never creates `.env` —
+  the operator copies `.env.example` by hand, so it inherits the umask, commonly
+  `0644`. It holds `SHOTGRID_SCRIPT_KEY`, a credential carrying the full
+  permission role of the API Script entity, so any other account on the host could
+  read it and act as this pipeline against production ShotGrid. The doctor now
+  WARNs with the exact `chmod` to run. The file itself is deployment state, not
+  code — this is the guard, not the fix.
+
 ### Changed
 - **The MANDATORY WORKFLOW block is five items, not six.** Items 3 (entity
   links must be dicts) and 4 (PascalCase Toolkit tokens) were always-on prose
