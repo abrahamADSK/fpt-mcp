@@ -54,7 +54,7 @@ When a ShotGrid call fails on authentication, connectivity, or a protocol error,
 {
   "error": "<scrubbed, truncated server message>",
   "error_type": "authentication_failed",
-  "hint": "ShotGrid rejected the credentials. Your session may have expired — sign in again with `python -m fpt_mcp.auth` (SG Admin -> Scripts) ...",
+  "hint": "ShotGrid rejected the credentials. Your session may have expired — sign in again with `python -m fpt_mcp.auth`; otherwise the account may have been disabled.",
   "retryable": false
 }
 ```
@@ -334,7 +334,7 @@ The `tk_config.py` module reads whatever Toolkit config is installed — default
 
 **1. Tank CLI authentication (per user, per site)**
 
-Toolkit's `tank` CLI has its own browser-based authentication, separate from the script key used by the ShotGrid Python API. The cached session expires periodically. On first use (or after expiry), you must run once interactively:
+Toolkit's `tank` CLI authenticates through the same browser-based session the server uses (see *Who authenticates with what*). The cached session expires periodically. On first use (or after expiry), you must run once interactively:
 
 ```bash
 /path/to/PipelineConfiguration/tank <EntityType> <entity_id>
@@ -731,8 +731,8 @@ deliberately never called: it prints a method-selection menu and blocks on
 
 The **server never opens a browser**. It uses the injected session if there is
 one, otherwise it reads the **shared cache** — a lookup that returns `None`
-rather than prompting — and only then falls back to the script key. So a session
-established anywhere is picked up everywhere.
+rather than prompting. With neither, it refuses to connect — there is no
+fallback credential. So a session established anywhere is picked up everywhere.
 
 ### Signing in from a terminal
 
@@ -768,12 +768,11 @@ otherwise the cached identity simply wins and nothing prompts.
 > Toolkit would fall back to that terminal prompt. `auth.py` detects this and
 > says so instead of hanging; sign in through Desktop and retry.
 
-### The script key is now a fallback, not the default
+### No fallback credential
 
-When no session is injected, `client.py` still connects with the script key and
-**logs a warning** that writes will be attributed to the script rather than to a
-person. Keeping it avoids a hard failure in contexts that have no console, but
-it is the degraded path, not the intended one.
+The API Script key is gone. With no injected session and nothing in the shared
+cache, `client.py` refuses to connect and names the command that fixes it
+(`python -m fpt_mcp.auth`). Every write is attributed to a person.
 
 **The AMI's `user_login` is still not an authentication factor.** It travels in
 the URL for display and context (`qt/app.py`) and is never sent to the API. What
