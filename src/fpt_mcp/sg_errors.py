@@ -95,23 +95,23 @@ _RULES: list[tuple[type[BaseException], str, bool, str]] = [
         sg.MissingTwoFactorAuthenticationFault,
         "two_factor_required",
         False,
-        "This ShotGrid site requires two-factor auth; script-key auth cannot "
-        "satisfy 2FA. Use a script exempt from 2FA, or contact your SG admin.",
+        "This ShotGrid site requires two-factor auth for this session. Sign in "
+        "again with `python -m fpt_mcp.auth` — the browser flow completes 2FA.",
     ),
     (
         sg.UserCredentialsNotAllowedForSSOAuthenticationFault,
         "sso_credentials_rejected",
         False,
-        "The site enforces SSO and rejected script credentials. Verify the "
-        "script is allowed for API access in SG Admin -> Scripts.",
+        "The site enforces SSO and rejected these credentials. Sign in through "
+        "the browser with `python -m fpt_mcp.auth` (or Desktop), then retry.",
     ),
     (
         sg.AuthenticationFault,
         "authentication_failed",
         False,
         "ShotGrid rejected the credentials. Your session may have expired — "
-        "sign in again with `python -m fpt_mcp.auth`; the account may "
-        "have been disabled or its key rotated.",
+        "sign in again with `python -m fpt_mcp.auth`; otherwise the account "
+        "may have been disabled.",
     ),
     (
         sg.ProtocolError,

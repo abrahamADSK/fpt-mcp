@@ -7,204 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **`tk_publish` accepts image sequences (`%04d` / `####`).** Every sequence was
-  rejected: both modes checked the LITERAL pattern on disk (`os.path.isfile`,
-  `Path.exists`), a template carrying `{SEQ}` died with "Unresolved template keys",
-  and the copy was single-file. Now a frame token means "at least one frame on
-  disk"; `publish_path` alone registers a render in place, a sequence `local_path`
-  copies every frame keeping its number, `{SEQ}` resolves to `%04d` (Toolkit's
-  `FORMAT: %d` convention, also in `tk_resolve_path`), and the response reports
-  `frames: {count, first, last}`. Mixing a sequence with a single-file path is
-  refused. Open since Chat 98; the manual `sg_create` workaround is superseded.
-- **`next_version` read version FOLDERS as 1.** For templates that version a
-  directory (`…/v{version}/…{SEQ}.exr`, the norm for renders) it scanned the
-  never-existing `v000/` and always answered 1; it now scans the folder holding
-  the version directories.
+Authentication moves from the shared API Script key to the **signed-in user**,
+with no fallback; the unauthenticated `:8090` daemon is removed; `tk_publish`
+accepts image sequences.
 
 ### Removed
-- **The API Script key, entirely.** There is no fallback: fpt-mcp authenticates
-  as the signed-in user or it does not connect. `SHOTGRID_SCRIPT_NAME` and
-  `SHOTGRID_SCRIPT_KEY` are gone from `.env.example`, the installer, the doctor
-  checks, the error hints and the docs. `.env` now carries no ShotGrid
-  credential at all. Validated in both paths first — terminal and Qt console.
+- **The API Script key, entirely.** fpt-mcp authenticates as the signed-in user
+  or it does not connect — there is no fallback credential. `SHOTGRID_SCRIPT_NAME`
+  and `SHOTGRID_SCRIPT_KEY` are gone from `.env.example`, the installer, the doctor
+  checks, the error hints and the docs; `.env` carries no ShotGrid credential at
+  all. Every write is now attributed to a person. Validated in both paths first —
+  terminal and Qt console.
+- **The launchd daemon on `:8090`, and the dead AMI HTTP package.** Neither had a
+  caller. The original March architecture served the AMI from an HTTP endpoint
+  (`ami/handler.py`, `:8091`) into a browser-based console, which could not spawn
+  a stdio process and so needed an HTTP MCP endpoint on `:8090`. The native Qt
+  console plus the `fpt-mcp://` protocol handler replaced that path: macOS opens
+  `FPT-MCP Console.app`, which spawns `claude`, which starts its own private
+  fpt-mcp over **stdio** per message.
 
-### Changed
-- **CI pins `mypy==2.3.1`** (the version every green run already used). mypy is a
-  blocking job and was installed unpinned, so a new mypy release could fail an
-  unrelated PR — the same drift that `ruff==0.15.11` was pinned against in Chat 92.
-- **One place builds a ShotGrid connection: `auth.sg_connection()`.** There were
-  five — `client.py`, two in `qt/app.py`, two in `qt/project_detect.py` — each
-  constructing `shotgun_api3.Shotgun(script_name=…, api_key=…)` from its own
-  copy of the credentials. That duplication is precisely why removing the script
-  key was a five-file edit instead of a one-line one, so the removal was done by
-  centralising rather than by patching each site. The codebase now contains a
-  **single** `shotgun_api3.Shotgun(` call.
-
-  `_load_sg_credentials` (console) and `_resolve_creds` (project detector)
-  existed only to feed those call sites and are deleted. The site comparison,
-  which also had two homes, is now `auth.same_site`. Errors are typed —
-  `auth.NoSession`, `auth.SiteMismatch` — instead of a generic `EnvironmentError`
-  raised in two places with different wording.
-
-- `_validate_config` requires **`SHOTGRID_URL` only**. Placeholder detection for
-  the removed credentials went with them.
-
-### Added
-- **The console signs the operator in, and the user session replaces the script
-  key.** New `fpt_mcp/auth.py` resolves a human identity two ways: a cached
-  session (shared with Desktop and `tank` through
-  `~/Library/Caches/Shotgun/`), or the **App Session Launcher**, which opens the
-  site in the browser and returns a token.
-
-  The console calls it at launch, before the first ShotGrid request, and exports
-  the result so `claude` — and therefore fpt-mcp — inherits it. `client.py` now
-  prefers `SHOTGRID_SESSION_TOKEN` over the script key, and `_validate_config`
-  stops demanding a script key when a session is present, so an install need not
-  keep a service credential it never spends.
-
-  Two design points worth keeping. The launcher imports **no Qt**, so one code
-  path serves the Qt consoles and a plain terminal alike — Qt presence stopped
-  being a branch. And `ShotgunAuthenticator.get_user()` is deliberately never
-  called: it prints a method menu and blocks on `input()`, which is harmless in a
-  terminal and fatal in an MCP server on stdio, where it raises `EOFError`. The
-  **server never authenticates**; only the console does, so the browser opens
-  where a person is watching.
-
-  Sites with the App Session Launcher disabled have no headless path at all;
-  `auth.py` detects that and says so rather than hanging. 13 tests, none of which
-  touch a browser or a network.
-
-- **`python -m fpt_mcp.auth` — sign in from a terminal.** Since the browser flow
-  needs no Qt, a Claude Code session or a first-time setup can establish the
-  session without a Qt console. `--status` reports the cached identity without
-  prompting. The token goes to the shared Toolkit cache, so everything else
-  picks it up.
-
-- **Switching portal and user**: `--list` (every cached site and user, current
-  marked), `--logout` (forget the session so the next sign-in can be someone
-  else), `--host` (authenticate against another portal). Sessions cache per
-  site, so portals coexist. `client.py` now **refuses a token whose site does
-  not match `SHOTGRID_URL`** and says which command fixes it — mixing them fails
-  as a valid-looking credential rejected by a server that never issued it.
-
-- **The server reads that shared cache.** Previously `client.py` only honoured a
-  token injected by the console, so a perfectly valid cached session was ignored
-  outside it and the connection silently degraded to the script key. It now
-  tries injected → cached → script key. The cached lookup never prompts, which
-  is what makes it safe in an MCP server.
-
-### Fixed
-- **The browser sign-in did not persist, so it evaporated on process exit.**
-  `app_session_launcher.process()` returns a token but caches nothing — Toolkit
-  persists in a separate step that was missed. The result looked like success
-  and then silently fell back to the script key on the next call; caught only by
-  inspecting `sg.config` rather than trusting the "signed in" message. Now
-  writes through `session_cache.cache_session_data()` and sets the current
-  host/user. Covered by a regression test.
-
-### Changed
-- **The API Script key is now the fallback, not the default.** `client.py` still
-  connects with it when no session was injected — avoiding a hard failure where
-  there is no console — but logs a warning that writes will be attributed to the
-  script rather than to a person.
-
-### Added
-- **`sgtk` (Toolkit core) as a real dependency, and a Python upper bound to
-  match.** fpt-mcp can now authenticate as the *signed-in human* instead of as
-  the shared API Script. Installed from Autodesk's official repository, pinned
-  to the tag the pipeline configuration localises.
-
-  Three things make this work that were not obvious. It is **not** on PyPI, and
-  the `tk-core` name there belongs to an unrelated project — the package
-  Autodesk builds is called `sgtk`. Installed through pip it resolves
-  dependencies with pip rather than the per-Python-version `pkgs.zip` bundles,
-  which is what makes it portable. And it reads the **shared** session cache in
-  `~/Library/Caches/Shotgun/`, so one login is seen by Desktop, `tank` and this
-  server alike — with no Desktop install required.
-
-  It adds three packages (`distro`, `ruamel.yaml`, `ruamel.yaml.clib`) and
-  6.5 MB, and needs `git` at install time. `allow-direct-references` is enabled
-  for hatchling, which is safe here because fpt-mcp is never published to PyPI.
-
-### Changed
-- **`requires-python` is now `>=3.13,<3.14`, and CI tests 3.13 only.** Autodesk
-  ships no 3.14 support for tk-core. The bound is **specific to this repo**:
-  maya-mcp and flame-mcp do not import `tank` and keep a plain `>=3.13` with
-  both versions in CI. Lift it when Autodesk ships 3.14.
-
-### Fixed
-- **Dangling `fpt-ami` console script.** Removing the `ami` package left its
-  entry point in `[project.scripts]`, so `pip install -e .` kept installing a
-  `fpt-ami` binary that died on `ModuleNotFoundError`. Caught when the venv was
-  rebuilt — a reminder that the whole-repo sweep has to include `pyproject.toml`.
-
-### Removed
-- **The launchd daemon on `:8090`, and the dead AMI HTTP package.** Neither has
-  a caller. The original March architecture served the AMI from an HTTP endpoint
-  (`ami/handler.py`, `:8091`) into a **browser-based console** (`ami/console.html`),
-  and a web page cannot spawn a stdio process — so it needed an HTTP MCP endpoint
-  on `:8090`. The native Qt console plus the `fpt-mcp://` protocol handler replaced
-  that whole path: macOS opens `FPT-MCP Console.app`, which spawns `claude`, which
-  starts its own private fpt-mcp over **stdio** per message.
-
-  This was already diagnosed once — HANDOFF_CHAT_70: *"las consolas usan stdio
-  per-mensaje; no lo necesitan"* — and the agent was unloaded by hand. But
+  Already diagnosed once (HANDOFF_CHAT_70) and unloaded by hand, but
   `setup_venv.sh` kept reinstalling it with `RunAtLoad`, so the decision silently
-  reverted on the next run or reboot. Removing it from the installer is what makes
-  that decision stick; the installer now unloads and deletes any copy it finds.
-
-  Not cosmetic: the endpoint has **no authentication**, so for as long as it ran,
-  any local process could drive production ShotGrid with full write access. It had
-  also made a real incident harder to diagnose in Chat 40, where three concurrent
-  `fpt_mcp.server` processes with divergent environments masked an SSL hostname
-  mismatch.
-
-  The `--http` transport itself is **kept** — it is the right entry point for an
-  external MCP client — but it is now started deliberately and documented as
+  reverted. The installer now unloads and deletes any copy it finds. Not
+  cosmetic: the endpoint had **no authentication**, so while it ran any local
+  process could drive production ShotGrid with full write access. The `--http`
+  transport itself is **kept** — started deliberately, documented as
   unauthenticated.
 
 ### Added
-- **The authentication model is now written down** (README → Architecture). The
-  request chain was already documented and correct; which credential is used at
-  which hop was not. Two identities, by destination: the **API Script key** for
-  the ShotGrid API, and the **browser SSO session** for Toolkit `tank` launches —
-  which is why `setup/config/core/shotgun.yml` carries `host:` and no `api_key`.
-  Also records that the AMI's `user_login` is **not** an authentication factor:
-  it is display context only and never reaches the API, so anything able to
-  invoke `fpt-mcp://` acts with the script key's full permissions regardless of
-  the login it supplies.
+- **Per-user sign-in (`fpt_mcp/auth.py`).** A human identity is resolved two
+  ways: a cached session shared with Desktop and `tank` through
+  `~/Library/Caches/Shotgun/`, or the **App Session Launcher**, which opens the
+  site in the browser and returns a token. The console calls it at launch and
+  exports the result so `claude` — and therefore fpt-mcp — inherits it. The
+  server uses the injected session, else reads the shared cache (a lookup that
+  never prompts), else refuses with the command that fixes it.
 
-### Fixed
-- **README described `ami/handler.py` as the "AMI URL protocol handler
-  (fpt-mcp://)".** It was not: that file was the HTTP endpoint on `:8091`. The
-  `fpt-mcp://` handler is the Qt `.app` bundle registered with Launch Services.
-  The tree entry is gone with the package, and the surrounding sections no longer
-  describe a background service that is not installed.
-
-### Security
-- **`.env` permission check in `--doctor`.** `install.sh` never creates `.env` —
-  the operator copies `.env.example` by hand, so it inherits the umask, commonly
-  `0644`. It holds `SHOTGRID_SCRIPT_KEY`, a credential carrying the full
-  permission role of the API Script entity, so any other account on the host could
-  read it and act as this pipeline against production ShotGrid. The doctor now
-  WARNs with the exact `chmod` to run. The file itself is deployment state, not
-  code — this is the guard, not the fix.
+  The launcher imports **no Qt**, so one code path serves the Qt consoles and a
+  plain terminal. `ShotgunAuthenticator.get_user()` is deliberately never
+  called: it blocks on `input()`, fatal on stdio (`EOFError`). The **server never
+  opens a browser**. Sites with the App Session Launcher disabled have no
+  headless path; `auth.py` says so rather than hanging.
+- **`python -m fpt_mcp.auth` — sign in from a terminal**, plus `--status` (who
+  is signed in, no prompting), `--list` (every cached site and user), `--logout`
+  (so the next sign-in can be someone else) and `--host` (another portal).
+  Sessions cache per site, so portals coexist. `client.py` **refuses a token
+  whose site does not match `SHOTGRID_URL`**, naming the fix.
+- **`sgtk` (Toolkit core) as a real dependency.** Installed from Autodesk's
+  official repository (`git+https://github.com/shotgunsoftware/tk-core`), pinned to
+  the tag the pipeline configuration localises. It is **not** on PyPI — the
+  `tk-core` name there belongs to an unrelated project. Installed through pip it
+  resolves dependencies with pip rather than the per-Python-version `pkgs.zip`
+  bundles. Adds `distro`, `ruamel.yaml`, `ruamel.yaml.clib` (6.5 MB) and needs
+  `git` at install time; `allow-direct-references` is enabled for hatchling,
+  safe because fpt-mcp is never published to PyPI.
+- **The authentication model is written down** (README → *Who authenticates with
+  what*): the ShotGrid API and `tank` now carry the same human identity from the
+  same session cache. The AMI's `user_login` remains display context only and is
+  never an authentication factor.
 
 ### Changed
-- **The MANDATORY WORKFLOW block is five items, not six.** Items 3 (entity
-  links must be dicts) and 4 (PascalCase Toolkit tokens) were always-on prose
-  restating what `safety.py:35`, `:106` and `:137` already enforce by regex —
-  verified before removal. The replacement line points at `sg_schema` for when
-  a check fires. Where the code refuses something, the skill's job is to say
-  what to do instead, never to repeat the prohibition.
+- **One place builds a ShotGrid connection: `auth.sg_connection()`.** There were
+  five (`client.py`, two in `qt/app.py`, two in `qt/project_detect.py`), each with
+  its own copy of the credentials; the codebase now contains a **single**
+  `shotgun_api3.Shotgun(` call. `_load_sg_credentials` and `_resolve_creds` are
+  deleted, the site comparison is `auth.same_site`, and errors are typed
+  (`auth.NoSession`, `auth.SiteMismatch`). `_validate_config` requires
+  **`SHOTGRID_URL` only**.
+- **`requires-python` is now `>=3.13,<3.14`, and CI tests 3.13 only.** Autodesk
+  ships no 3.14 support for tk-core. The bound is **specific to this repo**;
+  maya-mcp and flame-mcp keep `>=3.13` with both versions in CI.
+- **Authentication error hints name the user-session fix** (`python -m
+  fpt_mcp.auth`) instead of API Script remedies (a 2FA-exempt script, *SG Admin →
+  Scripts*) that no longer apply.
+- **The MANDATORY WORKFLOW block is five items, not six.** Items 3 (entity links
+  must be dicts) and 4 (PascalCase Toolkit tokens) restated what `safety.py`
+  already enforces by regex — verified before removal; the replacement line
+  points at `sg_schema`. Takes effect after a full Claude Code restart. (Briefly
+  mis-filed under v1.28.0; those notes were corrected.)
+- **CI pins `mypy==2.3.1`** (the version every green run already used), as
+  `ruff==0.15.11` was pinned in Chat 92.
 
-  Takes effect only after a full Claude Code restart; a stale stdio MCP server
-  is not refreshed by reload or reconnect.
+### Fixed
+- **`tk_publish` accepts image sequences (`%04d` / `####`).** Every sequence was
+  rejected: both modes checked the LITERAL pattern on disk, a template carrying
+  `{SEQ}` died with "Unresolved template keys", and the copy was single-file. A
+  frame token now means "at least one frame on disk"; `publish_path` alone
+  registers a render in place, a sequence `local_path` copies every frame keeping
+  its number, `{SEQ}` resolves to `%04d` (Toolkit's `FORMAT: %d` convention, also
+  in `tk_resolve_path`), and the response reports `frames: {count, first, last}`.
+  Mixing a sequence with a single-file path is refused. Open since Chat 98.
+- **`next_version` answered 1 for version FOLDERS.** For templates that version a
+  directory (`…/v{version}/…{SEQ}.exr`, the norm for renders) it scanned the
+  never-existing `v000/`; it now scans the folder holding the version directories.
+- **The browser sign-in did not persist.** `app_session_launcher.process()`
+  returns a token but caches nothing; the result looked like success and was
+  gone on the next process. Caught by inspecting `sg.config`, not by trusting the
+  "signed in" message. Now written through `session_cache.cache_session_data()`
+  with the current host/user set. Regression test added.
+- **Dangling `fpt-ami` console script.** Removing the `ami` package left its entry
+  point in `[project.scripts]`, so `pip install -e .` kept installing a binary
+  that died on `ModuleNotFoundError`.
+- **README described `ami/handler.py` as the `fpt-mcp://` protocol handler.** It
+  was the HTTP endpoint on `:8091`; the handler is the Qt `.app` bundle
+  registered with Launch Services.
 
-  This entry was briefly filed under v1.28.0, which was wrong twice over: the
-  block had six items, not seven, and the code change was not in that tag. The
-  v1.28.0 notes have been corrected.
+### Security
+- **`.env` permission check in `--doctor`.** The operator copies `.env.example`
+  by hand, so it inherits the umask (commonly `0644`). It no longer holds a
+  ShotGrid credential, but keeping it owner-only stays correct hygiene; the doctor
+  WARNs with the exact `chmod` to run.
 
 ## [1.28.0] — 2026-09-28
 
