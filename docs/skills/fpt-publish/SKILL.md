@@ -1,6 +1,6 @@
 ---
 name: fpt-publish
-description: Publish a file, render or cache to ShotGrid/FPT and register the PublishedFile — image sequences, version-ups, publish types, work-area paths. Fire BEFORE tk_publish — the {name}-from-Step contract, the %04d rejection, and why a published path is never rewritten. E.g. "publica el render del shot", "registra esta versión en FPT", "sube el EXR como publish", "publish this cache".
+description: Publish a file, render or cache to ShotGrid/FPT and register the PublishedFile — image sequences, version-ups, publish types, work-area paths. Fire BEFORE tk_publish — the {name}-from-Step contract, image sequences (%04d), and why a published path is never rewritten. E.g. "publica el render del shot", "registra esta versión en FPT", "sube el EXR como publish", "publish this cache".
 ---
 
 # Publishing to ShotGrid Toolkit
@@ -38,16 +38,23 @@ statement about where the file is going that is not a guess.
 
 Publishing first and inspecting after means the copy has already happened.
 
-## Image sequences: the `%04d` exception
+## Image sequences (`%04d` / `####`)
 
-`tk_publish` **rejects `%04d` paths in both modes**. This is a known unfixed gap,
-not a usage error.
+`tk_publish` takes a sequence path as ONE publish with the frame token left in
+place — never one publish per frame. Existence means **at least one frame on
+disk**; a pattern that matches nothing is refused, as is mixing a sequence with
+a single-file path.
 
-For a rendered sequence — and validated where the project has no
-`PipelineConfiguration` — create the `PublishedFile` directly with `sg_create`,
-with the `%04d` path and the `Rendered Image` type, instead of routing through
-`tk_publish`. Everything else about the publish (Task link, version number,
-type) still applies.
+- **Register a render in place** (it already sits at its final path): pass the
+  `%04d` path as `publish_path` and **no** `local_path`. Nothing is copied.
+- **Copy into the pipeline**: pass the `%04d` render as `local_path`. With a
+  PipelineConfiguration, a template carrying `{SEQ}` resolves to a `%04d` path
+  and every frame is copied keeping its number. When the version lives in a
+  folder (`…/v003/…`), the next version is read from the version folders.
+- The response carries `frames: {count, first, last}` — relay it; a count lower
+  than the rendered range means frames are missing on disk.
+
+Everything else about the publish (Task link, version number, type) still applies.
 
 ## Publish type, not missing Task
 

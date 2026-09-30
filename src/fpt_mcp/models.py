@@ -338,13 +338,15 @@ class TkPublishInput(BaseModel):
     )
     name: str = Field(default="main", description="Publish name.")
     comment: Optional[str] = Field(default=None, description="Publish comment/notes.")
-    local_path: Optional[str] = Field(default=None, description="Source file path. Copied to the resolved publish location if a PipelineConfiguration exists.")
+    local_path: Optional[str] = Field(default=None, description="Source file path. Copied to the resolved publish location if a PipelineConfiguration exists. An image sequence (%04d / ####) copies every frame.")
     publish_path: Optional[str] = Field(
         default=None,
         description=(
             "Explicit publish path. Required when the project has no PipelineConfiguration. "
             "The file at local_path (if provided) is copied here. "
-            "This path is stored in the PublishedFile entity."
+            "This path is stored in the PublishedFile entity. "
+            "May be an image sequence (%04d / ####); with no local_path the "
+            "frames must already be on disk (register in place)."
         ),
     )
     version_number: Optional[int] = Field(default=None, description="Explicit version. Auto-incremented from existing files if omitted (requires PipelineConfiguration).")

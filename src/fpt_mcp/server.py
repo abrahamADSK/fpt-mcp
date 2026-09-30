@@ -531,6 +531,10 @@ async def tk_publish_tool(params: TkPublishInput) -> str:
       The path is stored in the PublishedFile and is accessible by any tool
       that reads the path field. If the project has a Local File Storage
       configured in ShotGrid, the file will be browsable from the web UI.
+
+    Image sequences: a path with a frame token (%04d or ####) is ONE publish
+    with the token kept. publish_path alone registers frames already on disk;
+    a sequence local_path copies every frame. At least one frame must exist.
     """
     from fpt_mcp.toolkit_tools import tk_publish_impl
     from fpt_mcp.suggestions import maybe_annotate_with_suggestions

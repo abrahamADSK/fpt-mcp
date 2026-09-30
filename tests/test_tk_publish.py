@@ -682,3 +682,192 @@ class TestPublishPathDerivation:
 
         assert "error" not in result
         assert result["entity"]["id"] == 1001
+
+
+# ===========================================================================
+# 8. TestPublishImageSequence — %04d / #### paths (Chat 108)
+# ===========================================================================
+
+_SEQ_TEMPLATE = (
+    "@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr"
+)
+
+
+def _write_frames(pattern_dir: Path, stem: str, frames, pad: int = 4) -> str:
+    """Create empty EXR frames and return the printf-style sequence pattern."""
+    pattern_dir.mkdir(parents=True, exist_ok=True)
+    for f in frames:
+        (pattern_dir / f"{stem}.{f:0{pad}d}.exr").write_bytes(b"EXR")
+    return str(pattern_dir / f"{stem}.%0{pad}d.exr")
+
+
+@pytest.fixture
+def seq_tk_config(tmp_path, templates_yml_raw):
+    """TkConfig whose templates add a render-sequence publish template.
+
+    Built separately (not in the shared fixture) so template-count
+    assertions elsewhere are unaffected.
+    """
+    from fpt_mcp.tk_config import TkConfig
+
+    raw = dict(templates_yml_raw)
+    raw["paths"] = {
+        **raw.get("paths", {}),
+        "rendered_image_shot_publish": {"definition": _SEQ_TEMPLATE},
+    }
+    project_root = tmp_path / "seq_project"
+    project_root.mkdir()
+    config_path = tmp_path / "seq_setup"
+    config_path.mkdir()
+    return TkConfig(
+        project_root=project_root,
+        config_path=config_path,
+        templates_raw=raw,
+        keys_raw=raw.get("keys", {}),
+    )
+
+
+@pytest.fixture
+def patch_seq_deps(seq_tk_config, mock_sg_find_one, mock_sg_create):
+    """Patch tk_publish/tk_resolve_path deps with the sequence TkConfig."""
+    async def _get_config():
+        return seq_tk_config
+
+    with patch("fpt_mcp.server._get_tk_config", side_effect=_get_config), \
+         patch("fpt_mcp.server.sg_find_one", mock_sg_find_one), \
+         patch("fpt_mcp.server.sg_create", mock_sg_create), \
+         patch("fpt_mcp.server.PROJECT_ID", 123):
+        yield seq_tk_config, mock_sg_create
+
+
+class TestPublishImageSequence:
+    """tk_publish accepts image-sequence paths instead of rejecting them."""
+
+    def test_mode1_sequence_resolves_token_and_copies_frames(self, patch_seq_deps, tmp_path):
+        """{SEQ} stays symbolic in the registered path; every frame is copied."""
+        tk_config, sg_create_mock = patch_seq_deps
+        src = _write_frames(tmp_path / "render", "SH010_beauty", [1001, 1002, 1003])
+
+        params = _make_input(
+            entity_type="Shot", entity_id=2001, publish_type="rendered_image",
+            step="light", name="beauty", extension=None, local_path=src,
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result, result.get("error")
+        assert result["path"].endswith("SH010_beauty_v001.%04d.exr")
+        assert result["frames"] == {"count": 3, "first": 1001, "last": 1003}
+        for f in (1001, 1002, 1003):
+            assert Path(result["path"].replace("%04d", str(f))).exists()
+        pf = [c[0][1] for c in sg_create_mock.call_args_list if c[0][0] == "PublishedFile"][0]
+        assert pf["path"]["local_path"].endswith(".%04d.exr")
+
+    def test_mode1_next_version_reads_version_folders(self, patch_seq_deps, tmp_path):
+        """With version in a directory (…/v002/…), the next version is 3, not 1."""
+        tk_config, _ = patch_seq_deps
+        base = tk_config.project_root / "sequences/SEQ01/SH010/light/publish/renders/beauty"
+        (base / "v001").mkdir(parents=True)
+        (base / "v002").mkdir()
+        src = _write_frames(tmp_path / "render", "SH010_beauty", [1001])
+
+        params = _make_input(
+            entity_type="Shot", entity_id=2001, publish_type="rendered_image",
+            step="light", name="beauty", extension=None, local_path=src,
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result, result.get("error")
+        assert result["version_number"] == 3
+        assert "/v003/" in result["path"]
+
+    def test_mode2_registers_existing_sequence(self, patch_publish_no_config, tmp_path):
+        """Register-only: a %04d publish_path passes when frames are on disk."""
+        pattern = _write_frames(tmp_path / "pub", "SH010_comp_v001", [1, 2], pad=4)
+
+        params = _make_input(publish_type="Rendered Image", publish_path=pattern)
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result, result.get("error")
+        assert result["path"] == pattern
+        assert result["frames"]["count"] == 2
+
+    def test_mode2_hash_pattern_accepted(self, patch_publish_no_config, tmp_path):
+        """#### is treated like %04d."""
+        _write_frames(tmp_path / "pub", "plate", [1001, 1002])
+        pattern = str(tmp_path / "pub" / "plate.####.exr")
+
+        params = _make_input(publish_type="Rendered Image", publish_path=pattern)
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" not in result, result.get("error")
+        assert result["frames"] == {"count": 2, "first": 1001, "last": 1002}
+
+    def test_mode2_sequence_without_frames_is_rejected(self, patch_publish_no_config, tmp_path):
+        """A sequence pattern with nothing on disk still refuses to register."""
+        params = _make_input(
+            publish_type="Rendered Image",
+            publish_path=str(tmp_path / "empty" / "SH010.%04d.exr"),
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" in result
+        assert "no frame matches" in result["error"]
+
+    def test_sequence_source_without_frames_is_rejected(self, patch_publish_no_config, tmp_path):
+        """A sequence local_path with no matching frames errors before any copy."""
+        params = _make_input(
+            publish_type="Rendered Image",
+            local_path=str(tmp_path / "none" / "SH010.%04d.exr"),
+            publish_path=str(tmp_path / "pub" / "SH010.%04d.exr"),
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" in result
+        assert "No frames on disk" in result["error"]
+        assert not (tmp_path / "pub").exists()
+
+    def test_sequence_vs_single_file_mismatch_is_rejected(self, patch_publish_no_config, tmp_path):
+        """Copying a sequence onto a single-file path (or vice versa) is refused."""
+        src = _write_frames(tmp_path / "render", "SH010", [1001])
+
+        params = _make_input(
+            publish_type="Rendered Image",
+            local_path=src,
+            publish_path=str(tmp_path / "pub" / "SH010.exr"),
+        )
+        result = json.loads(_run(tk_publish_tool(params)))
+
+        assert "error" in result
+        assert "both be image sequences" in result["error"]
+
+    def test_padding_mismatch_frames_are_ignored(self, tmp_path):
+        """%04d does not match an unrelated, shorter-padded file."""
+        from fpt_mcp.toolkit_tools import _sequence_frames
+
+        pattern = _write_frames(tmp_path, "shot", [1001, 1002])
+        (tmp_path / "shot.12.exr").write_bytes(b"EXR")
+
+        assert [f for f, _ in _sequence_frames(pattern)] == [1001, 1002]
+
+    def test_resolve_path_hash_marker(self, seq_tk_config):
+        """resolve_path renders the FORMAT marker as #### when asked."""
+        path = seq_tk_config.resolve_path(
+            "rendered_image_shot_publish",
+            {"Sequence": "SEQ01", "Shot": "SH010", "Step": "light",
+             "name": "beauty", "version": 1, "SEQ": "FORMAT: #"},
+        )
+        assert str(path).endswith("SH010_beauty_v001.####.exr")
+
+    def test_tk_resolve_path_sequence_template(self, patch_seq_deps):
+        """tk_resolve_path no longer fails with 'Unresolved template keys: SEQ'."""
+        from fpt_mcp.server import tk_resolve_path_tool, TkResolvePathInput
+
+        params = TkResolvePathInput(
+            entity_type="Shot", entity_id=2001,
+            template_name="rendered_image_shot_publish",
+            step="light", name="beauty", version=4,
+        )
+        result = json.loads(_run(tk_resolve_path_tool(params)))
+
+        assert "error" not in result, result.get("error")
+        assert result["path"].endswith("/v004/SH010_beauty_v004.%04d.exr")

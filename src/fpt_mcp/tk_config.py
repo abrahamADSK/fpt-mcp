@@ -48,6 +48,29 @@ KEY_FORMATS = {
     "height": "{}",
 }
 
+# Frame-number keys. A publish of an image sequence registers ONE path with the
+# frame token left in place (``%04d``), never a single frame.
+FRAME_KEYS = ("SEQ", "flame.frame", "vred.frame")
+
+# Toolkit's own convention for "leave the frame token symbolic": passing
+# ``SEQ="FORMAT: %d"`` to ``apply_fields`` yields ``%04d`` (``"FORMAT: #"``
+# yields ``####``). ``resolve_path`` honours the same marker.
+SEQUENCE_FORMAT = "FORMAT: %d"
+
+
+def _frame_width(key: str) -> int:
+    """Return the zero-padding width of a frame key (``SEQ`` → 4)."""
+    m = re.search(r"0(\d+)d", KEY_FORMATS.get(key, ""))
+    return int(m.group(1)) if m else 4
+
+
+def _render_frame_token(key: str, value: str) -> str:
+    """Render a ``"FORMAT: %d"`` / ``"FORMAT: #"`` marker as a symbolic token."""
+    width = _frame_width(key)
+    if value.split(":", 1)[1].strip().startswith("#"):
+        return "#" * width
+    return f"%0{width}d"
+
 
 
 
@@ -147,7 +170,14 @@ class TkConfig:
         # Replace Toolkit-style {key} tokens with field values
         resolved = template
         for key, value in fields.items():
-            if key in KEY_FORMATS and isinstance(value, int):
+            if (
+                key in FRAME_KEYS
+                and isinstance(value, str)
+                and value.startswith("FORMAT:")
+            ):
+                # Keep the frame symbolic (%04d / ####) — sequence publish.
+                formatted = _render_frame_token(key, value)
+            elif key in KEY_FORMATS and isinstance(value, int):
                 formatted = KEY_FORMATS[key].format(value)
             elif isinstance(value, int):
                 formatted = str(value)
@@ -177,6 +207,29 @@ class TkConfig:
             path_v0 = self.resolve_path(template_name, test_fields)
         except TkConfigError:
             return 1
+
+        # Directory-level versioning (e.g. ``…/v{version}/name.v{version}.{SEQ}.exr``,
+        # the norm for render sequences): the file's parent is ``…/v000/``, which
+        # never exists, so scanning it would always answer 1. Scan the directory
+        # that holds the version FOLDERS instead.
+        v0_token = "v" + KEY_FORMATS["version"].format(0)
+        parts = path_v0.parts
+        dir_idx = next(
+            (i for i, part in enumerate(parts[:-1]) if v0_token in part), None
+        )
+        if dir_idx is not None:
+            scan_dir = Path(*parts[:dir_idx])
+            if not scan_dir.exists():
+                return 1
+            folder_re = re.compile(
+                "^" + re.escape(parts[dir_idx]).replace(v0_token, r"v(\d{3,4})") + "$"
+            )
+            found = [
+                int(m.group(1))
+                for child in scan_dir.iterdir()
+                if child.is_dir() and (m := folder_re.match(child.name))
+            ]
+            return max(found, default=0) + 1
 
         # The parent directory contains versioned files
         parent = path_v0.parent
