@@ -14,8 +14,10 @@ test_telemetry AST scan still finds the increments.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import re
 from typing import Any
 
 from fpt_mcp.models import TkPublishInput, TkResolvePathInput
@@ -25,7 +27,47 @@ from fpt_mcp.paths import (
     resolve_allowed_roots,
 )
 from fpt_mcp.sg_errors import sg_errors_to_json
-from fpt_mcp.tk_config import TkConfigError
+from fpt_mcp.tk_config import FRAME_KEYS, SEQUENCE_FORMAT, TkConfigError
+
+# A frame token inside an image-sequence path: printf style (%04d) or hashes
+# (####). The LAST match is the frame; earlier digits belong to the name.
+_FRAME_TOKEN_RE = re.compile(r"%0(\d+)d|(#+)")
+
+
+def _is_sequence_path(path: str) -> bool:
+    """Return True when *path* carries a frame token (``%04d`` / ``####``)."""
+    return _FRAME_TOKEN_RE.search(os.path.basename(path)) is not None
+
+
+def _split_frame_token(pattern: str) -> tuple[str, int, str]:
+    """Split a sequence pattern into (prefix, padding width, suffix)."""
+    match = list(_FRAME_TOKEN_RE.finditer(pattern))[-1]
+    width = int(match.group(1)) if match.group(1) else len(match.group(2))
+    return pattern[: match.start()], width, pattern[match.end():]
+
+
+def _sequence_frames(pattern: str) -> list[tuple[int, str]]:
+    """List the frames on disk for a sequence pattern, sorted by frame number.
+
+    Only files whose frame number has at least the pattern's padding width
+    match, so ``%04d`` never picks up an unrelated ``name.12.exr``.
+    """
+    prefix, width, suffix = _split_frame_token(pattern)
+    frame_re = re.compile(
+        "^" + re.escape(prefix) + r"(\d{" + str(width) + r",})" + re.escape(suffix) + "$"
+    )
+    frames = []
+    for candidate in glob.glob(glob.escape(prefix) + "*" + glob.escape(suffix)):
+        m = frame_re.match(candidate)
+        if m:
+            frames.append((int(m.group(1)), candidate))
+    return sorted(frames)
+
+
+def _frame_path(pattern: str, frame: int) -> str:
+    """Substitute a frame number into a sequence pattern (``%04d`` → ``1001``)."""
+    prefix, width, suffix = _split_frame_token(pattern)
+    return f"{prefix}{frame:0{width}d}{suffix}"
 
 
 @sg_errors_to_json
@@ -44,6 +86,12 @@ async def tk_resolve_path_impl(params: TkResolvePathInput) -> str:
                          "Use an explicit publish_path in tk_publish instead."
             })
 
+        # Sequence templates ({SEQ}) resolve with the frame kept symbolic (%04d).
+        template_def = tk_config.get_template(params.template_name) or ""
+        seq_fields = {
+            key: SEQUENCE_FORMAT for key in FRAME_KEYS if f"{{{key}}}" in template_def
+        }
+
         # Build fields from SG entity context
         version = params.version
         if version is None:
@@ -51,14 +99,16 @@ async def tk_resolve_path_impl(params: TkResolvePathInput) -> str:
                 params.entity_type, params.entity_id,
                 params.step, params.name, 0, params.extension,
             )
-            version = tk_config.next_version(params.template_name, fields_probe)
+            version = tk_config.next_version(
+                params.template_name, {**fields_probe, **seq_fields}
+            )
 
         fields = await _build_template_fields(
             params.entity_type, params.entity_id,
             params.step, params.name, version, params.extension,
         )
 
-        path = tk_config.resolve_path(params.template_name, fields)
+        path = tk_config.resolve_path(params.template_name, {**fields, **seq_fields})
 
         return json.dumps({
             "path": str(path),
@@ -168,19 +218,30 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
                              f"Provide an explicit publish_path instead."
                 })
 
+            # A template with a frame key ({SEQ}) is an image-sequence publish:
+            # keep the frame symbolic (%04d) instead of leaving it unresolved.
+            template_def = tk_config.get_template(template_name) or ""
+            seq_fields = {
+                key: SEQUENCE_FORMAT for key in FRAME_KEYS if f"{{{key}}}" in template_def
+            }
+
             ext = params.extension
             if version == 1 and params.version_number is None:
                 fields_probe = await _build_template_fields(
                     effective_entity_type, effective_entity_id,
                     effective_step, effective_name, 0, ext,
                 )
-                version = tk_config.next_version(template_name, fields_probe)
+                version = tk_config.next_version(
+                    template_name, {**fields_probe, **seq_fields}
+                )
 
             fields = await _build_template_fields(
                 effective_entity_type, effective_entity_id,
                 effective_step, effective_name, version, ext,
             )
-            publish_path = tk_config.resolve_path(template_name, fields)
+            publish_path = tk_config.resolve_path(
+                template_name, {**fields, **seq_fields}
+            )
 
         elif params.publish_path is not None:
             # Mode 2: Explicit path provided by user.
@@ -192,8 +253,31 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
                          "Please provide an explicit publish_path where the file should be published."
             })
 
+        # Image sequences: a path with a frame token (%04d / ####) names many
+        # files, so existence means "at least one frame on disk", never a
+        # literal file called '…%04d.exr'.
+        source_is_seq = bool(params.local_path) and _is_sequence_path(params.local_path)
+        publish_is_seq = publish_path is not None and _is_sequence_path(str(publish_path))
+        source_frames: list[tuple[int, str]] = []
+
+        if params.local_path and source_is_seq != publish_is_seq:
+            return json.dumps({
+                "error": "local_path and the publish path must both be image "
+                         "sequences (frame token such as %04d) or both single "
+                         f"files. local_path={params.local_path}, "
+                         f"publish path={publish_path}."
+            })
+
         # Pre-flight: local_path must exist before we create any SG records.
-        if params.local_path and not os.path.isfile(params.local_path):
+        if params.local_path and source_is_seq:
+            source_frames = _sequence_frames(params.local_path)
+            if not source_frames:
+                return json.dumps({
+                    "error": f"No frames on disk match the sequence local_path: "
+                             f"{params.local_path}. Check the frame token and "
+                             "padding against the files actually rendered."
+                })
+        elif params.local_path and not os.path.isfile(params.local_path):
             return json.dumps({
                 "error": f"local_path does not exist: {params.local_path}. "
                          "Provide a valid path to the source file, or omit "
@@ -204,18 +288,21 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         # was given the publish_path itself must already exist on disk.
         # Otherwise we'd be creating a PublishedFile record pointing at
         # nothing — a silent failure that surfaces far from the cause.
-        if (
-            params.publish_path is not None
-            and not params.local_path
-            and publish_path
-            and not publish_path.exists()
-        ):
-            return json.dumps({
-                "error": f"publish_path does not exist on disk and no local_path "
-                         f"was provided to copy from: {publish_path}. "
-                         "Either pass local_path to copy the file, or ensure "
-                         "the file already exists at publish_path."
-            })
+        registered_frames: list[tuple[int, str]] = []
+        if params.publish_path is not None and not params.local_path and publish_path:
+            if publish_is_seq:
+                registered_frames = _sequence_frames(str(publish_path))
+                nothing_on_disk = not registered_frames
+            else:
+                nothing_on_disk = not publish_path.exists()
+            if nothing_on_disk:
+                return json.dumps({
+                    "error": f"publish_path does not exist on disk and no local_path "
+                             f"was provided to copy from: {publish_path}. "
+                             "Either pass local_path to copy the file, or ensure "
+                             "the file already exists at publish_path"
+                             + (" (no frame matches the sequence pattern)." if publish_is_seq else ".")
+                })
 
         # Copy source file if provided
         if params.local_path and publish_path:
@@ -249,7 +336,13 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
 
             import shutil
             publish_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(params.local_path, str(publish_path))
+            if source_is_seq:
+                # Copy every frame, keeping its number; the publish pattern's
+                # own padding decides the destination file names.
+                for frame, src in source_frames:
+                    shutil.copy2(src, _frame_path(str(publish_path), frame))
+            else:
+                shutil.copy2(params.local_path, str(publish_path))
 
         # Find or create PublishedFileType
         pft = await sg_find_one(
@@ -326,6 +419,13 @@ async def tk_publish_impl(params: TkPublishInput) -> str:
         if template_name:
             response["template"] = template_name
             response["project_root"] = str(tk_config.project_root)
+        frames_seen = source_frames or registered_frames
+        if frames_seen:
+            response["frames"] = {
+                "count": len(frames_seen),
+                "first": frames_seen[0][0],
+                "last": frames_seen[-1][0],
+            }
 
         return json.dumps(response, default=str)
 

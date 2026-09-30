@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`tk_publish` accepts image sequences (`%04d` / `####`).** Every sequence was
+  rejected: both modes checked the LITERAL pattern on disk (`os.path.isfile`,
+  `Path.exists`), a template carrying `{SEQ}` died with "Unresolved template keys",
+  and the copy was single-file. Now a frame token means "at least one frame on
+  disk"; `publish_path` alone registers a render in place, a sequence `local_path`
+  copies every frame keeping its number, `{SEQ}` resolves to `%04d` (Toolkit's
+  `FORMAT: %d` convention, also in `tk_resolve_path`), and the response reports
+  `frames: {count, first, last}`. Mixing a sequence with a single-file path is
+  refused. Open since Chat 98; the manual `sg_create` workaround is superseded.
+- **`next_version` read version FOLDERS as 1.** For templates that version a
+  directory (`…/v{version}/…{SEQ}.exr`, the norm for renders) it scanned the
+  never-existing `v000/` and always answered 1; it now scans the folder holding
+  the version directories.
+
 ### Removed
 - **The API Script key, entirely.** There is no fallback: fpt-mcp authenticates
   as the signed-in user or it does not connect. `SHOTGRID_SCRIPT_NAME` and

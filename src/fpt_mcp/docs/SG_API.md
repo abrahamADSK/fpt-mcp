@@ -1705,11 +1705,12 @@ ShotGrid behavior but was not exercised in-session. Verify the tasks actually
 appear on the first assigned entity before assuming it worked for the rest.
 
 
-## Learned: Publish a rendered EXR image sequence (%04d path) as 'Rendered Image' when the project has NO PipelineConfiguration — tk_publish rejects the %04d path in both modes; create the PublishedFile directly (comp delivery step 8d, validated 2026-08-15)
+## Learned: Publish a rendered EXR image sequence (%04d path) as 'Rendered Image' — tk_publish accepts %04d / #### since Chat 108; register-in-place = publish_path with no local_path (comp delivery step 8d, validated 2026-08-15)
+
+**Superseded workaround.** Until Chat 108 `tk_publish` checked the LITERAL `%04d` path (`os.path.exists`) and rejected every sequence, so this delivery created the PublishedFile by hand. Now `tk_publish` treats a frame token as "at least one frame on disk": pass the `%04d` path as `publish_path` with NO `local_path` to register a render in place (the case below), or a `%04d` `local_path` to copy every frame into the template-resolved `{SEQ}` path. The manual `sg_create` below remains valid when a field `tk_publish` does not set (e.g. `name`) must be controlled.
 
 ```python
-# tk_publish fails for image sequences without a PipelineConfiguration because it os.path.exists()
-# the LITERAL '%04d' path: 'publish_path does not exist on disk' / 'local_path does not exist'.
+# (Historical) tk_publish used to os.path.exists() the LITERAL '%04d' path — fixed in Chat 108.
 # The comp render must be published IN PLACE (recipe: the rendered folder/frames read <Shot>_<Step>_v<ver>,
 # the Write File is 'Follow Iteration' so a published version must never be overwritten -> iterate before re-render).
 # Working route = what sgtk register_publish does under the hood: sg_create PublishedFile with path{local_path}.

@@ -297,7 +297,7 @@ matches their trigger, so they cost almost nothing until they are relevant.
 | Skill | Fires on |
 |---|---|
 | `fpt-query` | Any read-only analysis: counts, rollups, breakdowns, note threads, activity. The risk here is not damage but token exhaustion — `summarize` over `find`, explicit `fields`, `sg_schema` before an unfamiliar filter |
-| `fpt-publish` | The publish chain: Step→Task resolution, the `{name}`-from-Step contract, publish types, the `%04d` rejection, and why a published path is version-upped rather than rewritten |
+| `fpt-publish` | The publish chain: Step→Task resolution, the `{name}`-from-Step contract, publish types, image sequences (`%04d`), and why a published path is version-upped rather than rewritten |
 
 Activate them on a fresh clone by symlinking into your user skills directory:
 

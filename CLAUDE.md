@@ -141,6 +141,11 @@ Mode 1 (with PipelineConfiguration):
 9. sg_find_one("Task") → link with pipeline step task
 10. sg_create("PublishedFile") → register in ShotGrid
 
+Image sequences (both modes): a `%04d` / `####` path is ONE publish with the
+token kept; `{SEQ}` resolves to `%04d`; existence = at least one frame on disk;
+a sequence `local_path` copies every frame; `publish_path` alone registers in
+place. `next_version` reads version FOLDERS for `…/v{version}/…` templates.
+
 Mode 2 (explicit path, no PipelineConfiguration):
 1. User provides publish_path directly
 2. paths.enforce_write_containment → WARN-by-default guard (refuses only under FPT_MCP_STRICT_PATHS=1)
