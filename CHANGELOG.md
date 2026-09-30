@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   credential at all. Validated in both paths first — terminal and Qt console.
 
 ### Changed
+- **CI pins `mypy==2.3.1`** (the version every green run already used). mypy is a
+  blocking job and was installed unpinned, so a new mypy release could fail an
+  unrelated PR — the same drift that `ruff==0.15.11` was pinned against in Chat 92.
 - **One place builds a ShotGrid connection: `auth.sg_connection()`.** There were
   five — `client.py`, two in `qt/app.py`, two in `qt/project_detect.py` — each
   constructing `shotgun_api3.Shotgun(script_name=…, api_key=…)` from its own
