@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.0] — 2026-10-01
+
 Authentication moves from the shared API Script key to the **signed-in user**,
 with no fallback; the unauthenticated `:8090` daemon is removed; `tk_publish`
 accepts image sequences.
