@@ -240,19 +240,24 @@ CORRECT tokens (PascalCase for entity fields):
 - `{Shot}` — Shot code (e.g. "SH010")
 - `{Asset}` — Asset code (e.g. "hero_robot")
 - `{Sequence}` — Sequence code (e.g. "SEQ01")
-- `{Step}` — Pipeline step short name (e.g. "model", "anim", "comp")
+- `{Step}` — Pipeline Step **short_name** (this project: e.g. "MDL", "LGT", "CMP")
 - `{sg_asset_type}` — Asset type (e.g. "Character", "Prop", "Environment")
 - `{name}` — Publish/work name (e.g. "main", "sculpt", "lookdev")
 - `{version}` — Version number (format: 03d → "001", "002", "042")
 - `{maya_extension}` — Maya file extension (default: "ma", choices: "ma", "mb")
-- `{nuke_extension}` — Nuke file extension (default: "nk")
-- `{houdini_extension}` — Houdini file extension (default: "hip")
+- `{texture_extension}` — Texture extension (png default; exr/tif)
 - `{SEQ}` — Frame number for sequences (format: 04d → "0001", "0100")
+- `{flame.frame}` — Frame number in Flame render templates (format: 08d)
+- `{segment_name}` — Flame segment / comp Step name in Flame render templates
 - `{eye}` — Stereo eye (for multi-view renders)
-- `{channel}` — Render channel/AOV name (e.g. "beauty", "diffuse", "specular")
-- `{output}` — Output name for Nuke write nodes
-- `{width}` — Image width in pixels
-- `{height}` — Image height in pixels
+- `{aov_name}` — Render AOV / extra-plane name (Houdini extra planes)
+- `{nuke.output}` — Output name of a Nuke write node
+- `{houdini.node}` — Houdini ROP node name
+- `{width}` / `{height}` — Image size in pixels
+
+Nuke and Houdini scenes use LITERAL extensions in this config (`.nk`, `.hip`):
+there is no `{nuke_extension}` or `{houdini_extension}` key. The full list of
+declared keys is in the generated block below.
 
 ### INCORRECT tokens (common hallucinations)
 
@@ -261,7 +266,7 @@ CORRECT tokens (PascalCase for entity fields):
 - `{project_name}` — WRONG, not a template token
 - `{step}` — WRONG, use `{Step}` (PascalCase)
 - `{frame}` — WRONG, use `{SEQ}` for image sequences
-- `{ext}` — WRONG, use `{maya_extension}`, `{nuke_extension}`, etc.
+- `{ext}` — WRONG, use `{maya_extension}` / `{texture_extension}` (Nuke and Houdini use literal `.nk` / `.hip`)
 - `{task}` — WRONG, not a standard token. Step ≠ Task
 - `{sequence}` — WRONG, use `{Sequence}` (PascalCase)
 - `{v}` or `{ver}` — WRONG, use `{version}`
@@ -269,138 +274,206 @@ CORRECT tokens (PascalCase for entity fields):
 - `{asset_code}` — WRONG, use `{Asset}`
 - `{pipeline_step}` — WRONG, use `{Step}`
 
+## This project's templates (generated from `templates.yml`)
+
+Every template, alias and key below is generated from the project's real
+`templates.yml` by `scripts/gen_tk_templates_doc.py`, and `verify_templates.py`
+fails when this block drifts from the config. Never edit it by hand —
+regenerate it. The pipeline interchange, render and review templates (USD, FBX,
+GLB, OBJ, Texture, Rendered Image, Movie) come from
+`abrahamADSK/toolkit_config_custom_template`; they are NOT injected by code —
+`tk_config.py` is generic and reads whatever the project config defines.
+
+<!-- generated:tk_templates start — scripts/gen_tk_templates_doc.py, do not edit by hand -->
+
+Generated from this project's `templates.yml`: **158 templates, 4 aliases, 37 keys**. Only these names exist — a template not listed here does not exist in this pipeline, whatever stock Toolkit configs ship.
+
 ### Aliases (path shortcuts)
 
 ```yaml
 asset_root: assets/{sg_asset_type}/{Asset}/{Step}
-shot_root: sequences/{Sequence}/{Shot}/{Step}
 sequence_root: sequences/{Sequence}
+sequence_step_root: sequences/{Sequence}/{Step}
+shot_root: sequences/{Sequence}/{Shot}/{Step}
 ```
 
-Usage in templates: `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
+Aliases expand at resolution time: `@asset_root/publish/...` becomes `assets/{sg_asset_type}/{Asset}/{Step}/publish/...`.
 
-Aliases expand at resolution time. `@asset_root` becomes `assets/{sg_asset_type}/{Asset}/{Step}`.
+### Keys declared (37)
 
-## Standard tk-config-default2 templates — COMPLETE LIST
+`{Asset}`, `{DD}`, `{MM}`, `{SEQ}`, `{Sequence}`, `{Shot}`, `{Step}`, `{UDIM}`, `{YYYY}`, `{afx.comp}`, `{afx.mov.ext}`, `{alias.extension}`, `{aov_name}`, `{asset_name}`, `{eye}`, `{flame.frame}`, `{height}`, `{houdini.node}`, `{iteration}`, `{mari.channel}`, `{mari.layer}`, `{mari.project_name}`, `{maya_extension}`, `{name}`, `{nuke.output}`, `{project}`, `{segment_name}`, `{sg_asset_type}`, `{task_name}`, `{texture_extension}`, `{timestamp}`, `{version}`, `{version_four}`, `{vred.frame}`, `{vred.render_extension}`, `{vred.render_pass}`, `{width}`
 
-### Asset work templates
+### Asset templates (83)
 
-- `maya_asset_work`: `@asset_root/work/maya/{name}.v{version}.{maya_extension}`
-- `nuke_asset_work`: `@asset_root/work/nuke/{name}.v{version}.{nuke_extension}`
-- `houdini_asset_work`: `@asset_root/work/houdini/{name}.v{version}.{houdini_extension}`
-- `houdini_asset_work_alembic_cache`: `@asset_root/work/houdini/{name}/v{version}/abc/{node}.abc`
-- `photoshop_asset_work`: `@asset_root/work/photoshop/{name}.v{version}.psd`
-- `aftereffects_asset_work`: `@asset_root/work/afx/{name}.v{version}.aep`
-- `3dsmax_asset_work`: `@asset_root/work/3dsmax/{name}.v{version}.max`
-- `motionbuilder_asset_work`: `@asset_root/work/mobu/{name}.v{version}.fbx`
-- `alias_asset_work`: `@asset_root/work/alias/{name}.v{version}.wire`
-- `vred_asset_work`: `@asset_root/work/vred/{name}.v{version}.vpb`
-- `asset_work_area_maya`: `@asset_root/work/maya` (Maya work **folder/area** template — directory only, no file token)
-
-### Asset publish templates
-
-- `maya_asset_publish`: `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
-- `nuke_asset_publish`: `@asset_root/publish/nuke/{name}.v{version}.{nuke_extension}`
-- `houdini_asset_publish`: `@asset_root/publish/houdini/{name}.v{version}.{houdini_extension}`
-- `asset_alembic_cache`: `@asset_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
-- `photoshop_asset_publish`: `@asset_root/publish/photoshop/{name}.v{version}.psd`
 - `aftereffects_asset_publish`: `@asset_root/publish/afx/{name}.v{version}.aep`
-- `max_asset_publish`: `@asset_root/publish/3dsmax/{name}.v{version}.max`
-- `mobu_asset_publish`: `@asset_root/publish/mobu/{name}.v{version}.fbx`
+- `aftereffects_asset_render_movie`: `@asset_root/review/{Asset}_{name}_{afx.comp}_v{version}.{afx.mov.ext}`
+- `aftereffects_asset_render_pub_mono`: `@asset_root/publish/elements/{name}/v{version}/{width}x{height}/{Asset}_{name}_{afx.comp}_v{version}.{SEQ}.tif`
+- `aftereffects_asset_snapshot`: `@asset_root/work/afx/snapshots/{name}.v{version}.{timestamp}.aep`
+- `aftereffects_asset_work`: `@asset_root/work/afx/{name}.v{version}.aep`
+- `alias_asset_catpart_publish`: `@asset_root/publish/alias/translations/{name}.v{version}.CATPart`
+- `alias_asset_igs_publish`: `@asset_root/publish/alias/translations/{name}.v{version}.igs`
+- `alias_asset_jt_publish`: `@asset_root/publish/alias/translations/{name}.v{version}.jt`
 - `alias_asset_publish`: `@asset_root/publish/alias/{name}.v{version}.wire`
-- `vred_asset_publish`: `@asset_root/publish/vred/{name}.v{version}.vpb`
-- `asset_publish_area_maya`: `@asset_root/publish/maya` (Maya publish **folder/area** template — directory only, no file token)
-
-### Asset snapshot/backup templates
-
-- `maya_asset_snapshot`: `@asset_root/work/maya/snapshots/{name}.v{version}.{timestamp}.{maya_extension}`
-- `nuke_asset_snapshot`: `@asset_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.{nuke_extension}`
-- `houdini_asset_snapshot`: `@asset_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.{houdini_extension}`
-- `photoshop_asset_snapshot`: `@asset_root/work/photoshop/snapshots/{name}.v{version}.{timestamp}.psd`
-
-### Asset render/image templates
-
-- `asset_alembic_cache`: `@asset_root/publish/caches/{name}.v{version}.abc`
-- `photoshop_asset_jpg_publish`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
-
-### Editorial templates
-
-- `hiero_project_work`: `editorial/work/{name}_v{version}.hrox` (Hiero / Nuke Studio project work file)
-- `hiero_project_publish`: `editorial/publish/{name}_v{version}.hrox` (Hiero / Nuke Studio project publish file)
-
-### Shot work templates
-
-- `maya_shot_work`: `@shot_root/work/maya/{name}.v{version}.{maya_extension}`
-- `nuke_shot_work`: `@shot_root/work/nuke/{name}.v{version}.{nuke_extension}`
-- `houdini_shot_work`: `@shot_root/work/houdini/{name}.v{version}.{houdini_extension}`
-- `houdini_shot_work_alembic_cache`: `@shot_root/work/houdini/{name}/v{version}/abc/{node}.abc`
-- `photoshop_shot_work`: `@shot_root/work/photoshop/{name}.v{version}.psd`
-- `aftereffects_shot_work`: `@shot_root/work/afx/{name}.v{version}.aep`
-- `3dsmax_shot_work`: `@shot_root/work/3dsmax/{name}.v{version}.max`
-- `motionbuilder_shot_work`: `@shot_root/work/mobu/{name}.v{version}.fbx`
-- `flame_shot_work`: `@shot_root/work/flame/{name}.v{version}.clip`
-- `shot_work_area_maya`: `@shot_root/work/maya` (Maya work **folder/area** template — directory only, no file token)
-- `flame_shot_batch`: `sequences/{Sequence}/{Shot}/finishing/batch/{Shot}.v{version}.batch` (Flame finishing batch setup; uses `{Sequence}`/`{Shot}` tokens, not `@shot_root`)
-
-### Shot publish templates
-
-- `maya_shot_publish`: `@shot_root/publish/maya/{name}.v{version}.{maya_extension}`
-- `nuke_shot_publish`: `@shot_root/publish/nuke/{name}.v{version}.{nuke_extension}`
-- `houdini_shot_publish`: `@shot_root/publish/houdini/{name}.v{version}.{houdini_extension}`
-- `shot_alembic_cache`: `@shot_root/publish/houdini/{name}/v{version}/abc/{node}.abc`
-- `photoshop_shot_publish`: `@shot_root/publish/photoshop/{name}.v{version}.psd`
-- `aftereffects_shot_publish`: `@shot_root/publish/afx/{name}.v{version}.aep`
-- `max_shot_publish`: `@shot_root/publish/3dsmax/{name}.v{version}.max`
-- `mobu_shot_publish`: `@shot_root/publish/mobu/{name}.v{version}.fbx`
-- `flame_shot_render_exr`: `@shot_root/publish/flame/{name}.v{version}.clip`
-- `shot_publish_area_maya`: `@shot_root/publish/maya` (Maya publish **folder/area** template — directory only, no file token)
-
-### Shot snapshot templates
-
-- `maya_shot_snapshot`: `@shot_root/work/maya/snapshots/{name}.v{version}.{timestamp}.{maya_extension}`
-- `nuke_shot_snapshot`: `@shot_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.{nuke_extension}`
-- `houdini_shot_snapshot`: `@shot_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.{houdini_extension}`
-
-### Shot render/image templates
-
-- `nuke_shot_render_mono_dpx`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.dpx`
-- `nuke_shot_render_pub_mono_dpx`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.dpx`
-- `nuke_shot_render_mono_exr`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `nuke_shot_render_pub_mono_exr`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `nuke_shot_render_stereo`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
-- `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{eye}/{Shot}.{SEQ}.exr`
-- `houdini_shot_render`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-- `maya_shot_render`: `@shot_root/work/images/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr` (Arnold multichannel EXR work area — Lighting step; `maya_publish_render.py` copies frames to `rendered_image_shot_publish` at publish time)
-- `photoshop_shot_jpg_publish`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
-
-### Review templates (Quicktime/MOV for dailies)
-
-- `maya_asset_render_review_quicktime`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
-- `maya_shot_render_review_quicktime`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
-- `nuke_shot_render_review_quicktime`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
-- `houdini_shot_render_review_quicktime`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
-
-### Pipeline interchange, render and review templates
-
-These templates are defined in the project's `templates.yml` (added to
-`abrahamADSK/toolkit_config_custom_template` in commit `4ea29d3`).
-They are NOT injected by code — `tk_config.py` is generic and reads
-whatever templates the project config defines.
-
-**Asset templates:**
-- `rendered_image_asset_publish`: `@asset_root/publish/renders/{name}/v{version}/{Asset}_{name}_v{version}.{SEQ}.exr`
-- `movie_asset_publish`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
-- `usd_asset_publish`: `@asset_root/publish/usd/{name}.v{version}.usd`
-- `fbx_asset_publish`: `@asset_root/publish/fbx/{name}.v{version}.fbx`
+- `alias_asset_reference_publish`: `@asset_root/publish/alias/translations/{name}_{alias.extension}.v{version}.wref`
+- `alias_asset_snapshot`: `@asset_root/work/alias/snapshots/{name}.v{version}.{timestamp}.wire`
+- `alias_asset_stp_publish`: `@asset_root/publish/alias/translations/{name}.v{version}.stp`
+- `alias_asset_work`: `@asset_root/work/alias/{name}.v{version}.wire`
+- `alias_asset_wref_publish`: `@asset_root/publish/alias/translations/{name}.v{version}.wref`
+- `asset_alembic_cache`: `@asset_root/publish/caches/{name}_{Step}.v{version}.abc`
+- `asset_mari_texture_tif`: `@asset_root/publish/mari/{name}_{mari.channel}[_{mari.layer}].v{version}.{UDIM}.tif`
+- `asset_publish_area_aftereffects`: `@asset_root/publish/afx`
+- `asset_publish_area_alias`: `@asset_root/publish/alias`
+- `asset_publish_area_houdini`: `@asset_root/publish/houdini`
+- `asset_publish_area_max`: `@asset_root/publish/3dsmax`
+- `asset_publish_area_maya`: `@asset_root/publish/maya`
+- `asset_publish_area_mobu`: `@asset_root/publish/mobu`
+- `asset_publish_area_nuke`: `@asset_root/publish`
+- `asset_publish_area_photoshop`: `@asset_root/publish/photoshop`
+- `asset_publish_area_vred`: `@asset_root/publish/vred`
+- `asset_quicktime_quick`: `@asset_root/review/quickdaily/{Asset}_{name}_{iteration}.mov`
+- `asset_work_area_aftereffects`: `@asset_root/work/afx`
+- `asset_work_area_alias`: `@asset_root/work/alias`
+- `asset_work_area_houdini`: `@asset_root/work/houdini`
+- `asset_work_area_max`: `@asset_root/work/3dsmax`
+- `asset_work_area_maya`: `@asset_root/work/maya`
+- `asset_work_area_mobu`: `@asset_root/work/mobu`
+- `asset_work_area_nuke`: `@asset_root/work/nuke`
+- `asset_work_area_photoshop`: `@asset_root/work/photoshop`
+- `asset_work_area_vred`: `@asset_root/work/vred`
+- `fbx_asset_publish`: `@asset_root/publish/fbx/{name}_{Step}.v{version}.fbx`
 - `glb_asset_publish`: `@asset_root/publish/glb/{name}.v{version}.glb`
+- `houdini_asset_dcm`: `@asset_root/work/dcms/{name}/{houdini.node}/v{version}/{width}x{height}/{Asset}_{name}_v{version}.{SEQ}.dcm`
+- `houdini_asset_extra_plane`: `@asset_root/work/images/{name}/{houdini.node}/{aov_name}/v{version}/{width}x{height}/{Asset}_{name}_v{version}.{SEQ}.exr`
+- `houdini_asset_ifd`: `@asset_root/work/ifds/{name}/{houdini.node}/v{version}/{width}x{height}/{Asset}_{name}_v{version}.{SEQ}.ifd`
+- `houdini_asset_publish`: `@asset_root/publish/houdini/{name}.v{version}.hip`
+- `houdini_asset_render`: `@asset_root/work/images/{name}/{houdini.node}/v{version}/{width}x{height}/{Asset}_{name}_v{version}.{SEQ}.exr`
+- `houdini_asset_snapshot`: `@asset_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.hip`
+- `houdini_asset_work`: `@asset_root/work/houdini/{name}.v{version}.hip`
+- `houdini_asset_work_alembic_cache`: `@asset_root/work/houdini/cache/alembic/{name}/{houdini.node}/v{version}/{Asset}_{name}_v{version}.abc`
+- `max_asset_publish`: `@asset_root/publish/3dsmax/{name}.v{version}.max`
+- `max_asset_snapshot`: `@asset_root/work/3dsmax/snapshots/{name}.v{version}.{timestamp}.max`
+- `max_asset_work`: `@asset_root/work/3dsmax/{name}.v{version}.max`
+- `maya_asset_publish`: `@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `maya_asset_snapshot`: `@asset_root/work/maya/snapshots/{name}_{Step}.v{version}.{timestamp}.{maya_extension}`
+- `maya_asset_work`: `@asset_root/work/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `mobu_asset_publish`: `@asset_root/publish/mobu/{name}.v{version}.fbx`
+- `mobu_asset_snapshot`: `@asset_root/work/mobu/snapshots/{name}.v{version}.{timestamp}.fbx`
+- `mobu_asset_work`: `@asset_root/work/mobu/{name}.v{version}.fbx`
+- `movie_asset_publish`: `@asset_root/review/{Asset}_{name}_v{version}.mov`
+- `nuke_asset_publish`: `@asset_root/publish/nuke/{name}.v{version}.nk`
+- `nuke_asset_render`: `@asset_root/work/images/{name}/v{version}/{width}x{height}/{Asset}_{name}_{nuke.output}_v{version}.{SEQ}.exr`
+- `nuke_asset_render_movie`: `@asset_root/review/{Asset}_{name}_{nuke.output}_v{version}.mov`
+- `nuke_asset_render_pub`: `@asset_root/publish/elements/{name}/v{version}/{width}x{height}/{Asset}_{name}_{nuke.output}_v{version}.{SEQ}.exr`
+- `nuke_asset_snapshot`: `@asset_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.nk`
+- `nuke_asset_work`: `@asset_root/work/nuke/{name}.v{version}.nk`
 - `obj_asset_publish`: `@asset_root/publish/obj/{name}.v{version}.obj`
-- `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.{texture_extension}` (png default, exr/tif supported)
+- `panorama_asset_publish`: `@asset_root/publish/panorama/{name}.v{version}.png`
+- `panorama_asset_work`: `@asset_root/work/worldlabs/{name}.v{version}.png`
+- `photoshop_asset_jpg_publish`: `@asset_root/publish/photoshop/{name}.v{version}.jpg`
+- `photoshop_asset_png_publish`: `@asset_root/publish/photoshop/{name}.v{version}.png`
+- `photoshop_asset_publish`: `@asset_root/publish/photoshop/{name}.v{version}.psd`
+- `photoshop_asset_snapshot`: `@asset_root/work/photoshop/snapshots/{name}.v{version}.{timestamp}.psd`
+- `photoshop_asset_work`: `@asset_root/work/photoshop/{name}.v{version}.psd`
+- `ply_asset_publish`: `@asset_root/publish/ply/{name}.v{version}.ply`
+- `ply_asset_work`: `@asset_root/work/worldlabs/{name}.v{version}.ply`
+- `rendered_image_asset_publish`: `@asset_root/publish/renders/{name}/v{version}/{Asset}_{name}_v{version}.{SEQ}.exr`
+- `spz_asset_publish`: `@asset_root/publish/spz/{name}.v{version}.spz`
+- `spz_asset_work`: `@asset_root/work/worldlabs/{name}.v{version}.spz`
+- `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.{texture_extension}`
+- `usd_asset_publish`: `@asset_root/publish/usd/{name}_{Step}.v{version}.usd`
+- `vred_asset_publish`: `@asset_root/publish/vred/{name}.v{version}.vpb`
+- `vred_asset_render_publish`: `@asset_root/publish/images/{name}/v{version}/{Asset}_{name}_v{version}[-{vred.render_pass}].{vred.render_extension}`
+- `vred_asset_render_sequence_publish`: `@asset_root/publish/images/{name}/v{version}/{Asset}_{name}_v{version}[-{vred.render_pass}]-{vred.frame}.{vred.render_extension}`
+- `vred_asset_render_sequence_work`: `@asset_root/work/images/{name}/v{version}/{Asset}_{name}_v{version}[-{vred.render_pass}]-{vred.frame}.{vred.render_extension}`
+- `vred_asset_render_work`: `@asset_root/work/images/{name}/v{version}/{Asset}_{name}_v{version}[-{vred.render_pass}].{vred.render_extension}`
+- `vred_asset_snapshot`: `@asset_root/work/vred/snapshots/{name}.v{version}.{timestamp}.vpb`
+- `vred_asset_work`: `@asset_root/work/vred/{name}.v{version}.vpb`
 
-**Shot templates:**
-- `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr` (source: `maya_shot_render` work area, copied by `maya_publish_render.py`; Flame loads via `load_clip`)
+### Shot templates (65)
+
+- `aftereffects_shot_publish`: `@shot_root/publish/afx/{name}.v{version}.aep`
+- `aftereffects_shot_render_movie`: `@shot_root/review/{Shot}_{name}_{afx.comp}_v{version}.{afx.mov.ext}`
+- `aftereffects_shot_render_pub_mono`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}_{name}_{afx.comp}_v{version}.{SEQ}.tif`
+- `aftereffects_shot_snapshot`: `@shot_root/work/afx/snapshots/{name}.v{version}.{timestamp}.aep`
+- `aftereffects_shot_work`: `@shot_root/work/afx/{name}.v{version}.aep`
+- `fbx_shot_publish`: `@shot_root/publish/fbx/{name}_{Step}.v{version}.fbx`
+- `flame_segment_clip`: `sequences/{Sequence}/{Shot}/finishing/clip/sources/{segment_name}.clip`
+- `flame_shot_batch`: `sequences/{Sequence}/{Shot}/finishing/batch/{Shot}.v{version}.batch`
+- `flame_shot_clip`: `sequences/{Sequence}/{Shot}/finishing/clip/{Shot}.clip`
+- `flame_shot_comp_dpx`: `sequences/{Sequence}/{Shot}/finishing/comp/{segment_name}_v{version}/{Shot}_{segment_name}_v{version}.{flame.frame}.dpx`
+- `flame_shot_comp_exr`: `sequences/{Sequence}/{Shot}/finishing/comp/{segment_name}_v{version}/{Shot}_{segment_name}_v{version}.{flame.frame}.exr`
+- `flame_shot_comp_mov`: `sequences/{Sequence}/{Shot}/{segment_name}/review/{Shot}_{segment_name}_v{version}.mov`
+- `flame_shot_render_dpx`: `sequences/{Sequence}/{Shot}/finishing/renders/{segment_name}_v{version}/{Shot}_{segment_name}_v{version}.{flame.frame}.dpx`
+- `flame_shot_render_exr`: `sequences/{Sequence}/{Shot}/finishing/renders/{segment_name}_v{version}/{Shot}_{segment_name}_v{version}.{flame.frame}.exr`
+- `hiero_plate_path`: `sequences/{Sequence}/{Shot}/editorial/{YYYY}_{MM}_{DD}/plates/{project}_{Shot}.mov`
+- `hiero_render_path`: `sequences/{Sequence}/{Shot}/editorial/{YYYY}_{MM}_{DD}/renders/{project}_{Shot}.{SEQ}.dpx`
+- `houdini_shot_dcm`: `@shot_root/work/dcms/{name}/{houdini.node}/v{version}/{width}x{height}/{Shot}_{name}_v{version}.{SEQ}.dcm`
+- `houdini_shot_extra_plane`: `@shot_root/work/images/{name}/{houdini.node}/{aov_name}/v{version}/{width}x{height}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `houdini_shot_ifd`: `@shot_root/work/ifds/{name}/{houdini.node}/v{version}/{width}x{height}/{Shot}_{name}_v{version}.{SEQ}.ifd`
+- `houdini_shot_publish`: `@shot_root/publish/houdini/{name}.v{version}.hip`
+- `houdini_shot_render`: `@shot_root/work/images/{name}/{houdini.node}/v{version}/{width}x{height}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `houdini_shot_snapshot`: `@shot_root/work/houdini/snapshots/{name}.v{version}.{timestamp}.hip`
+- `houdini_shot_work`: `@shot_root/work/houdini/{name}.v{version}.hip`
+- `houdini_shot_work_alembic_cache`: `@shot_root/work/houdini/cache/alembic/{name}/{houdini.node}/v{version}/{Shot}_{name}_v{version}.abc`
+- `max_shot_publish`: `@shot_root/publish/3dsmax/{name}.v{version}.max`
+- `max_shot_snapshot`: `@shot_root/work/3dsmax/snapshots/{name}.v{version}.{timestamp}.max`
+- `max_shot_work`: `@shot_root/work/3dsmax/{name}.v{version}.max`
+- `maya_shot_publish`: `@shot_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `maya_shot_render`: `@shot_root/work/images/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `maya_shot_snapshot`: `@shot_root/work/maya/snapshots/{name}_{Step}.v{version}.{timestamp}.{maya_extension}`
+- `maya_shot_work`: `@shot_root/work/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `mobu_shot_publish`: `@shot_root/publish/mobu/{name}.v{version}.fbx`
+- `mobu_shot_snapshot`: `@shot_root/work/mobu/snapshots/{name}.v{version}.{timestamp}.fbx`
+- `mobu_shot_work`: `@shot_root/work/mobu/{name}.v{version}.fbx`
 - `movie_shot_publish`: `@shot_root/review/{Shot}_{name}_v{version}.mov`
-- `usd_shot_publish`: `@shot_root/publish/usd/{name}.v{version}.usd`
-- `fbx_shot_publish`: `@shot_root/publish/fbx/{name}.v{version}.fbx`
+- `nuke_shot_publish`: `@shot_root/publish/nuke/{name}.v{version}.nk`
+- `nuke_shot_render_mono_dpx`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}_{name}_{nuke.output}_v{version}.{SEQ}.dpx`
+- `nuke_shot_render_movie`: `@shot_root/review/{Shot}_{name}_{nuke.output}_v{version}.mov`
+- `nuke_shot_render_pub_mono_dpx`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}_{name}_{nuke.output}_v{version}.{SEQ}.dpx`
+- `nuke_shot_render_pub_stereo`: `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}_{name}_{nuke.output}_{eye}_v{version}.{SEQ}.exr`
+- `nuke_shot_render_stereo`: `@shot_root/work/images/{name}/v{version}/{width}x{height}/{Shot}_{name}_{nuke.output}_{eye}_v{version}.{SEQ}.exr`
+- `nuke_shot_snapshot`: `@shot_root/work/nuke/snapshots/{name}.v{version}.{timestamp}.nk`
+- `nuke_shot_work`: `@shot_root/work/nuke/{name}.v{version}.nk`
+- `photoshop_shot_jpg_publish`: `@shot_root/publish/photoshop/{name}.v{version}.jpg`
+- `photoshop_shot_png_publish`: `@shot_root/publish/photoshop/{name}.v{version}.png`
+- `photoshop_shot_publish`: `@shot_root/publish/photoshop/{name}.v{version}.psd`
+- `photoshop_shot_snapshot`: `@shot_root/work/photoshop/snapshots/{name}.v{version}.{timestamp}.psd`
+- `photoshop_shot_work`: `@shot_root/work/photoshop/{name}.v{version}.psd`
+- `rendered_image_shot_publish`: `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`
+- `shot_publish_area_aftereffects`: `@shot_root/publish/afx`
+- `shot_publish_area_houdini`: `@shot_root/publish/houdini`
+- `shot_publish_area_max`: `@shot_root/publish/3dsmax`
+- `shot_publish_area_maya`: `@shot_root/publish/maya`
+- `shot_publish_area_mobu`: `@shot_root/publish/mobu`
+- `shot_publish_area_nuke`: `@shot_root/publish/nuke`
+- `shot_publish_area_photoshop`: `@shot_root/publish/photoshop`
+- `shot_quicktime_quick`: `@shot_root/review/quickdaily/{Shot}_{name}_{iteration}.mov`
+- `shot_work_area_aftereffects`: `@shot_root/work/afx`
+- `shot_work_area_houdini`: `@shot_root/work/houdini`
+- `shot_work_area_max`: `@shot_root/work/3dsmax`
+- `shot_work_area_maya`: `@shot_root/work/maya`
+- `shot_work_area_mobu`: `@shot_root/work/mobu`
+- `shot_work_area_nuke`: `@shot_root/work/nuke`
+- `shot_work_area_photoshop`: `@shot_root/work/photoshop`
+- `usd_shot_publish`: `@shot_root/publish/usd/{name}_{Step}.v{version}.usd`
+
+### Sequence templates (5)
+
+- `maya_sequence_publish`: `@sequence_step_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `maya_sequence_work`: `@sequence_step_root/work/maya/{name}_{Step}.v{version}.{maya_extension}`
+- `sequence_publish_area_maya`: `@sequence_step_root/publish/maya`
+- `sequence_work_area_maya`: `@sequence_step_root/work/maya`
+- `usd_sequence_publish`: `@sequence_step_root/publish/usd/{name}_{Step}.v{version}.usd`
+
+### Project-level templates (5)
+
+- `hiero_project_publish`: `editorial/publish/{name}_v{version}.hrox`
+- `hiero_project_publish_area`: `editorial/publish`
+- `hiero_project_snapshot`: `editorial/work/snapshots/{name}_v{version}_{timestamp}.hrox`
+- `hiero_project_work`: `editorial/work/{name}_v{version}.hrox`
+- `hiero_project_work_area`: `editorial/work`
+
+<!-- generated:tk_templates end -->
 
 ## Publish type to template mapping
 
@@ -429,28 +502,29 @@ code in ShotGrid, which determines what each DCC's loader can pick up.
 
 ## Path resolution example
 
-Given: Asset "hero_robot", type "Character", step "model", version 3
+Given: Asset "hero_robot", type "Character", Step short_name "MDL", version 3
 
-1. Template: `maya_asset_publish` → `@asset_root/publish/maya/{name}.v{version}.{maya_extension}`
-2. Expand alias: `assets/{sg_asset_type}/{Asset}/{Step}/publish/maya/{name}.v{version}.{maya_extension}`
-3. Apply fields: `assets/Character/hero_robot/model/publish/maya/main.v003.ma`
-4. Prepend project_root: `/Users/Shared/FPT_MCP/assets/Character/hero_robot/model/publish/maya/main.v003.ma`
+1. Template: `maya_asset_publish` → `@asset_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+2. Expand alias: `assets/{sg_asset_type}/{Asset}/{Step}/publish/maya/{name}_{Step}.v{version}.{maya_extension}`
+3. Apply fields (Step short_name `MDL`): `assets/Character/hero_robot/MDL/publish/maya/main_MDL.v003.ma`
+4. Prepend project_root: `<project_root>/assets/Character/hero_robot/MDL/publish/maya/main_MDL.v003.ma`
 
 ## Shot path resolution example
 
-Given: Shot "SH010", Sequence "SEQ01", step "comp", version 5, Nuke
+Given: Shot "SH010", Sequence "SEQ01", Step short_name "CMP", version 5, Nuke
 
-1. Template: `nuke_shot_publish` → `@shot_root/publish/nuke/{name}.v{version}.{nuke_extension}`
-2. Expand alias: `sequences/{Sequence}/{Shot}/{Step}/publish/nuke/{name}.v{version}.{nuke_extension}`
-3. Apply fields: `sequences/SEQ01/SH010/comp/publish/nuke/main.v005.nk`
-4. Prepend project_root: `/Users/Shared/FPT_MCP/sequences/SEQ01/SH010/comp/publish/nuke/main.v005.nk`
+1. Template: `nuke_shot_publish` → `@shot_root/publish/nuke/{name}.v{version}.nk`
+2. Expand alias: `sequences/{Sequence}/{Shot}/{Step}/publish/nuke/{name}.v{version}.nk`
+3. Apply fields: `sequences/SEQ01/SH010/CMP/publish/nuke/main.v005.nk`
+4. Prepend project_root: `<project_root>/sequences/SEQ01/SH010/CMP/publish/nuke/main.v005.nk`
 
 ## EXR render sequence path resolution example
 
-Given: Shot "SH010", Sequence "SEQ01", step "light", name "beauty", version 2, frames 1001-1100
+Given: Shot "SH010", Sequence "SEQ01", Step short_name "LGT", name "beauty", version 2, frames 1001-1100
 
-1. Template: `nuke_shot_render_pub_mono_exr` → `@shot_root/publish/elements/{name}/v{version}/{width}x{height}/{Shot}.{SEQ}.exr`
-2. Single frame: `sequences/SEQ01/SH010/light/publish/elements/beauty/v002/1920x1080/SH010.1001.exr`
+1. Template: `rendered_image_shot_publish` → `@shot_root/publish/renders/{name}/v{version}/{Shot}_{name}_v{version}.{SEQ}.exr`
+2. Registered path (one publish, frame token kept): `sequences/SEQ01/SH010/LGT/publish/renders/beauty/v002/SH010_beauty_v002.%04d.exr`
+3. One frame on disk: `…/SH010_beauty_v002.1001.exr`
 
 ## Version auto-increment
 
