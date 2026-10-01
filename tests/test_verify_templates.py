@@ -849,3 +849,72 @@ class TestRealFiles:
         """Reading TK_API.md does not raise."""
         text = REAL_TK_API.read_text(encoding="utf-8")
         assert len(text) > 100
+
+
+# ---------------------------------------------------------------------------
+# Check 8 — generated TK_API block vs the REAL templates.yml (Chat 108)
+# ---------------------------------------------------------------------------
+
+class TestDocBlockMatchesRealConfig:
+    """The template block is generated from the real config; drift fails."""
+
+    REAL = textwrap.dedent("""\
+        keys:
+          Shot: {type: str}
+          Step: {type: str}
+        paths:
+          shot_root: sequences/{Sequence}/{Shot}/{Step}
+          maya_shot_publish:
+            definition: '@shot_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}'
+          editorial_flame_batch_xml:
+            definition: 'editorial/xml/{Sequence}.xml'
+        """)
+
+    def _gen(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "gen_tk_templates_doc", vt.SCRIPT_DIR / "gen_tk_templates_doc.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_render_groups_and_counts(self, tmp_path):
+        gen = self._gen()
+        cfg = tmp_path / "templates.yml"
+        cfg.write_text(self.REAL)
+        block = gen.render_block(cfg)
+        assert block.startswith(gen.BLOCK_START) and block.endswith(gen.BLOCK_END)
+        assert "**2 templates, 1 aliases, 2 keys**" in block
+        assert "### Shot templates (1)" in block and "### Project-level templates (1)" in block
+        assert "- `maya_shot_publish`: `@shot_root/publish/maya/{name}_{Step}.v{version}.{maya_extension}`" in block
+
+    def test_matching_block_passes(self, tmp_path, monkeypatch):
+        gen = self._gen()
+        cfg = tmp_path / "templates.yml"
+        cfg.write_text(self.REAL)
+        monkeypatch.setenv(gen.ENV_KEY, str(cfg))
+        doc = "intro\n" + gen.render_block(cfg) + "\noutro"
+        [(ok, msg)] = vt.check_doc_block_matches_real_config(doc)
+        assert ok and "block matches" in msg
+
+    def test_drifted_block_fails_naming_the_fix(self, tmp_path, monkeypatch):
+        gen = self._gen()
+        cfg = tmp_path / "templates.yml"
+        cfg.write_text(self.REAL)
+        monkeypatch.setenv(gen.ENV_KEY, str(cfg))
+        doc = gen.render_block(cfg).replace("{name}_{Step}.v", "{name}.v")
+        [(ok, msg)] = vt.check_doc_block_matches_real_config(doc)
+        assert not ok and "gen_tk_templates_doc.py --write" in msg
+
+    def test_missing_markers_fail(self, tmp_path, monkeypatch):
+        cfg = tmp_path / "templates.yml"
+        cfg.write_text(self.REAL)
+        monkeypatch.setenv("FPT_MCP_TEMPLATES_YML", str(cfg))
+        [(ok, msg)] = vt.check_doc_block_matches_real_config("no block here")
+        assert not ok and "markers missing" in msg
+
+    def test_skips_without_a_real_config(self, monkeypatch):
+        """CI has no project config: the check must not block it."""
+        monkeypatch.setenv("FPT_MCP_TEMPLATES_YML", "/nonexistent/templates.yml")
+        [(ok, msg)] = vt.check_doc_block_matches_real_config("anything")
+        assert ok and "SKIPPED" in msg

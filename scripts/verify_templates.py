@@ -35,6 +35,14 @@ What is checked
    maya_shot_publish, nuke_shot_work, nuke_shot_publish, asset_alembic_cache,
    flame_shot_batch) must all appear in TK_API.md.
 
+8. **doc_block_matches_real_config** — The generated template block in
+   TK_API.md is byte-identical to what ``scripts/gen_tk_templates_doc.py``
+   renders from the project's REAL ``templates.yml``. Checks 1-7 only see the
+   test fixture, which is how 45 of 79 hand-written rows drifted unnoticed
+   (Chat 108). The real config path is machine-specific
+   (``FPT_MCP_TEMPLATES_YML`` in the environment or the untracked ``.env``);
+   without it the check SKIPS with a notice — CI has no project config.
+
 Exit codes
 ----------
 0  all checks passed (or --strict not set + failures found)
@@ -392,6 +400,30 @@ def check_doc_section_core_templates_present(
     return results
 
 
+def check_doc_block_matches_real_config(doc_text: str) -> list[Check]:
+    """Check 8: the generated block equals a fresh render of the real config.
+
+    Passes with a SKIPPED message when no real config is configured, so CI
+    (which has none) is not blocked; locally the pre-commit hook enforces it.
+    """
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import gen_tk_templates_doc as gen  # noqa: E402 — sibling script
+
+    path = gen.resolve_templates_path()
+    if path is None or not path.is_file():
+        return [(True, f"doc_block_matches_real_config: SKIPPED — no real "
+                       f"templates.yml ({gen.ENV_KEY} unset or missing: {path})")]
+    current = gen.extract_block(doc_text)
+    if current is None:
+        return [(False, "doc_block_matches_real_config: generated block markers "
+                        "missing from TK_API.md")]
+    if current != gen.render_block(path):
+        return [(False, "doc_block_matches_real_config: TK_API.md template block "
+                        f"differs from {path} — run "
+                        "scripts/gen_tk_templates_doc.py --write")]
+    return [(True, f"doc_block_matches_real_config: block matches {path}")]
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -457,6 +489,7 @@ def main() -> int:
         ("5_candidate_templates_match",      check_candidate_templates_match(templates)),
         ("6_fixture_templates_documented",   check_fixture_templates_documented(templates, doc_text)),
         ("7_core_templates_documented",      check_doc_section_core_templates_present(doc_text)),
+        ("8_doc_block_matches_real_config",  check_doc_block_matches_real_config(doc_text)),
     ]
 
     for check_id, sub_results in checks:

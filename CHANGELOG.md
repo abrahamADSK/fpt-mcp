@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`TK_API.md` documented a pipeline this project does not have.** The RAG
+  corpus the model reads carried a hand-written "standard tk-config-default2"
+  template list: compared row by row with the project's real `templates.yml`,
+  only 34 of 79 rows matched — 32 differed (the `{name}_{Step}` naming, literal
+  `.nk`/`.hip` extensions, wholly different Flame paths) and 13 named templates
+  that do not exist (3ds Max, MotionBuilder, `flame_shot_work`, review
+  quicktimes…), with `asset_alembic_cache` listed twice. The token list also
+  recommended keys the config never declares (`{nuke_extension}`,
+  `{houdini_extension}`, `{channel}`, `{output}`). The list is now GENERATED
+  from the real config by `scripts/gen_tk_templates_doc.py` (158 templates, 4
+  aliases, 37 keys — 158/158 match), the token list and path examples are
+  corrected, and **`verify_templates.py` check 8** fails when the block drifts.
+  It drifted unnoticed because checks 1-7 compare the doc with the TEST FIXTURE.
+  The real config path is machine-specific: `FPT_MCP_TEMPLATES_YML` in the
+  untracked `.env`; without it the check skips (CI). RAG re-index required.
+
+### Changed
+- **Console prompts: the native-publish INVARIANT (Chat 82, PR #37 re-done on
+  current main).** Step 6c told the console to publish "all formats via
+  tk_publish (one call per format)", with the native publisher only
+  "preferred" — the pattern that left `SEQ001_LAY` with zero upstream
+  dependencies, because per-format `tk_publish` does not capture references. Both
+  `default.txt` and `qwen.txt` now mandate `maya_session(action='publish')` for a
+  Toolkit-managed Maya scene and demote `tk_publish` to a fallback (non-engine'd
+  file, external artifact, World Labs / Gaussian-splat environment). The
+  `tk_publish` tool description says the same. Guarded by
+  `test_publish_native_invariant`.
+
 ### Removed
 - **ATOM Animation rows dropped from `TK_API.md` (RAG corpus).** The ATOM
   animation-library pipeline was abandoned (Chat 80) and its template, publish

@@ -804,7 +804,8 @@ fpt-mcp/
 ├── scripts/
 │   ├── cut-release.sh                    # Canonical release script (the only supported release path)
 │   ├── verify_concepts.py                # Concept-registry drift checker (pre-commit)
-│   ├── verify_templates.py               # Toolkit templates vs TK_API.md checker (pre-commit)
+│   ├── gen_tk_templates_doc.py           # Generates TK_API.md's template block from the real templates.yml
+│   ├── verify_templates.py               # Toolkit templates vs TK_API.md checker (pre-commit; check 8 = real config)
 │   ├── check_adversarial_count.py        # F3b precondition gate (adversarial test count)
 │   └── invariant_types.py                # Shared invariant engine types
 ├── src/
