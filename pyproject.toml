@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fpt-mcp"
-version = "1.29.0"
+version = "1.30.0"
 description = "MCP server for Autodesk Flow Production Tracking (ShotGrid)"
 readme = "README.md"
 # Upper bound is deliberate and specific to this repo: fpt-mcp depends on
