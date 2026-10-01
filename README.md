@@ -240,7 +240,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 |------|-------------|
 | `sg_resolve_source` | Resolve an Asset's best generation input for the World Labs / Vision3D entry flow — ranks linked Version stills, the Asset thumbnail, and the Asset description by priority (image over text; video deferred) and returns resolved / requires_choice / text_only / no_source, downloading the chosen image when a download path is given |
 
-### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 4 actions)
+### ShotGrid API — Bulk Dispatcher (`fpt_bulk` — 1 tool, 5 actions)
 
 <!-- concept:fpt_bulk_actions start -->
 | Action | Description |
@@ -249,6 +249,7 @@ General-purpose tools with no entity restrictions — works with any ShotGrid en
 | `fpt_bulk(action="revive")` | Restore a previously retired entity |
 | `fpt_bulk(action="batch")` | Transactional bulk operations — all succeed or all fail |
 | `fpt_bulk(action="editorial")` | Deterministically create a Cut + one CutItem per shot. Cumulative edit ranges, source ranges and handles are computed in Python (see `editorial.py`), not by hand. Required `params`: `{"cut": {"entity": {...}, "code": "...", "fps": 24.0}, "shots": [{"shot": {"type": "Shot", "id": N}, "duration": <frames>}]}`; optional cut keys `source_start_frame` (default 1001), `handles` (default 0), `revision_number` |
+| `fpt_bulk(action="link_task")` | Link a native tk-flame delivery to its Task. tk-flame resolves its context from the `.batch` path and tk-core only yields a Task from a Task-typed schema folder, so the Version and its render / `.batch` / quicktime publishes arrive Task-less. Required `params`: `{"version_id": N, "step": "CMP"}` (Step code or short_name). Links the Version, its publishes and the entity's Task-less publishes with the same version number in ONE transaction; exactly one Task must match, and nothing is written if any record already sits on a different Task. Idempotent |
 <!-- concept:fpt_bulk_actions end -->
 
 ### ShotGrid API — Reporting Dispatcher (`fpt_reporting` — 1 tool, 4 actions)

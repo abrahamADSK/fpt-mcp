@@ -144,7 +144,7 @@ concepts:
         direction: bidirectional
         a_source:
           type: literal_set
-          values: [delete, revive, batch, editorial]
+          values: [delete, revive, batch, editorial, link_task]
         b_source:
           type: anchor_list
           file: README.md
