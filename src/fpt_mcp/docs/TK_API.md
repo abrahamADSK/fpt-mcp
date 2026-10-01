@@ -394,7 +394,6 @@ whatever templates the project config defines.
 - `fbx_asset_publish`: `@asset_root/publish/fbx/{name}.v{version}.fbx`
 - `glb_asset_publish`: `@asset_root/publish/glb/{name}.v{version}.glb`
 - `obj_asset_publish`: `@asset_root/publish/obj/{name}.v{version}.obj`
-- `atom_animation_asset_publish`: `@asset_root/publish/atom/{name}.v{version}.atom` (Maya ATOM animation curves; asset-only)
 - `texture_asset_publish`: `@asset_root/publish/textures/{name}.v{version}.{texture_extension}` (png default, exr/tif supported)
 
 **Shot templates:**
@@ -419,7 +418,6 @@ code in ShotGrid, which determines what each DCC's loader can pick up.
 | FBX | fbx_asset_publish | fbx_shot_publish | No |
 | GLB | glb_asset_publish | — | No |
 | OBJ | obj_asset_publish | — | No |
-| ATOM Animation | atom_animation_asset_publish | — | No |
 | Maya Scene | maya_asset_publish | maya_shot_publish | No |
 | Alembic Cache | asset_alembic_cache | — | No |
 | Nuke Script | nuke_asset_publish | nuke_shot_publish | No |

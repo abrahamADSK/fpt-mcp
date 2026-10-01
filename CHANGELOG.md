@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **ATOM Animation rows dropped from `TK_API.md` (RAG corpus).** The ATOM
+  animation-library pipeline was abandoned (Chat 80) and its template, publish
+  plugin, loader action and `asset_anim` environment were removed from
+  `toolkit_config_custom_template` (PR #9, merged 2026-07-10). This pair was left
+  unmerged, so the corpus kept documenting `atom_animation_asset_publish`, a
+  template the config no longer has — re-checked against `templates.yml`
+  (Chat 108). `bvh_import` (maya-mcp) is unaffected.
+
 ### Added
 - **`fpt_bulk(action="link_task")` — link a native tk-flame delivery to its
   Task.** tk-flame creates the Version and its render / `.batch` / quicktime
