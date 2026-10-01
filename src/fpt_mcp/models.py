@@ -363,6 +363,7 @@ class BulkAction(str, Enum):
     REVIVE = "revive"
     BATCH = "batch"
     EDITORIAL = "editorial"
+    LINK_TASK = "link_task"
 
 
 class BulkDispatchInput(BaseModel):
@@ -567,6 +568,23 @@ class EditorialShot(BaseModel):
     @classmethod
     def _validate_shot(cls, v: dict) -> dict:
         return _validate_entity_ref(v, allowed_types={"Shot"})
+
+
+class SgLinkTaskInput(BaseModel):
+    """Input for ``fpt_bulk(action="link_task")``.
+
+    Link a native tk-flame delivery to its Task after the fact. tk-flame
+    resolves its context with ``context_from_path`` on the ``.batch`` path, and
+    tk-core only yields a Task from a Task-typed folder in the schema, so the
+    Version and its PublishedFiles arrive with no Task (Chat 108, measured in
+    tk-flame-export ``app.py`` and tk-core ``context.from_path``).
+    """
+    model_config = _STRICT_CONFIG
+    version_id: int = Field(description="ID of the Version the delivery created.")
+    step: str = Field(
+        min_length=1,
+        description="Pipeline Step to link, matched against Step code OR short_name (e.g. 'CMP').",
+    )
 
 
 class SgEditorialInput(BaseModel):

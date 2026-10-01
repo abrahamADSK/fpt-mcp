@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`fpt_bulk(action="link_task")` — link a native tk-flame delivery to its
+  Task.** tk-flame creates the Version and its render / `.batch` / quicktime
+  publishes with an empty Task: tk-flame-export resolves its context with
+  `context_from_path` on the `.batch` path (`app.py`), and tk-core only yields a
+  Task from a Task-typed schema folder (`context.from_path`), which this schema
+  does not have. Adding `{Step}` to the `.batch` template — the fix assumed since
+  Chat 99 — would have produced a Step and still no Task. The action takes
+  `version_id` + `step` (code or short_name), resolves the entity's single
+  matching Task, and links the Version, its publishes and the entity's
+  Task-less publishes with the same version number (how the `.batch` and the
+  quicktime, which tk-flame does not hang from the Version, are found) in one
+  `sg_batch`. Zero or several Tasks → candidates, nothing written; any record on
+  a different Task → conflict, nothing written; re-running is a no-op. Replaces
+  the hand-made `sg_find` + three `sg_update` step of the delivery recipe.
+
 ## [1.29.0] — 2026-10-01
 
 Authentication moves from the shared API Script key to the **signed-in user**,

@@ -58,6 +58,11 @@ Everything else about the publish (Task link, version number, type) still applie
 
 ## Publish type, not missing Task
 
+A native tk-flame delivery is the exception that DOES lack a Task: tk-flame
+takes its context from the `.batch` path, and Toolkit only yields a Task from a
+Task-typed schema folder. Link it with `fpt_bulk(action="link_task")`
+(`version_id`, `step`) — one call covers the Version and all its publishes.
+
 If a native publish does not appear where expected, the usual cause is the
 **`PublishedFileType`**, not an absent Task. `extra_publish_types` exists for
 that case: a publish can have a perfectly good Task and still be invisible to a

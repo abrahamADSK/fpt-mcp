@@ -4,7 +4,7 @@ Extracted from server.py in Bucket F Phase 2d. Contains:
   - sg_find_impl, sg_create_impl, sg_update_impl
   - sg_schema_impl, sg_upload_impl, sg_download_impl
   - _do_sg_delete, _do_sg_batch, _do_sg_revive,
-    _do_sg_editorial                            (bulk dispatcher handlers)
+    _do_sg_editorial, _do_sg_link_task          (bulk dispatcher handlers)
 
 The BulkAction → handler dispatch dict itself lives in server.py::fpt_bulk
 (it owns the _stats bookkeeping); these handlers are the values it maps to.
@@ -40,6 +40,7 @@ from fpt_mcp.models import (
     SgDeleteInput,
     SgDownloadInput,
     SgEditorialInput,
+    SgLinkTaskInput,
     SgFindInput,
     SgResolveSourceInput,
     SgReviveInput,
@@ -470,6 +471,178 @@ async def _do_sg_revive(params: dict) -> str:
         "entity_type": validated.entity_type,
         "entity_id": validated.entity_id,
     })
+
+
+_LINK_PF_FIELDS = ["code", "version_number", "task", "path", "published_file_type"]
+
+
+def _pf_summary(pf: dict) -> dict:
+    """Compact, human-checkable view of a PublishedFile for the report."""
+    return {
+        "type": "PublishedFile",
+        "id": pf["id"],
+        "code": pf.get("code"),
+        "published_file_type": (pf.get("published_file_type") or {}).get("name"),
+        "path": (pf.get("path") or {}).get("local_path"),
+    }
+
+
+@sg_errors_to_json
+async def _do_sg_link_task(params: dict) -> str:
+    """Link a native delivery's Version and PublishedFiles to their Task.
+
+    tk-flame creates the Version and the render / ``.batch`` / quicktime
+    publishes with an empty Task (see :class:`SgLinkTaskInput`). Steps:
+
+      1. Read the Version: its entity, its ``published_files`` (tk-flame links
+         only the render there) and, through them, the delivery's version
+         number.
+      2. Resolve the entity's ONE Task for ``step`` (code or short_name).
+         Zero or several → error with the candidates; nothing is written.
+      3. Collect the Version's publishes PLUS the entity's Task-less publishes
+         with the same version number — that is how the ``.batch`` and the
+         quicktime, which tk-flame does not hang from the Version, are found.
+      4. Classify each record: unlinked → link; already on this Task → keep;
+         on ANOTHER Task → conflict. Any conflict aborts the whole write: a
+         record on a different Task means the request does not match the data,
+         and overwriting it would silently re-file someone else's work.
+      5. Write every link in ONE ``sg_batch`` transaction (all or nothing).
+
+    Idempotent: re-running on a linked delivery writes nothing.
+    """
+    import re as _re
+
+    from pydantic import ValidationError
+    from fpt_mcp.server import sg_batch, sg_find, sg_find_one
+
+    try:
+        validated = SgLinkTaskInput(**params)
+    except ValidationError as e:
+        return json.dumps({"error": f"Invalid params for link_task: {e}"})
+
+    version = await sg_find_one(
+        "Version",
+        [["id", "is", validated.version_id]],
+        ["code", "entity", "sg_task", "published_files"],
+    )
+    if not version:
+        return json.dumps({"error": f"Version {validated.version_id} not found."})
+    entity = version.get("entity")
+    if not entity:
+        return json.dumps({
+            "error": f"Version {validated.version_id} is linked to no entity; "
+                     "there is no Task to resolve."
+        })
+    entity_link = {"type": entity["type"], "id": entity["id"]}
+
+    pub_ids = [p["id"] for p in (version.get("published_files") or [])]
+    own_pubs = (
+        await sg_find("PublishedFile", [["id", "in", pub_ids]], _LINK_PF_FIELDS)
+        if pub_ids else []
+    )
+    numbers = {p["version_number"] for p in own_pubs if p.get("version_number") is not None}
+    if not numbers:
+        m = _re.search(r"_v(\d+)", version.get("code") or "")
+        numbers = {int(m.group(1))} if m else set()
+    if len(numbers) != 1:
+        return json.dumps({
+            "error": "Cannot tell the delivery's version number: the Version's "
+                     f"published_files carry {sorted(numbers) or 'none'} and its "
+                     f"code is {version.get('code')!r}. Link it with sg_update."
+        })
+    version_number = numbers.pop()
+
+    tasks = await sg_find(
+        "Task",
+        [
+            ["entity", "is", entity_link],
+            {
+                "filter_operator": "any",
+                "filters": [
+                    ["step.Step.code", "is", validated.step],
+                    ["step.Step.short_name", "is", validated.step],
+                ],
+            },
+        ],
+        ["content", "step"],
+    )
+    if len(tasks) != 1:
+        candidates = await sg_find(
+            "Task", [["entity", "is", entity_link]], ["content", "step"]
+        )
+        return json.dumps({
+            "error": f"{len(tasks)} Tasks on {entity['type']} {entity['id']} match "
+                     f"step {validated.step!r}; exactly one is required. Nothing "
+                     "was written.",
+            "candidates": [
+                {"id": t["id"], "content": t.get("content"),
+                 "step": (t.get("step") or {}).get("name")}
+                for t in candidates
+            ],
+        })
+    task = tasks[0]
+    task_link = {"type": "Task", "id": task["id"]}
+
+    siblings = await sg_find(
+        "PublishedFile",
+        [
+            ["entity", "is", entity_link],
+            ["version_number", "is", version_number],
+            ["task", "is", None],
+        ],
+        _LINK_PF_FIELDS,
+    )
+    publishes = {p["id"]: p for p in [*own_pubs, *siblings]}
+
+    to_link: list[dict] = []
+    already: list[dict] = []
+    conflicts: list[dict] = []
+
+    def _classify(record: dict, current: Any, summary: dict) -> None:
+        if not current:
+            to_link.append({"record": record, "summary": summary})
+        elif current.get("id") == task["id"]:
+            already.append(summary)
+        else:
+            conflicts.append({**summary, "current_task": current})
+
+    _classify(
+        version, version.get("sg_task"),
+        {"type": "Version", "id": version["id"], "code": version.get("code")},
+    )
+    for pf in sorted(publishes.values(), key=lambda p: p["id"]):
+        _classify(pf, pf.get("task"), _pf_summary(pf))
+
+    report: dict[str, Any] = {
+        "task": {"id": task["id"], "content": task.get("content"),
+                 "step": (task.get("step") or {}).get("name")},
+        "version_number": version_number,
+        "linked": [t["summary"] for t in to_link],
+        "already_linked": already,
+        "conflicts": conflicts,
+    }
+    if conflicts:
+        report.update({
+            "error": "Some records already sit on a DIFFERENT Task; nothing was "
+                     "written. Check the step, or fix those records by hand.",
+            "linked": [],
+            "would_link": [t["summary"] for t in to_link],
+        })
+        return json.dumps(report, default=str)
+
+    if to_link:
+        requests = [
+            {
+                "request_type": "update",
+                "entity_type": t["summary"]["type"],
+                "entity_id": t["summary"]["id"],
+                "data": {("sg_task" if t["summary"]["type"] == "Version" else "task"): task_link},
+            }
+            for t in to_link
+        ]
+        await sg_batch(requests)
+    report["written"] = len(to_link)
+    return json.dumps(report, default=str)
 
 
 @sg_errors_to_json

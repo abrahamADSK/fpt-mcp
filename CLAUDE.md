@@ -30,11 +30,12 @@ Claude Desktop / Claude Code / Terminal
 - `sg_upload` — upload files (thumbnail, movie, attachment)
 - `sg_download` — download attachments
 
-**Bulk operations dispatcher** (`fpt_bulk` — 1 tool, 4 actions):
+**Bulk operations dispatcher** (`fpt_bulk` — 1 tool, 5 actions):
 - `fpt_bulk(action="delete")` — soft-delete (retire) entities
 - `fpt_bulk(action="revive")` — restore soft-deleted (retired) entities
 - `fpt_bulk(action="batch")` — transactional batch operations (all-or-nothing)
 - `fpt_bulk(action="editorial")` — deterministic Cut + CutItem auto-calc: pure timecode math (`editorial.py::compute_editorial_cut`) computes cumulative `edit_in`/`edit_out`, `cut_item_in`/`cut_item_out` (source range), handles and `sg_cut_duration`, then a thin creation layer (`shotgrid.py::_do_sg_editorial`) creates the Cut via `sg_create` and the CutItems via one `sg_batch` transaction
+- `fpt_bulk(action="link_task")` — link a native tk-flame delivery (`version_id` + `step`) to its Task: the Version, its publishes and the Shot's Task-less publishes with the same version number, in one `sg_batch`. tk-flame leaves them Task-less because tk-core only yields a Task from a Task-typed schema folder (Chat 108). Exactly one Task must match; any record on a different Task aborts the write; idempotent
 
 **Reporting dispatcher** (`fpt_reporting` — 1 tool, 4 actions):
 - `fpt_reporting(action="text_search")` — full-text search across multiple entity types
@@ -412,7 +413,7 @@ In `~/.claude/settings.json`, enable all these tools:
 **fpt-mcp** (18 tools — dispatcher pattern):
 - Direct SG tools: sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download
 - Source resolver: sg_resolve_source (best Asset generation input — image>description; video deferred)
-- Dispatchers: fpt_bulk (delete/revive/batch/editorial), fpt_reporting (text_search/summarize/note_thread/activity)
+- Dispatchers: fpt_bulk (delete/revive/batch/editorial/link_task), fpt_reporting (text_search/summarize/note_thread/activity)
 - Toolkit: tk_resolve_path, tk_publish
 - Flame conform: cut_to_edl, openclip_create
 - Launcher: fpt_launch_app
@@ -460,7 +461,7 @@ All three repos are on the local Mac (M4 Pro):
   - 18 @mcp.tool registrations using dispatcher pattern:
     - 6 direct SG tools (sg_find, sg_create, sg_update, sg_schema, sg_upload, sg_download)
     - 1 source resolver: sg_resolve_source (World Labs / Vision3D entry — image>description, video deferred)
-    - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch, editorial)
+    - 1 bulk dispatcher: fpt_bulk (actions: delete, revive, batch, editorial, link_task)
     - 1 reporting dispatcher: fpt_reporting (actions: text_search, summarize, note_thread, activity)
     - 2 Toolkit tools (tk_resolve_path, tk_publish) with dynamic config discovery
     - 2 Flame conform tools (cut_to_edl, openclip_create)

@@ -85,5 +85,5 @@ real field or status codes on this project, then re-query once.
   types are `fpt-publish`.
 - **Not an API reference.** Operators, filter grammar, pagination and method
   signatures are `search_sg_docs`.
-- **Not bulk mutation.** `fpt_bulk` (delete / revive / batch / editorial)
+- **Not bulk mutation.** `fpt_bulk` (delete / revive / batch / editorial / link_task)
   carries its own contracts in its docstring; nothing here authorises a write.
