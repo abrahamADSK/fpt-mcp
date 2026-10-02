@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — BREAKING (editorial data contract)
+### Changed — editorial convention (tool interface unchanged)
+- Same `fpt_bulk(action="editorial")` parameters; the values it writes
+  change, and `handles > 0` now also updates the Shots. The only known
+  reader of the old convention (flame-mcp's conform recipe) is updated in
+  flame-mcp v1.26.1.
 - **`fpt_bulk(action="editorial")` now writes Autodesk's Cut convention.** Read
   from Autodesk's own importer (`tk-multi-importcut`, `edl_cut.py:1637`,
   `cut_diff.py:713`): `edit_in` is **1-based** and every range is
