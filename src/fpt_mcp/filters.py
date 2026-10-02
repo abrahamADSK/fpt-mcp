@@ -168,8 +168,10 @@ def _validate_filter_triples(filters: list, _depth: int = 0) -> list:
 
         # Entity-link field validation: if the field looks like an entity
         # link, the value must be a dict (or a list of dicts for 'in').
+        # None is the ShotGrid null check ("link is empty" / "is set"),
+        # valid on every field type, so it is allowed with is/is_not.
         if field in _entity_link_fields and op in ("is", "is_not"):
-            if not _is_entity_dict(value):
+            if value is not None and not _is_entity_dict(value):
                 raise ValueError(
                     f"filter[{idx}]: field '{field}' is an entity link, "
                     f"value must be {{'type': '...', 'id': N}}, got {value!r}. "

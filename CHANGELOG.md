@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Entity-link null checks were rejected by the filter validator.**
+  `[["task", "is", None]]` — the natural "PublishedFiles with no Task"
+  query — failed with "value must be {'type': '...', 'id': N}", while the
+  same check on a field outside the entity-link list (`sg_task`) passed.
+  ShotGrid accepts `None` with `is`/`is_not` on every field type, so the
+  validator now allows it on entity links too; bare ints/strings and
+  `None` with `in`/`not_in` are still rejected. `SG_API.md` gains the
+  entity-link null-check example.
+
 ## [1.30.0] — 2026-10-01
 
 ### Fixed
