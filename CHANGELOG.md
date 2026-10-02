@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.32.0] — 2026-10-02
+
 ### Changed — editorial convention (tool interface unchanged)
 - Same `fpt_bulk(action="editorial")` parameters; the values it writes
   change, and `handles > 0` now also updates the Shots. The only known
