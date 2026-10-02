@@ -541,7 +541,7 @@ class EditorialCutSpec(BaseModel):
     )
     handles: int = Field(
         default=0, ge=0,
-        description="Handle frames added to EACH side of every shot's source range (default 0).",
+        description="Handle frames on EACH side of every shot. Written to the Shot (sg_head_in/sg_tail_out, with sg_cut_in/out), never to the CutItem; 0 leaves Shots untouched (default 0).",
     )
     revision_number: Optional[int] = Field(
         default=None, ge=0,
