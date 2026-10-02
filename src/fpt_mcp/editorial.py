@@ -16,47 +16,29 @@ deterministic, unit-tested function.
 
 Frame-range convention (READ THIS BEFORE CHANGING THE MATH)
 ===========================================================
-There are two independent axes in editorial data, and they use DIFFERENT
-conventions on purpose:
+The convention is Autodesk's, read from its own Cut importer
+(``tk-multi-importcut``, ``edl_cut.py`` / ``cut_diff.py``, verified Chat 109)
+so that Create, RV and the importer read our Cuts frame-exact:
 
 1. ``edit_in`` / ``edit_out`` — the RECORD (timeline) position of each item.
-   * 0-based: the first item starts at ``edit_in == 0``.
-   * Exclusive end (half-open interval ``[edit_in, edit_out)``):
-     ``edit_out == edit_in + duration``.
-   * Contiguous & cumulative: ``edit_out`` of item *k* equals ``edit_in`` of
-     item *k+1*, so the timeline has no gaps and no overlaps. This is the
-     standard EDL / OpenTimelineIO record-time convention and is REQUIRED for
-     the cumulation to be well defined (``edit_in(k) == sum of durations
-     before k``).
+   * 1-based: the first item starts at ``edit_in == 1``.
+   * INCLUSIVE end: ``edit_out == edit_in + duration - 1``.
+   * Contiguous & cumulative: item *k+1* starts at ``edit_out(k) + 1``, so the
+     timeline has no gaps and no overlaps.
 
-2. ``cut_item_in`` / ``cut_item_out`` — the SOURCE (media) range pulled from
-   each shot's plate.
+2. ``cut_item_in`` / ``cut_item_out`` — the SOURCE (media) range of the cut.
    * Anchored at ``source_start_frame`` (default 1001) — it does NOT cumulate,
-     because every shot has its own source media that restarts at
-     ``source_start_frame``.
-   * Exclusive end, matching the edit axis: with no handles,
-     ``cut_item_in == source_start_frame`` and
-     ``cut_item_out == source_start_frame + duration``.
-   * Handles (``handles``, default 0) widen the source range symmetrically by
-     ``handles`` frames on EACH side (head + tail pull), so
-     ``cut_item_in == source_start_frame - handles`` and
-     ``cut_item_out == source_start_frame + duration + handles``.
-     ``cut_item_duration`` always tracks the EDIT length (``duration``) and is
-     NOT widened by handles, so ``cut_item_out - cut_item_in`` exceeds
-     ``cut_item_duration`` exactly by ``2 * handles`` when handles are pulled.
+     because every shot has its own source media.
+   * INCLUSIVE end: ``cut_item_out == cut_item_in + duration - 1``, and
+     ``cut_item_duration == cut_item_out - cut_item_in + 1 == duration``.
+   * Handles are NOT part of the CutItem. As in Autodesk's importer they live
+     on the Shot (``sg_head_in`` / ``sg_tail_out``) — see
+     :func:`compute_shot_handle_updates`.
 
-Note on the contrasting Shot convention:
-``SG_API.md`` (the create-Shot example, ``sg_cut_in: 1001 / sg_cut_out: 1100 /
-sg_cut_duration: 100``) documents the SHOT entity's ``sg_cut_in`` /
-``sg_cut_out`` fields as INCLUSIVE (``out == in + duration - 1``). That is a
-different entity (Shot, not CutItem) and a different field family; this module
-deliberately uses the exclusive/half-open convention for the CutItem record
-and source ranges because (a) the editorial spec defines the math as
-``edit_out = edit_in + duration`` and ``source_start_frame + duration``, and
-(b) exclusive-out is what makes the timeline cumulation contiguous. If a live
-ShotGrid CutItem schema audit ever shows the site expects inclusive CutItem
-ranges, flip ``cut_item_out`` / ``edit_out`` to ``... - 1`` here and update the
-unit tests in lockstep.
+This matches the Shot convention (``sg_cut_in`` / ``sg_cut_out`` inclusive).
+Cuts written before Chat 109 used a 0-based, exclusive ``edit_*``;
+``cut_to_edl`` reads record positions relative to the first item's
+``edit_in``, so it handles both.
 """
 
 from __future__ import annotations
@@ -76,7 +58,6 @@ def compute_editorial_cut(
     fps: float,
     shots: list[dict[str, Any]],
     source_start_frame: int = DEFAULT_SOURCE_START_FRAME,
-    handles: int = 0,
     revision_number: int | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Compute the field dicts for one Cut and its ordered CutItems.
@@ -87,9 +68,9 @@ def compute_editorial_cut(
     into each CutItem dict before the batch create.
 
     See the module docstring for the full frame-range convention. In short:
-    ``edit_*`` is the 0-based, exclusive-out, contiguous timeline position;
-    ``cut_item_*`` is the ``source_start_frame``-anchored, exclusive-out source
-    range widened by ``handles`` on each side.
+    ``edit_*`` is the 1-based, inclusive, contiguous timeline position;
+    ``cut_item_*`` is the ``source_start_frame``-anchored, inclusive source
+    range of the cut itself (handles go on the Shot, not here).
 
     Args:
         entity: Entity link the Cut belongs to, e.g.
@@ -102,8 +83,6 @@ def compute_editorial_cut(
             ``"duration"`` (cut duration in frames, ``int``).
         source_start_frame: First source frame for every shot's
             ``cut_item_in`` (default 1001). Does not cumulate across shots.
-        handles: Handle frames added to EACH side of every shot's source range
-            (default 0).
         revision_number: Optional Cut ``revision_number``; omitted from the
             Cut dict when ``None``.
 
@@ -130,28 +109,77 @@ def compute_editorial_cut(
         cut_fields["revision_number"] = int(revision_number)
 
     cut_item_fields: list[dict[str, Any]] = []
-    edit_in = 0  # 0-based timeline cursor; advances by each shot's duration.
+    edit_in = 1  # 1-based timeline cursor (Autodesk importer convention).
     for cut_order, entry in enumerate(shots, start=1):
         duration = int(entry["duration"])
-        edit_out = edit_in + duration  # exclusive end → contiguous next item
+        edit_out = edit_in + duration - 1  # inclusive end
         cut_item_fields.append(
             {
                 "shot": entry["shot"],
                 "cut_order": cut_order,
-                # Record (timeline) range — cumulative, 0-based, exclusive-out.
+                # Record (timeline) range — cumulative, 1-based, inclusive.
                 "edit_in": edit_in,
                 "edit_out": edit_out,
-                # Source (media) range — per-shot, anchored at
-                # source_start_frame, widened symmetrically by handles.
-                "cut_item_in": source_start_frame - handles,
-                "cut_item_out": source_start_frame + duration + handles,
-                # The EDIT length (excludes handles), by spec.
+                # Source (media) range of the cut — per-shot, inclusive.
+                "cut_item_in": source_start_frame,
+                "cut_item_out": source_start_frame + duration - 1,
                 "cut_item_duration": duration,
             }
         )
-        edit_in = edit_out  # next item starts where this one ended
+        edit_in = edit_out + 1  # next item starts on the following frame
 
     return cut_fields, cut_item_fields
+
+
+def compute_shot_handle_updates(
+    *,
+    shots: list[dict[str, Any]],
+    source_start_frame: int = DEFAULT_SOURCE_START_FRAME,
+    handles: int,
+) -> list[dict[str, Any]]:
+    """Compute the Shot in/out fields that carry the handles.
+
+    PURE function. Mirrors Autodesk's importer
+    (``edl_cut.py::_get_shot_in_out_sg_data``, non-smart fields): the cut
+    range is inclusive and the handles widen it into the head/tail range.
+
+    A shot used more than once in the cut gets ONE update covering its
+    longest use, since every use pulls from the same ``source_start_frame``.
+
+    Args:
+        shots: The same ordered entries passed to :func:`compute_editorial_cut`.
+        source_start_frame: First source frame of the cut (default 1001).
+        handles: Frames added before ``sg_cut_in`` and after ``sg_cut_out``.
+
+    Returns:
+        One dict per distinct shot, in first-appearance order, with ``shot``
+        (the link) and ``data`` (``sg_head_in``, ``sg_cut_in``, ``sg_cut_out``,
+        ``sg_tail_out``, ``sg_cut_duration``, ``sg_working_duration``).
+    """
+    longest: dict[int, tuple[dict[str, Any], int]] = {}
+    for entry in shots:
+        link, duration = entry["shot"], int(entry["duration"])
+        prev = longest.get(link["id"])
+        if prev is None or duration > prev[1]:
+            longest[link["id"]] = (link, duration)
+
+    updates = []
+    for link, duration in longest.values():
+        cut_in = source_start_frame
+        cut_out = source_start_frame + duration - 1
+        head_in, tail_out = cut_in - handles, cut_out + handles
+        updates.append({
+            "shot": link,
+            "data": {
+                "sg_head_in": head_in,
+                "sg_cut_in": cut_in,
+                "sg_cut_out": cut_out,
+                "sg_tail_out": tail_out,
+                "sg_cut_duration": cut_out - cut_in + 1,
+                "sg_working_duration": tail_out - head_in + 1,
+            },
+        })
+    return updates
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +219,10 @@ def build_edl(
     """Build a CMX 3600 EDL from Cut/CutItem-derived event dicts.
 
     PURE function: no ShotGrid I/O. The SG data conventions handled here
-    (see the module docstring): ``edit_in`` is 0-based record position with
-    exclusive out; the SOURCE range is anchored at ``src_in_frame`` and its
+    (see the module docstring): ``rec_in_frame`` is each item's record offset
+    from the cut's first frame (0 for the first item) — the caller derives it
+    as ``edit_in - first edit_in`` so 1-based (Autodesk) and legacy 0-based
+    Cuts both work; the SOURCE range is anchored at ``src_in_frame`` and its
     length is ``duration`` (``cut_item_duration`` is authoritative — stored
     ``cut_item_out`` may be inclusive OR exclusive depending on who created
     the Cut, so it is deliberately not used here). EDL out-points are
@@ -207,7 +237,7 @@ def build_edl(
             ``clip_name``    — source clip display name (published file base),
             ``src_in_frame`` — first source frame (``cut_item_in``),
             ``duration``     — event length in frames (``cut_item_duration``),
-            ``rec_in_frame`` — record position (``edit_in``, 0-based).
+            ``rec_in_frame`` — record offset from the cut's first frame.
 
     Returns:
         The EDL file content as a string (trailing newline included).

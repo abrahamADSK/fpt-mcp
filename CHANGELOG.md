@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — BREAKING (editorial data contract)
+- **`fpt_bulk(action="editorial")` now writes Autodesk's Cut convention.** Read
+  from Autodesk's own importer (`tk-multi-importcut`, `edl_cut.py:1637`,
+  `cut_diff.py:713`): `edit_in` is **1-based** and every range is
+  **inclusive** (`edit_out = edit_in + duration - 1`,
+  `cut_item_out = cut_item_in + duration - 1`). Before, `edit_*` was 0-based
+  and both ends exclusive, so Create, RV and the importer read our Cuts one
+  frame off.
+- **Handles moved from the CutItem to the Shot.** With `handles > 0` the same
+  transaction updates each Shot's `sg_head_in` / `sg_cut_in` / `sg_cut_out` /
+  `sg_tail_out` / `sg_cut_duration` / `sg_working_duration` (Autodesk's
+  non-smart fields); the CutItem keeps only the cut range. `handles == 0`
+  leaves Shots untouched. New pure helper
+  `editorial.compute_shot_handle_updates`; `compute_editorial_cut` lost its
+  `handles` parameter.
+
+### Fixed
+- **`cut_to_edl` shifted Autodesk-imported Cuts one frame**, and with handles
+  it started each event on the handle instead of the cut. Record positions are
+  now read relative to the first item's `edit_in`, so legacy 0-based Cuts
+  (e.g. Cut 897, `Master_v001`) and 1-based Cuts produce the same EDL — no
+  data migration needed.
+
+### Docs
+- `SG_API.md`: the three "Unverified" corpus entries are resolved —
+  `downstream_tasks` (verified inverse of `upstream_tasks`) and
+  `dependency_violation` (read-only checkbox) against this site's schema and
+  live data; the CutItem section now documents Autodesk's inclusive convention
+  and the Shot-side handles.
+
 ## [1.31.0] — 2026-10-02
 
 ### Changed

@@ -31,7 +31,7 @@ import json
 import re
 from typing import Any
 
-from fpt_mcp.editorial import compute_editorial_cut
+from fpt_mcp.editorial import compute_editorial_cut, compute_shot_handle_updates
 from fpt_mcp.models import (
     CutToEdlInput,
     OpenclipCreateInput,
@@ -661,6 +661,10 @@ async def _do_sg_editorial(params: dict) -> str:
          each linked to the freshly created Cut. The Cut id is unknown until
          step 3, so this cannot be folded into a single batch — standard
          ShotGrid batch has no intra-batch entity references.
+      5. With ``handles > 0``, the same batch also updates each Shot's
+         ``sg_head_in`` / ``sg_cut_in`` / ``sg_cut_out`` / ``sg_tail_out`` —
+         where Autodesk's importer keeps handles (never on the CutItem).
+         ``handles == 0`` leaves the Shots untouched.
     """
     from pydantic import ValidationError
     from fpt_mcp.server import (
@@ -679,8 +683,15 @@ async def _do_sg_editorial(params: dict) -> str:
         fps=spec.fps,
         shots=[s.model_dump() for s in validated.shots],
         source_start_frame=spec.source_start_frame,
-        handles=spec.handles,
         revision_number=spec.revision_number,
+    )
+    shot_updates = (
+        compute_shot_handle_updates(
+            shots=[s.model_dump() for s in validated.shots],
+            source_start_frame=spec.source_start_frame,
+            handles=spec.handles,
+        )
+        if spec.handles > 0 else []
     )
 
     # Project auto-link for the Cut (mirror sg_create_impl semantics).
@@ -718,7 +729,15 @@ async def _do_sg_editorial(params: dict) -> str:
             {"request_type": "create", "entity_type": "CutItem", "data": data}
         )
 
-    cut_items = await sg_batch(requests)
+    # 3. Handles on the Shots, in the same all-or-nothing transaction.
+    for upd in shot_updates:
+        requests.append({
+            "request_type": "update", "entity_type": "Shot",
+            "entity_id": upd["shot"]["id"], "data": upd["data"],
+        })
+
+    results = await sg_batch(requests)
+    cut_items = results[:len(cut_item_fields)]
 
     return json.dumps(
         {
@@ -726,6 +745,7 @@ async def _do_sg_editorial(params: dict) -> str:
             "cut_items": cut_items,
             "cut_item_count": len(cut_items),
             "sg_cut_duration": cut_fields["sg_cut_duration"],
+            "shots_updated_with_handles": len(shot_updates),
         },
         default=str,
     )
@@ -764,6 +784,9 @@ async def cut_to_edl_impl(params: CutToEdlInput) -> str:
     if not items:
         return json.dumps({"error": f"Cut {params.cut_id} has no CutItems"})
 
+    # Record offsets relative to the first item: Autodesk's importer (and this
+    # server since Chat 109) writes 1-based edit_in, older Cuts were 0-based.
+    first_edit_in = min(int(it.get("edit_in") or 0) for it in items)
     events = []
     for it in items:
         shot = it.get("shot") or {}
@@ -786,7 +809,7 @@ async def cut_to_edl_impl(params: CutToEdlInput) -> str:
             "clip_name": clip_name,
             "src_in_frame": int(it.get("cut_item_in") or 0),
             "duration": int(it.get("cut_item_duration") or 0),
-            "rec_in_frame": int(it.get("edit_in") or 0),
+            "rec_in_frame": int(it.get("edit_in") or 0) - first_edit_in,
         })
 
     edl = build_edl(cut.get("code") or f"Cut {params.cut_id}", fps, base_tc, events)

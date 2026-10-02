@@ -18,10 +18,12 @@ tests/test_sg_operations.py (mock-ShotGrid creation layer):
      sg_create, CutItems via one sg_batch transaction, project auto-link,
      Cut link injection. ShotGrid is mocked (conftest patch_sg_client).
 
-Frame-range convention under test (see editorial.py docstring):
-  - edit_in/edit_out: 0-based, exclusive-out, contiguous/cumulative.
-  - cut_item_in/cut_item_out: source_start_frame-anchored, exclusive-out,
-    widened by `handles` on each side; cut_item_duration == edit duration.
+Frame-range convention under test (see editorial.py docstring) — Autodesk's,
+read from tk-multi-importcut (Chat 109):
+  - edit_in/edit_out: 1-based, inclusive, contiguous/cumulative.
+  - cut_item_in/cut_item_out: source_start_frame-anchored, inclusive;
+    cut_item_duration == out - in + 1. Handles never touch the CutItem — they
+    go on the Shot (compute_shot_handle_updates).
 """
 
 import asyncio
@@ -30,7 +32,11 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from fpt_mcp.editorial import DEFAULT_SOURCE_START_FRAME, compute_editorial_cut
+from fpt_mcp.editorial import (
+    DEFAULT_SOURCE_START_FRAME,
+    compute_editorial_cut,
+    compute_shot_handle_updates,
+)
 from fpt_mcp.models import EditorialCutSpec, EditorialShot, SgEditorialInput
 from fpt_mcp.shotgrid import _do_sg_editorial
 
@@ -81,10 +87,10 @@ class TestPureMathSingleShot:
         assert len(items) == 1
         item = items[0]
         assert item["cut_order"] == 1
-        assert item["edit_in"] == 0          # 0-based timeline start
-        assert item["edit_out"] == 100       # exclusive-out: in + duration
+        assert item["edit_in"] == 1          # 1-based timeline start
+        assert item["edit_out"] == 100       # inclusive: in + duration - 1
         assert item["cut_item_in"] == 1001   # default source_start_frame
-        assert item["cut_item_out"] == 1101  # exclusive-out: 1001 + 100
+        assert item["cut_item_out"] == 1100  # inclusive: 1001 + 100 - 1
         assert item["cut_item_duration"] == 100
         assert item["shot"] == {"type": "Shot", "id": 1}
         # The cut link is injected by the creation layer, not the pure math.
@@ -106,29 +112,32 @@ class TestPureMathMultiShotCumulation:
 
         assert cut["sg_cut_duration"] == 225  # sum of all durations
 
-        # Exact cumulative timeline: [0,100) [100,150) [150,225)
-        expected_edit = [(0, 100), (100, 150), (150, 225)]
+        # Exact cumulative timeline, 1-based inclusive: [1,100] [101,150] [151,225]
+        expected_edit = [(1, 100), (101, 150), (151, 225)]
         assert [(it["edit_in"], it["edit_out"]) for it in items] == expected_edit
 
         # cut_order is 1-based and matches list order
         assert [it["cut_order"] for it in items] == [1, 2, 3]
 
         # Each item's source range restarts at source_start_frame (1001),
-        # exclusive-out = 1001 + duration; it does NOT cumulate.
+        # inclusive out = 1001 + duration - 1; it does NOT cumulate.
         assert [(it["cut_item_in"], it["cut_item_out"]) for it in items] == [
-            (1001, 1101), (1001, 1051), (1001, 1076),
+            (1001, 1100), (1001, 1050), (1001, 1075),
         ]
         assert [it["cut_item_duration"] for it in items] == durations
 
-    def test_edit_out_equals_next_edit_in(self):
-        """The cumulation is gap-free: edit_out(k) == edit_in(k+1)."""
+    def test_next_edit_in_follows_edit_out(self):
+        """The cumulation is gap-free: edit_in(k+1) == edit_out(k) + 1."""
         shots = [_shot(1, 12), _shot(2, 33), _shot(3, 7), _shot(4, 200)]
         _, items = compute_editorial_cut(entity=SEQ, code="c", fps=24.0, shots=shots)
         for prev, nxt in zip(items, items[1:]):
-            assert prev["edit_out"] == nxt["edit_in"]
-        # First starts at 0, last ends at the total duration.
-        assert items[0]["edit_in"] == 0
+            assert nxt["edit_in"] == prev["edit_out"] + 1
+        # First starts at frame 1, last ends on the total duration (inclusive).
+        assert items[0]["edit_in"] == 1
         assert items[-1]["edit_out"] == sum(s["duration"] for s in shots)
+        for it, sh in zip(items, shots):
+            assert it["edit_out"] - it["edit_in"] + 1 == sh["duration"]
+            assert it["cut_item_out"] - it["cut_item_in"] + 1 == it["cut_item_duration"]
 
     def test_shot_links_preserved_in_order(self):
         shots = [_shot(10, 5), _shot(20, 5), _shot(30, 5)]
@@ -155,29 +164,42 @@ class TestPureMathFpsFloat:
 
 
 class TestPureMathHandles:
+    """Handles live on the Shot (Autodesk importer), never on the CutItem."""
 
-    def test_handles_widen_source_range_symmetrically(self):
-        """Handles extend cut_item_in/out by `handles` on each side; duration unchanged."""
-        cut, items = compute_editorial_cut(
-            entity=SEQ, code="c", fps=24.0, shots=[_shot(1, 100)], handles=8,
-        )
-        item = items[0]
-        assert item["cut_item_in"] == 1001 - 8     # 993
-        assert item["cut_item_out"] == 1001 + 100 + 8  # 1109
-        # cut_item_duration tracks the EDIT length, NOT the pulled source span.
-        assert item["cut_item_duration"] == 100
-        assert item["cut_item_out"] - item["cut_item_in"] == 100 + 2 * 8
+    def test_handles_not_accepted_by_cut_math(self):
+        """compute_editorial_cut has no handles parameter any more."""
+        with pytest.raises(TypeError):
+            compute_editorial_cut(
+                entity=SEQ, code="c", fps=24.0, shots=[_shot(1, 100)], handles=8,
+            )
 
-    def test_handles_do_not_affect_edit_ranges(self):
-        """Timeline (edit) ranges are independent of handles."""
-        shots = [_shot(1, 100), _shot(2, 50)]
-        _, no_handles = compute_editorial_cut(entity=SEQ, code="c", fps=24.0, shots=shots)
-        _, with_handles = compute_editorial_cut(
-            entity=SEQ, code="c", fps=24.0, shots=shots, handles=12,
+    def test_shot_update_fields(self):
+        """Inclusive cut range widened by handles into head/tail."""
+        (upd,) = compute_shot_handle_updates(shots=[_shot(1, 100)], handles=8)
+        assert upd["shot"] == {"type": "Shot", "id": 1}
+        assert upd["data"] == {
+            "sg_head_in": 993,           # 1001 - 8
+            "sg_cut_in": 1001,
+            "sg_cut_out": 1100,          # inclusive
+            "sg_tail_out": 1108,         # 1100 + 8
+            "sg_cut_duration": 100,
+            "sg_working_duration": 116,  # 100 + 2*8
+        }
+
+    def test_shot_update_custom_start(self):
+        (upd,) = compute_shot_handle_updates(
+            shots=[_shot(1, 48)], source_start_frame=900, handles=10,
         )
-        edits_a = [(it["edit_in"], it["edit_out"]) for it in no_handles]
-        edits_b = [(it["edit_in"], it["edit_out"]) for it in with_handles]
-        assert edits_a == edits_b == [(0, 100), (100, 150)]
+        d = upd["data"]
+        assert (d["sg_head_in"], d["sg_cut_in"], d["sg_cut_out"], d["sg_tail_out"]) == (
+            890, 900, 947, 957,
+        )
+
+    def test_repeated_shot_gets_one_update_with_longest_use(self):
+        shots = [_shot(1, 40), _shot(2, 10), _shot(1, 60)]
+        updates = compute_shot_handle_updates(shots=shots, handles=5)
+        assert [u["shot"]["id"] for u in updates] == [1, 2]
+        assert updates[0]["data"]["sg_cut_out"] == 1001 + 60 - 1
 
 
 class TestPureMathSourceStartFrame:
@@ -189,18 +211,7 @@ class TestPureMathSourceStartFrame:
         )
         item = items[0]
         assert item["cut_item_in"] == 0
-        assert item["cut_item_out"] == 100  # 0 + duration
-
-    def test_source_start_frame_with_handles(self):
-        cut, items = compute_editorial_cut(
-            entity=SEQ, code="c", fps=24.0, shots=[_shot(1, 48)],
-            source_start_frame=900, handles=10,
-        )
-        item = items[0]
-        assert item["cut_item_in"] == 890       # 900 - 10
-        assert item["cut_item_out"] == 958       # 900 + 48 + 10
-        assert item["cut_item_duration"] == 48
-
+        assert item["cut_item_out"] == 99  # inclusive: 0 + duration - 1
 
 class TestPureMathRevisionNumber:
 
@@ -359,10 +370,10 @@ class TestEditorialCreationLayer:
         requests = mock_sg.batch.call_args[0][0]
         data = [r["data"] for r in requests]
 
-        assert [(d["edit_in"], d["edit_out"]) for d in data] == [(0, 100), (100, 150)]
+        assert [(d["edit_in"], d["edit_out"]) for d in data] == [(1, 100), (101, 150)]
         assert [d["cut_order"] for d in data] == [1, 2]
         assert [(d["cut_item_in"], d["cut_item_out"]) for d in data] == [
-            (1001, 1101), (1001, 1051),
+            (1001, 1100), (1001, 1050),
         ]
         assert [d["cut_item_duration"] for d in data] == [100, 50]
 
@@ -377,17 +388,34 @@ class TestEditorialCreationLayer:
         for req in mock_sg.batch.call_args[0][0]:
             assert req["data"]["project"] == {"type": "Project", "id": 123}
 
-    def test_handles_and_source_start_frame_flow_through(self, patch_sg_client):
+    def test_handles_go_to_shots_in_same_batch(self, patch_sg_client):
+        """handles > 0 → Shot updates appended to the CutItem transaction."""
         mock_sg = patch_sg_client
         params = _editorial_params(
             cut={"source_start_frame": 900, "handles": 5},
             shots=[_shot(101, 40)],
         )
-        run_async(_do_sg_editorial(params))
-        data = mock_sg.batch.call_args[0][0][0]["data"]
-        assert data["cut_item_in"] == 895   # 900 - 5
-        assert data["cut_item_out"] == 945   # 900 + 40 + 5
-        assert data["cut_item_duration"] == 40
+        result = parse_result(run_async(_do_sg_editorial(params)))
+        mock_sg.batch.assert_called_once()
+        requests = mock_sg.batch.call_args[0][0]
+        item, shot_upd = requests
+        assert item["entity_type"] == "CutItem"
+        assert (item["data"]["cut_item_in"], item["data"]["cut_item_out"]) == (900, 939)
+        assert item["data"]["cut_item_duration"] == 40
+        assert shot_upd["request_type"] == "update"
+        assert shot_upd["entity_type"] == "Shot"
+        assert shot_upd["entity_id"] == 101
+        assert shot_upd["data"]["sg_head_in"] == 895
+        assert shot_upd["data"]["sg_tail_out"] == 944
+        assert result["cut_item_count"] == 1
+        assert result["shots_updated_with_handles"] == 1
+
+    def test_zero_handles_leave_shots_untouched(self, patch_sg_client):
+        mock_sg = patch_sg_client
+        result = parse_result(run_async(_do_sg_editorial(_editorial_params())))
+        requests = mock_sg.batch.call_args[0][0]
+        assert all(r["entity_type"] == "CutItem" for r in requests)
+        assert result["shots_updated_with_handles"] == 0
 
     def test_revision_number_propagated(self, patch_sg_client):
         mock_sg = patch_sg_client
@@ -409,3 +437,45 @@ class TestEditorialCreationLayer:
         params = _editorial_params(cut={"fps": 24})
         run_async(_do_sg_editorial(params))
         assert isinstance(mock_sg.create.call_args[0][1]["fps"], float)
+
+
+# ===========================================================================
+# 4. cut_to_edl READER — record offsets relative to the first item
+# ===========================================================================
+
+def _cut_find(edit_ins):
+    """sg.find side_effect: one Cut, CutItems with the given edit_in values."""
+    def find(entity_type, filters, fields=None, **kwargs):
+        if entity_type == "Cut":
+            return [{"type": "Cut", "id": 897, "code": "Master v1", "fps": 25.0,
+                     "timecode_start_text": "01:00:00:00", "revision_number": 1}]
+        if entity_type == "CutItem":
+            return [
+                {"type": "CutItem", "id": 1200 + i, "code": f"CUT{i:04d}",
+                 "shot": {"type": "Shot", "id": 10 + i, "name": f"SH{i:03d}"},
+                 "cut_order": i + 1, "cut_item_in": 1001,
+                 "cut_item_duration": 100, "edit_in": e}
+                for i, e in enumerate(edit_ins)
+            ]
+        return []
+    return find
+
+
+class TestCutToEdlRecordOffsets:
+    """Legacy 0-based Cuts and Autodesk 1-based Cuts give the SAME EDL."""
+
+    def _edl(self, patch_sg_client, tmp_path, edit_ins):
+        from fpt_mcp.models import CutToEdlInput
+        from fpt_mcp.shotgrid import cut_to_edl_impl
+
+        patch_sg_client.find.side_effect = _cut_find(edit_ins)
+        out = tmp_path / f"cut_{edit_ins[0]}.edl"
+        run_async(cut_to_edl_impl(CutToEdlInput(cut_id=897, output_path=str(out))))
+        return out.read_text()
+
+    def test_zero_and_one_based_cuts_match(self, patch_sg_client, tmp_path):
+        legacy = self._edl(patch_sg_client, tmp_path, [0, 100, 200])      # Cut 897
+        autodesk = self._edl(patch_sg_client, tmp_path, [1, 101, 201])    # importer
+        assert legacy == autodesk
+        # First event starts exactly on the Cut's base timecode.
+        assert "01:00:00:00 01:00:04:00" in autodesk

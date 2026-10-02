@@ -570,7 +570,8 @@ from fpt_mcp.reporting import (  # noqa: E402,F401
 async def cut_to_edl_tool(params: CutToEdlInput) -> str:
     """Generate a CMX 3600 EDL from a ShotGrid Cut + CutItems (drives Flame's
     native Conform). Source ranges = cut_item_in + cut_item_duration; record
-    positions = edit_in over the Cut's base timecode; FROM CLIP NAME = latest
+    positions = edit_in (relative to the first item) over the Cut's base
+    timecode; FROM CLIP NAME = latest
     per-shot publish of clip_publish_type."""
     from fpt_mcp.shotgrid import cut_to_edl_impl
     _track_call()
@@ -684,7 +685,7 @@ async def fpt_bulk(params: BulkDispatchInput) -> str:
     • delete — Retire (soft-delete) an entity. Can be restored from trash. Required params: {"entity_type": "Shot", "entity_id": 123}
     • revive — Restore a previously retired entity. Required params: {"entity_type": "Shot", "entity_id": 123}
     • batch — Execute multiple operations in a single transactional call (ALL succeed or ALL fail). Required params: {"requests": "[{\"request_type\": \"create\", \"entity_type\": \"Shot\", \"data\": {\"code\": \"SH010\", \"project\": {\"type\": \"Project\", \"id\": 123}}}]"}
-    • editorial — Deterministically create a Cut + one CutItem per shot (cumulative edit ranges, source ranges, handles computed in Python — no hand math). Required params: {"cut": {"entity": {"type": "Sequence", "id": 42}, "code": "SEQ01_v3", "fps": 24.0}, "shots": [{"shot": {"type": "Shot", "id": 1}, "duration": 100}]}. Optional cut keys: source_start_frame (default 1001), handles (default 0), revision_number.
+    • editorial — Deterministically create a Cut + one CutItem per shot (Autodesk's convention: 1-based inclusive edit ranges, inclusive source ranges, computed in Python — no hand math; handles > 0 are written to each Shot's sg_head_in/sg_tail_out in the same transaction, never to the CutItem). Required params: {"cut": {"entity": {"type": "Sequence", "id": 42}, "code": "SEQ01_v3", "fps": 24.0}, "shots": [{"shot": {"type": "Shot", "id": 1}, "duration": 100}]}. Optional cut keys: source_start_frame (default 1001), handles (default 0), revision_number.
     • link_task — Link a native tk-flame delivery to its Task (tk-flame leaves the Version and its render/.batch/quicktime publishes Task-less). Required params: {"version_id": 456, "step": "CMP"} (Step code or short_name). Links the Version plus its publishes and the entity's Task-less publishes with the same version number, in one transaction. Exactly one Task must match the step, and nothing is written if any record already sits on a different Task. Idempotent.
     """
     from fpt_mcp.suggestions import maybe_annotate_with_suggestions

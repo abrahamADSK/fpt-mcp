@@ -34,7 +34,7 @@ Claude Desktop / Claude Code / Terminal
 - `fpt_bulk(action="delete")` — soft-delete (retire) entities
 - `fpt_bulk(action="revive")` — restore soft-deleted (retired) entities
 - `fpt_bulk(action="batch")` — transactional batch operations (all-or-nothing)
-- `fpt_bulk(action="editorial")` — deterministic Cut + CutItem auto-calc: pure timecode math (`editorial.py::compute_editorial_cut`) computes cumulative `edit_in`/`edit_out`, `cut_item_in`/`cut_item_out` (source range), handles and `sg_cut_duration`, then a thin creation layer (`shotgrid.py::_do_sg_editorial`) creates the Cut via `sg_create` and the CutItems via one `sg_batch` transaction
+- `fpt_bulk(action="editorial")` — deterministic Cut + CutItem auto-calc: pure timecode math (`editorial.py::compute_editorial_cut`) computes cumulative `edit_in`/`edit_out` and `cut_item_in`/`cut_item_out` (source range) in Autodesk's importer convention (1-based, inclusive) plus `sg_cut_duration`; `compute_shot_handle_updates` puts handles on the Shot (`sg_head_in`/`sg_tail_out`), never on the CutItem. A thin creation layer (`shotgrid.py::_do_sg_editorial`) creates the Cut via `sg_create` and the CutItems (+ Shot handle updates when `handles > 0`) via one `sg_batch` transaction
 - `fpt_bulk(action="link_task")` — link a native tk-flame delivery (`version_id` + `step`) to its Task: the Version, its publishes and the Shot's Task-less publishes with the same version number, in one `sg_batch`. tk-flame leaves them Task-less because tk-core only yields a Task from a Task-typed schema folder (Chat 108). Exactly one Task must match; any record on a different Task aborts the write; idempotent
 
 **Reporting dispatcher** (`fpt_reporting` — 1 tool, 4 actions):
@@ -48,7 +48,7 @@ Claude Desktop / Claude Code / Terminal
 - `tk_publish` — publish file: resolve path, copy file, find/create PublishedFileType, link Task, register PublishedFile in ShotGrid
 
 **Flame conform tools** (2 direct tools, Chat 91):
-- `cut_to_edl` — CMX 3600 EDL from a ShotGrid Cut + CutItems (source ranges from cut_item_in/duration, record positions from edit_in over the Cut base timecode, FROM CLIP NAME from the latest per-shot publish)
+- `cut_to_edl` — CMX 3600 EDL from a ShotGrid Cut + CutItems (source ranges from cut_item_in/duration, record positions from edit_in relative to the first item — reads 1-based and legacy 0-based Cuts — over the Cut base timecode, FROM CLIP NAME from the latest per-shot publish)
 - `openclip_create` — versioned Flame Open Clip (.clip) from a shot's published render sequences (one feed per publish version, frame ranges read from disk; regenerate after each new version). Generation runs Autodesk's canonical `dl_get_media_info` per version dir + merges via `openclip.splice_openclips` — Flame 2027 silently rejects hand-rolled minimal XML (in-vivo Chat 92); requires a Flame/mio install on the host (`FPT_DL_GET_MEDIA_INFO` overrides discovery). **Task/Step selection contract (Chat 93, zero silent defaults)**: optional `task_id` / `step` selectors (step matches Step `code` OR `short_name`); with neither the tool returns `choice_required` with the shot's candidate Tasks (publish counts + `Task.upstream_tasks` dependency suggestion) for the caller to confirm — it never guesses which pipeline step feeds the conform, because LGT and comp renders share the "Rendered Image" type by design (cross-DCC loader interop). Discovery mode needs no mio install; zero-match selectors error listing the real candidates
 
 **Launcher** (1 direct tool):
