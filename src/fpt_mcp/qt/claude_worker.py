@@ -50,11 +50,11 @@ TIMEOUT_SECONDS = 900
 # Each entry: (display_label, model_id, backend)
 AVAILABLE_MODELS = [
     # ── Anthropic cloud (default — needs internet + API key) ─────────
-    # Default = Opus 4.8 (index 0). Fable kept as an option — make it the
-    # default again when it is available.
-    ("Claude Opus 4.8",       "claude-opus-4-8",           "anthropic"),
-    ("Claude Fable 5",        "claude-fable-5",            "anthropic"),
-    ("Claude Sonnet 4.6",     "claude-sonnet-4-6",         "anthropic"),
+    # Default = Opus 5.5 (index 0). Fable 5.1 kept as an option: on a
+    # Max/Pro plan it needs usage credits (the CLI refuses it otherwise).
+    ("Claude Opus 5.5",       "claude-opus-5-5",           "anthropic"),
+    ("Claude Fable 5.1",      "claude-fable-5-1",          "anthropic"),
+    ("Claude Sonnet 5.5",     "claude-sonnet-5-5",         "anthropic"),
     # ── Self-hosted Ollama (glorfindel RTX 3090, LAN) ────────────────
     ("Qwen3.5 9B 🖥",         "qwen3.5-mcp",               "ollama"),
     ("GLM-4.7 Flash 🖥",      "glm-4.7-flash",             "ollama"),
