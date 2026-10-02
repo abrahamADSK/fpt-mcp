@@ -353,6 +353,9 @@ results = sg.find("Asset", filters)
 
 # Find Tasks with no assignees
 [["task_assignees", "is", None]]
+
+# Find PublishedFiles with no Task (entity-link null check)
+[["task", "is", None]]
 ```
 
 ### Example: Find Assets by Type and Status

@@ -163,6 +163,20 @@ class TestEntityLinkValidation:
         with pytest.raises(ValueError, match="entity link"):
             _validate_filter_triples([["project", "is_not", 123]])
 
+    @pytest.mark.parametrize("op", ["is", "is_not"])
+    @pytest.mark.parametrize("field", [
+        "entity", "project", "task", "user", "version", "step",
+    ])
+    def test_none_null_check_accepted(self, field, op):
+        """None is the ShotGrid null check and is valid on entity links."""
+        result = _validate_filter_triples([[field, op, None]])
+        assert result[0][2] is None
+
+    def test_none_still_rejected_for_in(self):
+        """'in' needs a list of entity dicts; None is not a null check there."""
+        with pytest.raises(ValueError, match="entity dicts"):
+            _validate_filter_triples([["task", "in", None]])
+
     def test_is_not_with_proper_dict_passes(self):
         """is_not with a proper entity dict should succeed."""
         result = _validate_filter_triples([
